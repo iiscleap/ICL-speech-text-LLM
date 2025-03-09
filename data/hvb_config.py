@@ -1,4 +1,4 @@
-from .base_config import DatasetType, DatasetSplit, DatasetConfig, SwapConfig
+from .base_config import DatasetType, DatasetSplit, DatasetConfig
 import random
 
 HVB_CONFIG = DatasetConfig(
@@ -80,8 +80,8 @@ Available dialogue actions:
         "plugh", "xyzzy", "thud", "wibble", "wobble",
         "wubble", "flob", "zoop"
     ],
-    completion_key="dialog_acts",
-    text_key="text",
+    completion_key=HVB_CONFIG.completion_key,
+    text_key=HVB_CONFIG.text_key,
     audio_lookup_paths=HVB_CONFIG.audio_lookup_paths,
     label_mapping={
         "acknowledge": "foo",
@@ -137,7 +137,7 @@ HVB_SWAP_CONFIGS = []
 for perm in HVB_PERMUTATIONS:
     mapping = {orig: swapped for orig, swapped in zip(HVB_CONFIG.valid_labels, perm)}
     descriptions = {label: desc for label, desc in zip(HVB_CONFIG.valid_labels, HVB_DESCRIPTIONS)}
-    HVB_SWAP_CONFIGS.append(SwapConfig(
+    HVB_SWAP_CONFIGS.append(DatasetConfig(
         prompt_template=f"""You are a dialogue analysis expert for banking conversations. Based on the statement below, identify all applicable dialogue actions from the following options:
 
 Available dialogue actions:
@@ -148,7 +148,13 @@ Guidelines:
 - List all applicable actions separated by commas
 - Consider the banking context when analyzing
 - Be precise in identifying the dialogue actions""",
-        label_mapping=mapping
+        label_mapping=mapping,
+        valid_labels=perm,
+        name=DatasetType.HVB_SWAP,
+        paths=HVB_CONFIG.paths,
+        audio_lookup_paths=HVB_CONFIG.audio_lookup_paths,
+        text_key=HVB_CONFIG.text_key,
+        completion_key=HVB_CONFIG.completion_key
     ))
 
 def get_hvb_swap_config():

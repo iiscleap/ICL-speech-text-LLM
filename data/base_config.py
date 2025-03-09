@@ -24,7 +24,7 @@ class DatasetSplit(Enum):
 
 @dataclass
 class DatasetConfig:
-    name: DatasetType  # Keep as DatasetType
+    name: DatasetType
     paths: Dict[DatasetSplit, str]
     prompt_template: str
     valid_labels: List[str]
@@ -41,8 +41,3 @@ class DatasetConfig:
             return self.audio_lookup_paths.get(split)
         return None
 
-@dataclass
-class SwapConfig:
-    """Configuration for label swapping"""
-    prompt_template: str
-    label_mapping: Dict[str, str]  # Original label -> Swapped label 

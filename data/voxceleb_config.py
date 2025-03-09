@@ -1,4 +1,4 @@
-from .base_config import DatasetType, DatasetSplit, DatasetConfig, SwapConfig
+from .base_config import DatasetType, DatasetSplit, DatasetConfig
 import random
 
 VOXCELEB_CONFIG = DatasetConfig(
@@ -32,10 +32,10 @@ Guidelines:
 - Choose beta if there is ANY hint of: criticism, pessimism, sadness, failure, frustration, anger, disappointment, or concern
 - Choose gamma ONLY IF the statement is purely factual with zero emotional content""",
     valid_labels=["alpha", "beta", "gamma"],
-    completion_key="sentiment",
-    text_key="normalized_text",
+    label_mapping={"positive": "alpha", "negative": "beta", "neutral": "gamma"},
     audio_lookup_paths=VOXCELEB_CONFIG.audio_lookup_paths,
-    label_mapping={"positive": "alpha", "negative": "beta", "neutral": "gamma"}
+    text_key=VOXCELEB_CONFIG.text_key,
+    completion_key=VOXCELEB_CONFIG.completion_key
 )
 
 VOXCELEB_PERMUTATIONS = [
@@ -50,7 +50,7 @@ VOXCELEB_PERMUTATIONS = [
 VOXCELEB_SWAP_CONFIGS = []
 for perm in VOXCELEB_PERMUTATIONS:
     mapping = {orig: swapped for orig, swapped in zip(VOXCELEB_CONFIG.valid_labels, perm)}
-    VOXCELEB_SWAP_CONFIGS.append(SwapConfig(
+    VOXCELEB_SWAP_CONFIGS.append(DatasetConfig(
         prompt_template=f"""You are a sentiment analysis expert. Based on the statement below, respond with EXACTLY ONE WORD from these options: {perm[0]}, {perm[1]}, or {perm[2]}.
 
 Guidelines:
@@ -59,7 +59,7 @@ Guidelines:
 - Choose {perm[2]} ONLY IF the statement is purely factual with zero emotional content""",
         label_mapping=mapping,
         paths=VOXCELEB_CONFIG.paths,
-        audio_lookup_path=VOXCELEB_CONFIG.audio_lookup_paths,
+        audio_lookup_paths=VOXCELEB_CONFIG.audio_lookup_paths,
         text_key=VOXCELEB_CONFIG.text_key,
         completion_key=VOXCELEB_CONFIG.completion_key,
         valid_labels=perm,

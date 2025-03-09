@@ -413,6 +413,21 @@ def main():
             for step, batch in enumerate(train_iter):
                 step_start = time.time()
                 
+                # Add debug logging for first epoch and first 5 iterations
+                if epoch == 0 and step < 5 and is_main_process:
+                    logger.info(f"\n=== Epoch {epoch+1}, Batch {step+1} Prompt ===")
+                    if "prompt" in batch:
+                        logger.info(batch["prompt"][0])
+                    elif "input_ids" in batch and hasattr(model, "processor") and hasattr(model.processor, "tokenizer"):
+                        try:
+                            decoded_prompt = model.processor.tokenizer.decode(batch["input_ids"][0], skip_special_tokens=False)
+                            logger.info(decoded_prompt)
+                        except Exception as e:
+                            logger.warning(f"Could not decode input_ids: {e}")
+                    else:
+                        logger.info("Prompt not available in batch")
+                    logger.info("=" * 50)
+                
                 # Clear memory every 50 steps
                 if step > 0 and step % 50 == 0:
                     if is_main_process:

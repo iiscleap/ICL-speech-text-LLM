@@ -1,4 +1,4 @@
-from .base_config import DatasetType, DatasetSplit, DatasetConfig, SwapConfig
+from .base_config import DatasetType, DatasetSplit, DatasetConfig
 import random
 
 VOXPOPULI_CONFIG = DatasetConfig(
@@ -74,7 +74,7 @@ VOXPOPULI_PERMUTATIONS = [
 VOXPOPULI_SWAP_CONFIGS = []
 for perm in VOXPOPULI_PERMUTATIONS:
     mapping = {orig: swapped for orig, swapped in zip(VOXPOPULI_CONFIG.valid_labels, perm)}
-    VOXPOPULI_SWAP_CONFIGS.append(SwapConfig(
+    VOXPOPULI_SWAP_CONFIGS.append(DatasetConfig(
         prompt_template=f"""You are an Entity Type Classification system. For the given input, identify which of the following entity types are present:
 
 {chr(10).join(f'- {label}: {desc}' for label, desc in zip(perm, [
@@ -91,7 +91,13 @@ Guidelines:
 1. Return ONLY the entity type if present (e.g., '{perm[4]}', '{perm[3]}')
 2. Return 'None' if no entity types are found
 3. Be precise in identifying entity types""",
-        label_mapping=mapping
+        label_mapping=mapping,
+        paths=VOXPOPULI_CONFIG.paths,
+        audio_lookup_paths=VOXPOPULI_CONFIG.audio_lookup_paths,
+        text_key=VOXPOPULI_CONFIG.text_key,
+        completion_key=VOXPOPULI_CONFIG.completion_key,
+        valid_labels=perm,
+        name=DatasetType.VOXPOPULI_SWAP
     ))
 
 def get_voxpopuli_swap_config():

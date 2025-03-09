@@ -1,6 +1,6 @@
 from typing import Dict, List, Tuple
 import logging
-from .base_config import DatasetType, DatasetConfig, DatasetSplit, SwapConfig
+from .base_config import DatasetType, DatasetConfig, DatasetSplit
 from .voxceleb_config import (
     VOXCELEB_CONFIG, 
     VOXCELEB_GREEK_CONFIG, 
@@ -32,17 +32,14 @@ def get_dataset_config(dataset_type: DatasetType) -> DatasetConfig:
     """Get the configuration for a specific dataset type."""
     return DATASET_CONFIGS.get(dataset_type)
 
-def get_swap_config(dataset_type: DatasetType) -> Tuple[str, Dict[str, str]]:
+def get_swap_config(dataset_type: DatasetType) -> DatasetConfig:
     """Get a random swap configuration for a dataset type"""
     if dataset_type == DatasetType.VOXCELEB_SWAP:
-        config = get_voxceleb_swap_config()
-        return config.prompt_template, config.label_mapping
+        return get_voxceleb_swap_config()
     elif dataset_type == DatasetType.HVB_SWAP:
-        config = get_hvb_swap_config()
-        return config.prompt_template, config.label_mapping
+        return get_hvb_swap_config()
     elif dataset_type == DatasetType.VOXPOPULI_SWAP:
-        config = get_voxpopuli_swap_config()
-        return config.prompt_template, config.label_mapping
+        return get_voxpopuli_swap_config()
     else:
         raise ValueError(f"No swap configuration available for dataset type: {dataset_type}")
 

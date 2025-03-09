@@ -9,7 +9,7 @@ from typing import Dict, List, Any, Optional, Union, Tuple
 from collections import Counter
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
-from data.master_config import DatasetType, get_dataset_config
+from data.master_config import get_dataset_config, get_swap_config, DatasetType
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,16 @@ def evaluate_predictions(predictions: List[Dict[str, Any]], dataset_type: Datase
         return {"error": "Empty predictions list", "accuracy": 0.0}
     
     try:
+        # Get the appropriate config based on dataset type
+        if dataset_type in [DatasetType.VOXCELEB_SWAP, DatasetType.HVB_SWAP, DatasetType.VOXPOPULI_SWAP]:
+            config = get_swap_config(dataset_type)
+        else:
+            config = get_dataset_config(dataset_type)
+        
+        if not config:
+            logger.warning(f"No config found for dataset type: {dataset_type}")
+            return {"error": "Invalid dataset type"}
+        
         # Extract and clean labels
         true_labels = [p.get("true_label", "") for p in predictions]
         # Clean the predicted labels
@@ -50,12 +60,7 @@ def evaluate_predictions(predictions: List[Dict[str, Any]], dataset_type: Datase
         })
         
         # Get valid labels for this dataset type
-        dataset_config = get_dataset_config(dataset_type)
-        if not dataset_config:
-            logger.warning(f"No config found for dataset type: {dataset_type}")
-            return {"error": "Invalid dataset type"}
-        
-        valid_labels = [label.lower() for label in dataset_config.valid_labels]
+        valid_labels = [label.lower() for label in config.valid_labels]
         
         # Calculate metrics based on dataset type
         if dataset_type in [DatasetType.VOXCELEB, DatasetType.VOXCELEB_SWAP, DatasetType.VOXCELEB_GREEK]:

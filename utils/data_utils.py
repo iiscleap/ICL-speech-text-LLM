@@ -48,7 +48,16 @@ def load_dataset(dataset_type: DatasetType, split: str = "train", use_cache: boo
     try:
         # Get dataset config
         from data.master_config import get_dataset_config
-        config = get_dataset_config(dataset_type)
+        # Map variant types to base type for dataset loading
+        base_type = dataset_type
+        if dataset_type in [DatasetType.VOXCELEB_GREEK, DatasetType.VOXCELEB_SWAP]:
+            base_type = DatasetType.VOXCELEB
+        elif dataset_type in [DatasetType.HVB_GREEK, DatasetType.HVB_SWAP]:
+            base_type = DatasetType.HVB
+        elif dataset_type in [DatasetType.VOXPOPULI_GREEK, DatasetType.VOXPOPULI_SWAP]:
+            base_type = DatasetType.VOXPOPULI
+        
+        config = get_dataset_config(base_type)
         
         # Get dataset path
         dataset_path = config.get_path(split)
