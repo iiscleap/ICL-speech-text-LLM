@@ -88,12 +88,19 @@ class CustomSALMONN(BaseModel):
             "prompt_template": prompt_template,
             "max_txt_len": max_txt_len,
             "end_sym": end_sym,
-            "low_resource": low_resource,
-            "ckpt": ckpt_path  # Include the checkpoint path in the config
+            "low_resource": low_resource
         }
         
         # Initialize the SALMONN model using from_config
         self.salmonn = SALMONN.from_config(salmonn_config)
+
+
+        base_checkpoint = torch.load(ckpt_path, map_location=device)
+        base_state_dict = base_checkpoint['model']  # Define base_state_dict here
+        
+        # Check if weights match model architecture
+        missing, unexpected = self.salmonn.load_state_dict(base_state_dict, strict=False)
+        logging.info(f"Base model loading - Missing keys: {len(missing)}, Unexpected keys: {len(unexpected)}")
         
         # Move model to the specified device
         self.salmonn.to(self.device)
@@ -469,7 +476,7 @@ class CustomSALMONN(BaseModel):
             outputs = self.llama_model.generate(
                 inputs_embeds=wrapped_embeds,
                 attention_mask=wrapped_atts,
-                max_new_tokens=samples.get("max_new_tokens", 20),
+                max_new_tokens=samples.get("max_new_tokens", 10),
                 num_beams=samples.get("num_beams", 1),
                 do_sample=samples.get("do_sample", False),
                 min_length=samples.get("min_length", 1),
@@ -479,6 +486,8 @@ class CustomSALMONN(BaseModel):
                 temperature=samples.get("temperature", 0.8),
                 pad_token_id=self.llama_tokenizer.pad_token_id,
                 eos_token_id=self.llama_tokenizer.eos_token_id,
+                return_dict_in_generate=False,  # Faster, since we don't need extra outputs
+                output_scores=False,  
             )
         
         gen_time = time.time() - gen_start_time

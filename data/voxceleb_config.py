@@ -7,13 +7,13 @@ VOXCELEB_CONFIG = DatasetConfig(
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_train_20fewshots",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_test_20fewshots",
     },
-    prompt_template="""You are a sentiment analysis expert. Based on the statement below, respond with EXACTLY ONE WORD from these options: positive, negative, or Neutral.
+    prompt_template="""You are a sentiment analysis expert. Based on the input, respond with EXACTLY ONE WORD from these options: Positive, Negative, or Neutral.
 
 Guidelines:
-- Choose positive if there is ANY hint of: approval, optimism, happiness, success, laughter, enjoyment, pride, or satisfaction
-- Choose negative if there is ANY hint of: criticism, pessimism, sadness, failure, frustration, anger, disappointment, or concern
-- Choose neutral ONLY IF the statement is purely factual with zero emotional content""",
-    valid_labels=["positive", "negative", "neutral"],
+- Choose Positive if there is ANY hint of: approval, optimism, happiness, success, laughter, enjoyment, pride, or satisfaction
+- Choose Negative if there is ANY hint of: criticism, pessimism, sadness, failure, frustration, anger, disappointment, or concern
+- Choose Neutral ONLY IF the statement is purely factual with zero emotional content""",
+    valid_labels=["Positive", "Negative", "Neutral"],
     completion_key="sentiment",
     text_key="normalized_text",
     audio_lookup_paths={
@@ -25,7 +25,7 @@ Guidelines:
 VOXCELEB_GREEK_CONFIG = DatasetConfig(
     name=DatasetType.VOXCELEB_GREEK,
     paths=VOXCELEB_CONFIG.paths,
-    prompt_template="""You are a sentiment analysis expert. Based on the statement below, respond with EXACTLY ONE WORD from these options: alpha, beta, or gamma.
+    prompt_template="""You are a sentiment analysis expert. Based on the input,, respond with EXACTLY ONE WORD from these options: alpha, beta, or gamma.
 
 Guidelines:
 - Choose alpha if there is ANY hint of: approval, optimism, happiness, success, laughter, enjoyment, pride, or satisfaction
@@ -51,7 +51,7 @@ VOXCELEB_SWAP_CONFIGS = []
 for perm in VOXCELEB_PERMUTATIONS:
     mapping = {orig: swapped for orig, swapped in zip(VOXCELEB_CONFIG.valid_labels, perm)}
     VOXCELEB_SWAP_CONFIGS.append(DatasetConfig(
-        prompt_template=f"""You are a sentiment analysis expert. Based on the statement below, respond with EXACTLY ONE WORD from these options: {perm[0]}, {perm[1]}, or {perm[2]}.
+        prompt_template=f"""You are a sentiment analysis expert. Based on the input, respond with EXACTLY ONE WORD from these options: {perm[0]}, {perm[1]}, or {perm[2]}.
 
 Guidelines:
 - Choose {perm[0]} if there is ANY hint of: approval, optimism, happiness, success, laughter, enjoyment, pride, or satisfaction

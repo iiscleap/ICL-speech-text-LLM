@@ -2,17 +2,17 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxceleb_swap"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
+dataset_type="voxceleb"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
 num_examples=1
 batch_size=1
-debug_samples=0  # Add debug_samples parameter (0 = use all samples)
+debug_samples=20  # Add debug_samples parameter (0 = use all samples)
 
 
 # Node configuration
 queue_name="longgpu.q"      # Queue to submit job to (gpu.q, med.q, etc.)
-hostname="compute-0-9"  # Hostname to run on
+hostname="compute-0-7"  # Hostname to run on
 cuda_device=0           # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
@@ -21,9 +21,14 @@ hold_job_id=""          # Job ID to wait for (empty = don't wait)
 # peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_qwen2_speech_text_voxceleb/final_model.pt"
 
 peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_salmonn_speech_text_hvb_swap/final_model.pt"
+# peft_model_path=""
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb-hvb/checkpoints/epoch_3_loss_0.1454/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_3_loss_0.1940/model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_hvb_swap/checkpoints/epoch_15_loss_0.0006/model.pt"
+
+
+
 
 # Clean dataset type for file names and Python
 if [[ $dataset_type == *","* ]]; then
@@ -37,15 +42,15 @@ fi
 # Check if model path is provided
 echo "Checking model path: $peft_model_path"
 if [ -z "$peft_model_path" ]; then
-    echo "Error: PEFT model path is empty"
-    exit 1
-fi
-
-if [ ! -f "$peft_model_path" ]; then
-    echo "Error: PEFT model file does not exist at path: $peft_model_path"
-    echo "Current directory: $(pwd)"
-    echo "Please set peft_model_path in the script to point to a valid model file"
-    exit 1
+    echo "No PEFT model path provided, using empty string"
+    peft_model_path=""
+else
+    if [ ! -f "$peft_model_path" ]; then
+        echo "Error: PEFT model file does not exist at path: $peft_model_path"
+        echo "Current directory: $(pwd)"
+        echo "Please set peft_model_path in the script to point to a valid model file"
+        exit 1
+    fi
 fi
 
 # Set conda environment based on model type
@@ -63,9 +68,13 @@ source /home/share/anaconda3/etc/profile.d/conda.sh
 conda deactivate
 conda activate $CONDA_ENV   
 
-# Extract run name from model path
-RUN_NAME=$(echo "$peft_model_path" | sed -n 's/.*trained_models\/\([^/]*\).*/\1/p')
-RUN_NAME=$(echo "$RUN_NAME" | sed 's/speech/sp/g; s/text/txt/g; s/salmonn/sal/g; s/qwen2/qw/g; s/voxceleb/vox/g')
+# Extract run name from model path or set default
+if [ -z "$peft_model_path" ]; then
+    RUN_NAME="default"
+else
+    RUN_NAME=$(echo "$peft_model_path" | sed -n 's/.*trained_models\/\([^/]*\).*/\1/p')
+    RUN_NAME=$(echo "$RUN_NAME" | sed 's/speech/sp/g; s/text/txt/g; s/salmonn/sal/g; s/qwen2/qw/g; s/voxceleb/vox/g')
+fi
 
 # Set script path
 SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/inference/inference.py"
@@ -114,7 +123,7 @@ batch_size=${batch_size},\
 num_workers=${num_workers},\
 seed=${seed},\
 debug_samples=${debug_samples},\
-output_suffix=''"
+output_suffix="
 
 # Conditionally add hold_jid if provided
 if [ -n "$hold_job_id" ]; then
