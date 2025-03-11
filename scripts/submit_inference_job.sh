@@ -7,11 +7,11 @@ input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_tex
 fewshot_mode="text"  # Options: "text" or "speech"
 num_examples=1
 batch_size=1
-debug_samples=20  # Add debug_samples parameter (0 = use all samples)
+debug_samples=0  # Add debug_samples parameter (0 = use all samples)
 
 
 # Node configuration
-queue_name="longgpu.q"      # Queue to submit job to (gpu.q, med.q, etc.)
+queue_name="gpu.q"      # Queue to submit job to (gpu.q, med.q, etc.)
 hostname="compute-0-7"  # Hostname to run on
 cuda_device=0           # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
@@ -20,12 +20,12 @@ hold_job_id=""          # Job ID to wait for (empty = don't wait)
 # Path to the trained model - REQUIRED
 # peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_qwen2_speech_text_voxceleb/final_model.pt"
 
-peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_salmonn_speech_text_hvb_swap/final_model.pt"
+# peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_salmonn_speech_text_hvb_swap/final_model.pt"
 # peft_model_path=""
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb-hvb/checkpoints/epoch_3_loss_0.1454/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_3_loss_0.1940/model.pt"
-# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_hvb_swap/checkpoints/epoch_15_loss_0.0006/model.pt"
+peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_hvb_swap/final_model.pt"
 
 
 

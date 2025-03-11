@@ -5,8 +5,10 @@ import logging
 import time
 
 # Add the parent directory to system path to access SALMONN
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from models.salmonn_org import SALMONN
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+from SALMONN.models.salmonn_org import SALMONN
+# from models.salmonn_org import SALMONN
 
 logging.basicConfig(
     level=logging.INFO,
@@ -144,6 +146,32 @@ class CustomSALMONN(SALMONN):
         """Generates speech embeddings for both training and inference"""
         start_time = time.time()
         
+        # Add detailed logging for first batch
+        if self.batch_counter == 0:
+            if samples["spectrogram"] is not None:
+                logging.info("=== Input Data Debug (First 5 values) ===")
+                logging.info(f"Spectrogram dtype: {samples['spectrogram'].dtype}")
+                logging.info("Spectrogram first 5 values:")
+                spec_flat = samples["spectrogram"][0].flatten()  # First batch item
+                logging.info(f"{spec_flat[:10].tolist()}")
+                logging.info(f"{spec_flat[-10:].tolist()}")
+                
+                if samples.get("raw_wav") is not None:
+                    logging.info(f"\nRaw WAV dtype: {samples['raw_wav'].dtype}")
+                    logging.info("Raw WAV first 5 values:")
+                    wav_flat = samples["raw_wav"][0].flatten()  # First batch item
+                    logging.info(f"{wav_flat[:10].tolist()}")
+                    logging.info(f"{wav_flat[-10:].tolist()}")
+
+                if "padding_mask" in samples:
+                    logging.info("=== Padding Mask Debug ===")
+                    padding_mask = samples["padding_mask"]
+                    logging.info(f"Padding mask dtype: {padding_mask.dtype}")
+                    logging.info(f"Padding mask shape: {padding_mask.shape}")
+                    logging.info(f"Padding mask first 5 values: {padding_mask[0, :5].tolist()}")
+                    logging.info(f"Non-padded length: {padding_mask.sum().item()}")
+                    logging.info(f"Padding percentage: {(1 - padding_mask.float().mean()) * 100:.2f}%")
+        
         # Check if we're in text-only mode based on tensor values, not input_mode
         has_main_speech = samples["spectrogram"] is not None and (not isinstance(samples["spectrogram"], torch.Tensor) or samples["spectrogram"].numel() > 1)
         has_examples = "example_spectrograms" in samples and samples["example_spectrograms"] is not None and samples["example_spectrograms"].numel() > 1
@@ -183,8 +211,28 @@ class CustomSALMONN(SALMONN):
             )
             
             if self.batch_counter == 0:
+                logging.info("\n=== Speech Embeddings Debug ===")
                 logging.info(f"Main speech embeddings shape: {speech_embeds.shape}")
                 logging.info(f"Main speech attention mask shape: {speech_atts.shape}")
+                logging.info("\nFirst 5 values of speech embeddings:")
+                embed_flat = speech_embeds[0].flatten()  # First batch item
+                logging.info(f"{embed_flat[:5].tolist()}")
+                logging.info("\nStats for speech embeddings:")
+                logging.info(f"Mean: {speech_embeds.mean().item():.3f}")
+                logging.info(f"Std: {speech_embeds.std().item():.3f}")
+                logging.info(f"Min: {speech_embeds.min().item():.3f}")
+                logging.info(f"Max: {speech_embeds.max().item():.3f}")
+                logging.info(f"Has NaN after encode: {torch.isnan(speech_embeds).any().item()}")
+
+                logging.info(f"Spectrogram dtype: {samples['spectrogram'].dtype}")
+                logging.info(f"\nRaw WAV dtype: {samples['raw_wav'].dtype}")
+                logging.info(f"Padding mask dtype: {padding_mask.dtype}")
+                
+                # Add attention mask stats
+                logging.info("\n=== Attention Mask Stats ===")
+                logging.info(f"Attention mask first 5 values: {speech_atts[0, :5].tolist()}")
+                logging.info(f"Non-masked length: {speech_atts.sum().item()}")
+                logging.info(f"Masked percentage: {(1 - speech_atts.float().mean()) * 100:.2f}%")
         
         # Process examples if present - regardless of whether main speech exists
         example_embeds = example_atts = None

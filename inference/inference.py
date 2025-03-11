@@ -115,7 +115,7 @@ def run_inference(args):
             logger.info(f"Running inference with dataset: {dataset_types}")
 
         # Set random seed
-        set_seed(args.seed)
+        # set_seed(args.seed)
         
         # Create output directory
         results_dir = f"/data2/neeraja/neeraja/results/model_ICL/metrics/{args.today}"
@@ -137,29 +137,30 @@ def run_inference(args):
             device=args.device
         )
         
+
         # Only load checkpoint if peft_model_path is provided and not empty
         if args.peft_model_path and args.peft_model_path.strip():
             logger.info(f"Loading checkpoint from {args.peft_model_path}")
             checkpoint = load_checkpoint(args.peft_model_path, map_location=args.device)
             if "model_state_dict" in checkpoint:
-                model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+                model.salmonn.load_state_dict(checkpoint["model_state_dict"], strict=False)
                 finetuned_state_dict = checkpoint["model_state_dict"]
                 finetuned_keys = set(finetuned_state_dict.keys())
                 logging.info(f"Updating {len(finetuned_keys)} parameters from finetuned model")
             elif "state_dict" in checkpoint:
                 # Some checkpoints use "state_dict" instead of "model_state_dict"
-                model.load_state_dict(checkpoint["state_dict"], strict=False)
+                model.salmonn.load_state_dict(checkpoint["state_dict"], strict=False)
                 finetuned_state_dict = checkpoint["state_dict"]
                 finetuned_keys = set(finetuned_state_dict.keys())
                 logging.info(f"Updating {len(finetuned_keys)} parameters from finetuned model")
             elif "model" in checkpoint:
-                model.load_state_dict(checkpoint["model"], strict=False)
+                model.salmonn.load_state_dict(checkpoint["model"], strict=False)
                 finetuned_state_dict = checkpoint['model'] 
                 finetuned_keys = set(finetuned_state_dict.keys())
                 logging.info(f"Updating {len(finetuned_keys)} parameters from finetuned model")
             else:
                 # If the checkpoint is just the state dict itself (not a dictionary with keys)
-                model.load_state_dict(checkpoint, strict=False)
+                model.salmonn.load_state_dict(checkpoint, strict=False)
                 logger.info("Loaded checkpoint directly as state dict")
         else:
             logger.info("No checkpoint path provided, using base model without loading weights")
@@ -316,8 +317,8 @@ def run_inference(args):
                     
                     # Run inference
                     start_time = time.time()
-                    with autocast(dtype=amp_dtype) if amp_dtype else autocast():
-                        outputs = model.generate_output(batch)
+                    # with autocast(dtype=amp_dtype) if amp_dtype else autocast():
+                    outputs = model.generate_output(batch)
                     inference_time = time.time() - start_time
                     
                     # Process outputs and log them

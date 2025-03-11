@@ -191,6 +191,7 @@ def main():
     
     logging.info(f"Loading dataset from: {test_path}")
     dataset = load_from_disk(test_path)
+    dataset= dataset.select(range(20))
     logging.info(f"Dataset loading took {time.time() - dataset_load_start:.2f} seconds")
     
     # Create inference dataset
@@ -311,10 +312,10 @@ def main():
                     raise e
 
     # Create output filenames with proper directory
-    os.makedirs(f"results/final_results/{args.today}", exist_ok=True)
+    os.makedirs(f"/data2/neeraja/neeraja/results/model_ICL/metrics/{args.today}", exist_ok=True)
     base_filename = f"{args.dataset_type}_{args.run_name}_{args.input_mode}_{args.fewshot_mode}_{args.num_examples}shots"
-    predictions_file = f"results/final_results/{args.today}/{base_filename}_predictions.json"
-    metrics_file = f"results/final_results/{args.today}/{base_filename}_metrics.txt"
+    predictions_file = f"/data2/neeraja/neeraja/results/model_ICL/metrics/{args.today}/{base_filename}_predictions.json"
+    metrics_file = f"/data2/neeraja/neeraja/results/model_ICL/metrics/{args.today}/{base_filename}_metrics.txt"
     
     # Save full predictions with all keys
     with open(predictions_file, 'w') as f:

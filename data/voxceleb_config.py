@@ -47,6 +47,15 @@ VOXCELEB_PERMUTATIONS = [
     ["neutral", "positive", "negative"]
 ]
 
+# VOXCELEB_PERMUTATIONS = [
+#     ["beta", "alpha", "gamma"],
+#     ["beta", "gamma", "alpha"],
+#     ["alpha", "gamma", "beta"],
+#     ["alpha", "beta", "gamma"],
+#     ["gamma", "beta", "alpha"],
+#     ["gamma", "alpha", "beta"]
+# ]
+
 VOXCELEB_SWAP_CONFIGS = []
 for perm in VOXCELEB_PERMUTATIONS:
     mapping = {orig: swapped for orig, swapped in zip(VOXCELEB_CONFIG.valid_labels, perm)}
@@ -65,6 +74,9 @@ Guidelines:
         valid_labels=perm,
         name=DatasetType.VOXCELEB_SWAP
     ))
+
+
+
 
 def get_voxceleb_swap_config():
     return random.choice(VOXCELEB_SWAP_CONFIGS) 

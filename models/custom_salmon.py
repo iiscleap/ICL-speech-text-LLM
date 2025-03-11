@@ -50,7 +50,6 @@ class CustomSALMONN(BaseModel):
                  max_txt_len: int = 128,
                  end_sym: str = "</s>",
                  low_resource: bool = False,
-                 device_8bit: int = 0,
                  ckpt_path: str = "/data2/neeraja/neeraja/salmonn_v1.pth",  # Default checkpoint path
                  device=None, 
                  use_fp16: bool = False):
@@ -88,23 +87,16 @@ class CustomSALMONN(BaseModel):
             "prompt_template": prompt_template,
             "max_txt_len": max_txt_len,
             "end_sym": end_sym,
-            "low_resource": low_resource
+            "low_resource": low_resource,
+            "ckpt": ckpt_path
         }
-        
+    
         # Initialize the SALMONN model using from_config
         self.salmonn = SALMONN.from_config(salmonn_config)
 
-
-        base_checkpoint = torch.load(ckpt_path, map_location=device)
-        base_state_dict = base_checkpoint['model']  # Define base_state_dict here
-        
-        # Check if weights match model architecture
-        missing, unexpected = self.salmonn.load_state_dict(base_state_dict, strict=False)
-        logging.info(f"Base model loading - Missing keys: {len(missing)}, Unexpected keys: {len(unexpected)}")
-        
         # Move model to the specified device
         self.salmonn.to(self.device)
-        
+
         # Store model attributes
         self.prompt_template = prompt_template
         self.lora = lora
@@ -249,6 +241,32 @@ class CustomSALMONN(BaseModel):
         """
         start_time = time.time()
         
+        # Add detailed logging for first batch
+        if self.batch_counter == 0:
+            if samples["spectrogram"] is not None:
+                logging.info("=== Input Data Debug (First 5 values) ===")
+                logging.info(f"Spectrogram dtype: {samples['spectrogram'].dtype}")
+                logging.info("Spectrogram first 5 values:")
+                spec_flat = samples["spectrogram"][0].flatten()  # First batch item
+                logging.info(f"{spec_flat[:10].tolist()}")
+                logging.info(f"{spec_flat[-10:].tolist()}")
+                
+                if samples.get("raw_wav") is not None:
+                    logging.info(f"\nRaw WAV dtype: {samples['raw_wav'].dtype}")
+                    logging.info("Raw WAV first 5 values:")
+                    wav_flat = samples["raw_wav"][0].flatten()  # First batch item
+                    logging.info(f"{wav_flat[:10].tolist()}")
+                    logging.info(f"{wav_flat[-10:].tolist()}")
+
+                if "padding_mask" in samples:
+                    logging.info("=== Padding Mask Debug ===")
+                    padding_mask = samples["padding_mask"]
+                    logging.info(f"Padding mask dtype: {padding_mask.dtype}")
+                    logging.info(f"Padding mask shape: {padding_mask.shape}")
+                    logging.info(f"Padding mask first 5 values: {padding_mask[0, :5].tolist()}")
+                    logging.info(f"Non-padded length: {padding_mask.sum().item()}")
+                    logging.info(f"Padding percentage: {(1 - padding_mask.float().mean()) * 100:.2f}%")
+        
         # Check if we have valid speech data
         has_main_speech = "spectrogram" in samples and samples["spectrogram"] is not None and samples["spectrogram"].numel() > 1
         has_examples = "example_spectrograms" in samples and samples["example_spectrograms"] is not None and samples["example_spectrograms"].numel() > 1
@@ -288,9 +306,27 @@ class CustomSALMONN(BaseModel):
             )
             
             if self.batch_counter == 0:
+                logging.info("\n=== Speech Embeddings Debug ===")
                 logging.info(f"Main speech embeddings shape: {speech_embeds.shape}")
                 logging.info(f"Main speech attention mask shape: {speech_atts.shape}")
+                logging.info("\nFirst 5 values of speech embeddings:")
+                embed_flat = speech_embeds[0].flatten()  # First batch item
+                logging.info(f"{embed_flat[:5].tolist()}")
+                logging.info("\nStats for speech embeddings:")
+                logging.info(f"Mean: {speech_embeds.mean().item():.3f}")
+                logging.info(f"Std: {speech_embeds.std().item():.3f}")
+                logging.info(f"Min: {speech_embeds.min().item():.3f}")
+                logging.info(f"Max: {speech_embeds.max().item():.3f}")
                 logging.info(f"Has NaN after encode: {torch.isnan(speech_embeds).any().item()}")
+
+                logging.info(f"Spectrogram dtype: {samples['spectrogram'].dtype}")
+                logging.info(f"Raw WAV dtype: {samples['raw_wav'].dtype}")
+                logging.info(f"Padding mask dtype: {padding_mask.dtype}")
+                 # Add attention mask stats
+                logging.info("\n=== Attention Mask Stats ===")
+                logging.info(f"Attention mask first 5 values: {speech_atts[0, :5].tolist()}")
+                logging.info(f"Non-masked length: {speech_atts.sum().item()}")
+                logging.info(f"Masked percentage: {(1 - speech_atts.float().mean()) * 100:.2f}%")
         
         # Process examples if present - regardless of whether main speech exists
         example_embeds = example_atts = None

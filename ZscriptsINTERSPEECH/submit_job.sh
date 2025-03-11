@@ -63,7 +63,7 @@
 # MODEL_PATH="./results/trained_models/ft_20e8b_salmonn_speech_text_hvb_greek/final_model.pt"
 # MODEL_PATH="./results/trained_models/ft_15e8b_salmonn_speech_text_hvb_swap/final_model.pt"
 # MODEL_PATH="./results/trained_models/ft_20e8b_salmonn_speech_text_hvb_swap_/checkpoints/epoch_10_loss_0.0230/model.pt"
-MODEL_PATH="./results/trained_models/ft_20e8b_salmonn_speech_text_hvb_swap/final_model.pt"
+# MODEL_PATH="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_salmonn_speech_text_hvb_swap/final_model.pt"
 
 # MODEL_PATH="./results/trained_models/ft_15e8b_salmonn_speech_text_hvb/final_model_.pt"
 
@@ -81,7 +81,7 @@ MODEL_PATH="./results/trained_models/ft_20e8b_salmonn_speech_text_hvb_swap/final
 # MODEL_PATH=""
 ######################################################
 
-TAG=${TAG:-""} 
+TAG=${TAG:-"old"} 
 
 # Set default RUN_NAME if MODEL_PATH is empty
 if [ -z "$MODEL_PATH" ]; then
@@ -125,15 +125,15 @@ conda deactivate
 conda activate $conda_env
 
 
-SCRIPT_PATH="./scripts_new/inference_llama2_salmon_final.py"
+SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/ZscriptsINTERSPEECH/inference_llama2_salmon_final.py"
 TODAY=$(date +"%Y-%m-%d")
 
-mkdir -p "./results/logs/test/${TODAY}"
-mkdir -p "./results/final_results/${TODAY}"
+mkdir -p "/data2/neeraja/neeraja/results/model_ICL/logs/test/${TODAY}"
+mkdir -p "/data2/neeraja/neeraja/results/model_ICL/metrics/${TODAY}"
 
 ########################################################
 
-num_examples=3
+num_examples=1
 
 # dataset_type="hvb"
 dataset_type="voxceleb"
@@ -145,12 +145,12 @@ input_mode="speech_only"
 fewshot_mode="text"
 # fewshot_mode="speech"
 
-rm -f "./results/logs/test/${TODAY}/${RUN_NAME}_${dataset_type}_${input_mode}_${fewshot_mode}_${num_examples}shots.log"  
+rm -f "/data2/neeraja/neeraja/results/model_ICL/logs/test/${TODAY}/${RUN_NAME}_${dataset_type}_${input_mode}_${fewshot_mode}_${num_examples}shots.log"  
 
 qsub -q long.q -V -cwd \
-    -l hostname=compute-0-9 \
+    -l hostname=compute-0-7 \
     -l h_rt=72:00:00 \
-    -o "./results/logs/test/${TODAY}/${RUN_NAME}_${dataset_type}_${input_mode}_${fewshot_mode}_${num_examples}shots.log" \
+    -o "/data2/neeraja/neeraja/results/model_ICL/logs/test/${TODAY}/${RUN_NAME}_${dataset_type}_${input_mode}_${fewshot_mode}_${num_examples}shots.log" \
     -j y \
     -v CUDA_VISIBLE_DEVICES=0,\
 TODAY=${TODAY},\
@@ -163,7 +163,7 @@ input_mode=${input_mode},\
 dataset_type=${dataset_type},\
 fewshot_mode=${fewshot_mode},\
 model_type=${model_type} \
-    -S /bin/bash ./scripts_new/inference_sentiment.sh 
+    -S /bin/bash /data2/neeraja/neeraja/code/ICL/ZscriptsINTERSPEECH/inference_sentiment.sh
 
 
 
