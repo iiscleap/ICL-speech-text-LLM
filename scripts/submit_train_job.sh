@@ -67,7 +67,7 @@ fi
 effective_batch_size=$((batch_size * gradient_accumulation_steps))
 
 # Generate a descriptive run name
-RUN_NAME="ft_${num_examples}ex_${num_epochs}e${effective_batch_size}b_${model_type}_${input_mode}_${CLEAN_DATASET_TYPE}"
+RUN_NAME="ft_${num_examples}ex_${num_epochs}e${effective_batch_size}b_${model_type}_${input_mode}_${fewshot_mode}_${CLEAN_DATASET_TYPE}"
 
 # Set script path
 SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/train/train.py"
@@ -104,7 +104,7 @@ fi
 
 # Submit job
 qsub -q gpu.q -V -cwd \
-    -l hostname=compute-0-9 \
+    -l hostname=compute-0-7 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \

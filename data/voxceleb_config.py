@@ -7,13 +7,13 @@ VOXCELEB_CONFIG = DatasetConfig(
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_train_20fewshots",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_test_20fewshots",
     },
-    prompt_template="""You are a sentiment analysis expert. Based on the input, respond with EXACTLY ONE WORD from these options: Positive, Negative, or Neutral.
+    prompt_template="""You are a sentiment analysis expert. Based on the input, respond with EXACTLY ONE WORD from these options: positive, negative, or neutral.
 
 Guidelines:
-- Choose Positive if there is ANY hint of: approval, optimism, happiness, success, laughter, enjoyment, pride, or satisfaction
-- Choose Negative if there is ANY hint of: criticism, pessimism, sadness, failure, frustration, anger, disappointment, or concern
-- Choose Neutral ONLY IF the statement is purely factual with zero emotional content""",
-    valid_labels=["Positive", "Negative", "Neutral"],
+- Choose positive if there is ANY hint of: approval, optimism, happiness, success, laughter, enjoyment, pride, or satisfaction
+- Choose negative if there is ANY hint of: criticism, pessimism, sadness, failure, frustration, anger, disappointment, or concern
+- Choose neutral ONLY IF the statement is purely factual with zero emotional content""",
+    valid_labels=["positive", "negative", "neutral"],
     completion_key="sentiment",
     text_key="normalized_text",
     audio_lookup_paths={
@@ -38,23 +38,23 @@ Guidelines:
     completion_key=VOXCELEB_CONFIG.completion_key
 )
 
-VOXCELEB_PERMUTATIONS = [
-    ["negative", "positive", "neutral"],
-    ["negative", "neutral", "positive"],
-    ["positive", "neutral", "negative"],
-    ["positive", "negative", "neutral"],
-    ["neutral", "negative", "positive"],
-    ["neutral", "positive", "negative"]
-]
-
 # VOXCELEB_PERMUTATIONS = [
-#     ["beta", "alpha", "gamma"],
-#     ["beta", "gamma", "alpha"],
-#     ["alpha", "gamma", "beta"],
-#     ["alpha", "beta", "gamma"],
-#     ["gamma", "beta", "alpha"],
-#     ["gamma", "alpha", "beta"]
+#     ["negative", "positive", "neutral"],
+#     ["negative", "neutral", "positive"],
+#     ["positive", "neutral", "negative"],
+#     ["positive", "negative", "neutral"],
+#     ["neutral", "negative", "positive"],
+#     ["neutral", "positive", "negative"]
 # ]
+
+VOXCELEB_PERMUTATIONS = [
+    ["beta", "alpha", "gamma"],
+    ["beta", "gamma", "alpha"],
+    ["alpha", "gamma", "beta"],
+    ["alpha", "beta", "gamma"],
+    ["gamma", "beta", "alpha"],
+    ["gamma", "alpha", "beta"]
+]
 
 VOXCELEB_SWAP_CONFIGS = []
 for perm in VOXCELEB_PERMUTATIONS:
