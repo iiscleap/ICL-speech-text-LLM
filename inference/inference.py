@@ -143,24 +143,22 @@ def run_inference(args):
             logger.info(f"Loading checkpoint from {args.peft_model_path}")
             checkpoint = load_checkpoint(args.peft_model_path, map_location=args.device)
             if "model_state_dict" in checkpoint:
-                model.salmonn.load_state_dict(checkpoint["model_state_dict"], strict=False)
+                model.load_state_dict(checkpoint["model_state_dict"], strict=False)
                 finetuned_state_dict = checkpoint["model_state_dict"]
                 finetuned_keys = set(finetuned_state_dict.keys())
                 logging.info(f"Updating {len(finetuned_keys)} parameters from finetuned model")
             elif "state_dict" in checkpoint:
-                # Some checkpoints use "state_dict" instead of "model_state_dict"
-                model.salmonn.load_state_dict(checkpoint["state_dict"], strict=False)
+                model.load_state_dict(checkpoint["state_dict"], strict=False)
                 finetuned_state_dict = checkpoint["state_dict"]
                 finetuned_keys = set(finetuned_state_dict.keys())
                 logging.info(f"Updating {len(finetuned_keys)} parameters from finetuned model")
             elif "model" in checkpoint:
-                model.salmonn.load_state_dict(checkpoint["model"], strict=False)
+                model.load_state_dict(checkpoint["model"], strict=False)
                 finetuned_state_dict = checkpoint['model'] 
                 finetuned_keys = set(finetuned_state_dict.keys())
                 logging.info(f"Updating {len(finetuned_keys)} parameters from finetuned model")
             else:
-                # If the checkpoint is just the state dict itself (not a dictionary with keys)
-                model.salmonn.load_state_dict(checkpoint, strict=False)
+                model.load_state_dict(checkpoint, strict=False)
                 logger.info("Loaded checkpoint directly as state dict")
         else:
             logger.info("No checkpoint path provided, using base model without loading weights")

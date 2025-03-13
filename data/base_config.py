@@ -2,7 +2,7 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import Dict, List, Optional
 
-class DatasetType(Enum):
+class DatasetType(str, Enum):
     # Original datasets
     VOXCELEB = "voxceleb"
     HVB = "hvb"
@@ -17,6 +17,12 @@ class DatasetType(Enum):
     VOXCELEB_SWAP = "voxceleb_swap"
     HVB_SWAP = "hvb_swap"
     VOXPOPULI_SWAP = "voxpopuli_swap"
+    
+    # New dataset
+    VOXPOPULI_NEL = "voxpopuli_nel"
+    
+    # Added for SQA
+    SQA = "sqa"
 
 class DatasetSplit(Enum):
     TRAIN = "train"

@@ -93,12 +93,9 @@ class CustomSALMONN(BaseModel):
     
         # Initialize the SALMONN model using from_config
         self.salmonn = SALMONN.from_config(salmonn_config)
-
-        # Move model to the specified device
         self.salmonn.to(self.device)
 
         # Store model attributes
-        self.prompt_template = prompt_template
         self.lora = lora
         
         # Initialize model settings
@@ -392,7 +389,7 @@ class CustomSALMONN(BaseModel):
         """
         Encode speech inputs using the SALMONN speech encoder.
         """
-        return self.salmonn.encode_speech(
+        return self.salmonn.encode_speech(    
             spectrogram=spectrogram,
             raw_wav=raw_wav,
             audio_padding_mask=audio_padding_mask

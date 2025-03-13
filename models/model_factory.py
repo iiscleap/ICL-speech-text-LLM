@@ -32,7 +32,6 @@ class ModelFactory:
         multi_task: bool = False,
         task_configs: Optional[Dict[str, Dict[str, Any]]] = None,
         default_task: Optional[str] = None,
-        use_cache: bool = True,
         device: Optional[torch.device] = None,
         **model_kwargs
     ):
@@ -60,27 +59,6 @@ class ModelFactory:
             
             if model_type not in ["salmonn", "qwen2"]:
                 raise ValueError(f"Unknown model type: {model_type}")
-            
-            # Generate a cache key based on model parameters
-            cache_key = ModelFactory._generate_cache_key(
-                model_type=model_type,
-                multi_task=multi_task,
-                task_configs=task_configs,
-                default_task=default_task,
-                **model_kwargs
-            )
-            
-            # Check if model is in cache
-            if use_cache and cache_key in _MODEL_CACHE:
-                logger.info(f"Using cached {model_type} model")
-                model = _MODEL_CACHE[cache_key]
-                
-                # Move to specified device if needed
-                if device is not None and next(model.parameters()).device != device:
-                    logger.info(f"Moving cached model to device: {device}")
-                    model = model.to(device)
-                
-                return model
                 
             # Create new model
             start_time = time.time()
@@ -108,11 +86,6 @@ class ModelFactory:
             if device is not None:
                 logger.info(f"Moving model to device: {device}")
                 model = model.to(device)
-            
-            # Cache the model if requested
-            if use_cache:
-                logger.debug(f"Caching model with key: {cache_key}")
-                _MODEL_CACHE[cache_key] = model
             
             creation_time = time.time() - start_time
             logger.info(f"Model created in {creation_time:.2f}s")
