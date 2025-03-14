@@ -2,7 +2,7 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxpopuli"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
+dataset_type="voxceleb,hvb,voxpopuli"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
 num_examples=2
@@ -12,18 +12,21 @@ debug_samples=0  # Add debug_samples parameter (0 = use all samples)
 
 
 # Node configuration
-queue_name="med.q"      # Queue to submit job to (gpu.q, med.q, etc.)
-hostname="compute-0-9"  # Hostname to run on
-cuda_device=1          # CUDA device to use
+queue_name="long.q"      # Queue to submit job to (gpu.q, med.q, etc.)
+hostname="compute-0-5"  # Hostname to run on
+cuda_device=2          # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
 
 # Path to the trained model - REQUIRED
-peft_model_path=""
+# peft_model_path=""
 
 # peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_qwen2_speech_text_voxceleb/final_model.pt"
 # peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_salmonn_speech_text_hvb_swap/final_model.pt"
 
+
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_swap_symbol/final_model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_swap/final_model.pt"
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_hvb_swap/checkpoints/epoch_10_loss_0.0046/model.pt"
 
@@ -33,9 +36,12 @@ peft_model_path=""
 
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb-hvb/checkpoints/epoch_10_loss_0.0060/model.pt"
-# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_swap-hvb_swap/checkpoints/epoch_10_loss_0.0117/model.pt"
-peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0055/model.pt"
+peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_swap-hvb_swap/checkpoints/epoch_10_loss_0.0117/model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0055/model.pt"
 
+
+
+# peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/INTERSPEECH/finetune_llama2_salmon_speech_15e8b_Q_voxceleb_swap/final_model.pt"
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_swap/final_model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_swap_symbol/final_model.pt"
@@ -84,7 +90,12 @@ if [ -z "$peft_model_path" ]; then
 else
     RUN_NAME=$(echo "$peft_model_path" | sed -n 's/.*trained_models\/\([^/]*\).*/\1/p')
     RUN_NAME=$(echo "$RUN_NAME" | sed 's/speech/sp/g; s/text/txt/g; s/salmonn/sal/g; s/qwen2/qw/g; s/voxceleb/vox/g')
-    RUN_NAME="${RUN_NAME}_e10"
+    
+    # Extract epoch number if path contains checkpoints
+    if [[ $peft_model_path == *"checkpoints/epoch_"* ]]; then
+        EPOCH_NUM=$(echo "$peft_model_path" | sed -n 's/.*epoch_\([0-9]*\)_.*/\1/p')
+        RUN_NAME="${RUN_NAME}_e${EPOCH_NUM}"
+    fi
 fi
 
 # Set script path

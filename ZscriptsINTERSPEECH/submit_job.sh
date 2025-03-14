@@ -79,6 +79,8 @@
 # MODEL_PATH="./results/trained_models/ft_20e8b_qwen2_speech_text_voxceleb/checkpoints/epoch_10_loss_0.0000/model.pt"
 
 # MODEL_PATH=""
+
+MODEL_PATH="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/INTERSPEECH/finetune_llama2_salmon_speech_15e8b_Q_voxceleb_swap/final_model.pt"
 ######################################################
 
 TAG=${TAG:-"old"} 
@@ -136,8 +138,8 @@ mkdir -p "/data2/neeraja/neeraja/results/model_ICL/metrics/${TODAY}"
 num_examples=1
 
 # dataset_type="hvb"
-dataset_type="voxceleb"
-# dataset_type="voxpopuli"
+# dataset_type="voxceleb"
+dataset_type="voxpopuli"
 
 input_mode="speech_only"
 # input_mode="text_only"
@@ -148,11 +150,11 @@ fewshot_mode="text"
 rm -f "/data2/neeraja/neeraja/results/model_ICL/logs/test/${TODAY}/${RUN_NAME}_${dataset_type}_${input_mode}_${fewshot_mode}_${num_examples}shots.log"  
 
 qsub -q long.q -V -cwd \
-    -l hostname=compute-0-7 \
+    -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "/data2/neeraja/neeraja/results/model_ICL/logs/test/${TODAY}/${RUN_NAME}_${dataset_type}_${input_mode}_${fewshot_mode}_${num_examples}shots.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=0,\
+    -v CUDA_VISIBLE_DEVICES=1,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

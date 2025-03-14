@@ -191,7 +191,7 @@ def main():
     
     logging.info(f"Loading dataset from: {test_path}")
     dataset = load_from_disk(test_path)
-    dataset= dataset.select(range(20))
+    # dataset= dataset.select(range(20))
     logging.info(f"Dataset loading took {time.time() - dataset_load_start:.2f} seconds")
     
     # Create inference dataset

@@ -64,31 +64,48 @@ class CustomSALMONN(BaseModel):
         self.input_processor = WhisperFeatureExtractor.from_pretrained(whisper_path)
         
         # Create config for SALMONN
+        # salmonn_config = {
+        #     "llama_path": llama_path,
+        #     "whisper_path": whisper_path,
+        #     "beats_path": beats_path,
+        #     "use_speech_Qformer": use_speech_Qformer,
+        #     "freeze_whisper": freeze_whisper,
+        #     "freeze_beats": freeze_beats,
+        #     "freeze_speech_QFormer": freeze_speech_QFormer,
+        #     "num_speech_query_token": num_speech_query_token,
+        #     "window_level_Qformer": window_level_Qformer,
+        #     "second_per_window": second_per_window,
+        #     "second_stride": second_stride,
+        #     "speech_llama_proj_model": speech_llama_proj_model,
+        #     "freeze_speech_llama_proj": freeze_speech_llama_proj,
+        #     "lora": lora,
+        #     "lora_rank": lora_rank,
+        #     "lora_alpha": lora_alpha,
+        #     "lora_dropout": lora_dropout,
+        #     "multi_prompt": multi_prompt,
+        #     "prompt_path": prompt_path,
+        #     "prompt_template": prompt_template,
+        #     "max_txt_len": max_txt_len,
+        #     "end_sym": end_sym,
+        #     "low_resource": low_resource,
+        #     "ckpt": ckpt_path
+        # }
+
+
         salmonn_config = {
             "llama_path": llama_path,
             "whisper_path": whisper_path,
             "beats_path": beats_path,
-            "use_speech_Qformer": use_speech_Qformer,
-            "freeze_whisper": freeze_whisper,
-            "freeze_beats": freeze_beats,
-            "freeze_speech_QFormer": freeze_speech_QFormer,
-            "num_speech_query_token": num_speech_query_token,
-            "window_level_Qformer": window_level_Qformer,
-            "second_per_window": second_per_window,
-            "second_stride": second_stride,
-            "speech_llama_proj_model": speech_llama_proj_model,
-            "freeze_speech_llama_proj": freeze_speech_llama_proj,
-            "lora": lora,
-            "lora_rank": lora_rank,
-            "lora_alpha": lora_alpha,
-            "lora_dropout": lora_dropout,
-            "multi_prompt": multi_prompt,
-            "prompt_path": prompt_path,
-            "prompt_template": prompt_template,
-            "max_txt_len": max_txt_len,
-            "end_sym": end_sym,
-            "low_resource": low_resource,
-            "ckpt": ckpt_path
+            "use_speech_Qformer": True,
+            "freeze_whisper": True,
+            "freeze_beats": True,
+            "freeze_speech_QFormer": False,
+            "num_speech_query_token": 1,
+            "window_level_Qformer": True,
+            "second_per_window": 0.333333,
+            "second_stride": 0.333333,
+            "ckpt": ckpt_path,
+            "low_resource": True,
         }
     
         # Initialize the SALMONN model using from_config

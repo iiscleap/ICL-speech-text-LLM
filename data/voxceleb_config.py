@@ -1,6 +1,27 @@
 from .base_config import DatasetType, DatasetSplit, DatasetConfig
 import random
 
+# VOXCELEB_CONFIG = DatasetConfig(
+#     name=DatasetType.VOXCELEB,
+#     paths={
+#         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_train_20fewshots",
+#         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_test_20fewshots",
+#     },
+#     prompt_template="""You are a sentiment analysis expert. Based on the input, respond with EXACTLY ONE WORD from these options: Positive, Negative, or Neutral.
+
+# Guidelines:
+# - Choose Positive if there is ANY hint of: approval, optimism, happiness, success, laughter, enjoyment, pride, or satisfaction
+# - Choose Negative if there is ANY hint of: criticism, pessimism, sadness, failure, frustration, anger, disappointment, or concern
+# - Choose Neutral ONLY IF the statement is purely factual with zero emotional content""",
+#     valid_labels=["Positive", "Negative", "Neutral"],
+#     completion_key="sentiment",
+#     text_key="normalized_text",
+#     audio_lookup_paths={
+#         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_train_audio_lookup",
+#         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_test_audio_lookup",
+#     }
+# )
+
 VOXCELEB_CONFIG = DatasetConfig(
     name=DatasetType.VOXCELEB,
     paths={

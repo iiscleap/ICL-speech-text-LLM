@@ -10,7 +10,38 @@ from .master_config import DatasetType, DatasetSplit, get_dataset_config, get_sw
 from .model_processors import ModelProcessor
 from datasets import load_from_disk
 
+# from ..ZscriptsINTERSPEECH.utils.generate_fewshots import convert_ner_to_dict
+
 logger = logging.getLogger(__name__)
+
+
+def convert_ner_to_dict(text: str, ner_data: Dict) -> Dict[str, List[str]]:
+    """
+    Convert NER data from start/length format to {tag: [phrases]} format.
+    Only includes tags that have actual phrases (not None).
+    
+    Args:
+        text: The input text
+        ner_data: Dictionary containing tag-phrase mappings
+    
+    Returns:
+        Dictionary mapping entity types to lists of phrases, excluding empty tags
+    """
+    result = {}
+    
+    # For the original start/length format
+    for tag, start, length in zip(ner_data['type'], ner_data['start'], ner_data['length']):
+        # Extract the phrase using start and length
+        phrase = text[start:start + length]
+        
+        # Only add non-empty phrases
+        if phrase.strip():
+            if tag not in result:
+                result[tag] = []
+            result[tag].append(phrase)
+    
+    return result
+
 
 class BaseMultiTaskDataset(Dataset):
     """Base class for multi-task datasets"""
@@ -111,7 +142,7 @@ class BaseMultiTaskDataset(Dataset):
     
 
 
-    def _format_label(self, example_or_label, is_example=True, current_mapping=None):
+    def _format_label(self, example_or_label, is_example=True, current_mapping=None , text=None):
         """
         Format label based on dataset type.
         
@@ -133,6 +164,8 @@ class BaseMultiTaskDataset(Dataset):
         if self.dataset_type in [DatasetType.VOXPOPULI, DatasetType.VOXPOPULI_SWAP, DatasetType.VOXPOPULI_GREEK]:
             if isinstance(label, dict):
                 # Filter out keys with None values
+                if not is_example:
+                    label = convert_ner_to_dict(text, label)
                 label_dict = [k for k, v in label.items() if v]
                 return ', '.join(label_dict) if label_dict else 'None'
         
@@ -173,7 +206,7 @@ class BaseMultiTaskDataset(Dataset):
             current_config = self.current_config
         
         # Process completion using current config
-        completion = self._format_label(item[current_config.completion_key], is_example=False, current_mapping=current_config.label_mapping)
+        completion = self._format_label(item[current_config.completion_key], is_example=False, current_mapping=current_config.label_mapping, text=item[current_config.text_key])
         
         # Format examples using current config
         formatted_examples = []

@@ -153,10 +153,10 @@ def run_inference(args):
                 finetuned_keys = set(finetuned_state_dict.keys())
                 logging.info(f"Updating {len(finetuned_keys)} parameters from finetuned model")
             elif "model" in checkpoint:
-                model.load_state_dict(checkpoint["model"], strict=False)
+                model.salmonn.load_state_dict(checkpoint["model"], strict=False)
                 finetuned_state_dict = checkpoint['model'] 
                 finetuned_keys = set(finetuned_state_dict.keys())
-                logging.info(f"Updating {len(finetuned_keys)} parameters from finetuned model")
+                logging.info(f"Updating {len(finetuned_keys)} parameters from finetuned model salmonn")
             else:
                 model.load_state_dict(checkpoint, strict=False)
                 logger.info("Loaded checkpoint directly as state dict")
