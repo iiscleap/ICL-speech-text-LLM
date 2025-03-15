@@ -240,10 +240,18 @@ class DatasetFactory:
         # Create multi-task dataset
         if is_training:
             logger.info(f"Creating MultiTaskTrainingDataset with {len(datasets)} tasks")
-            return MultiTaskTrainingDataset(datasets, processor)
+            return MultiTaskTrainingDataset(
+                datasets=datasets,
+                processor=processor,
+                balance_datasets=True  # Enable balanced sampling for training
+            )
         else:
             logger.info(f"Creating MultiTaskInferenceDataset with {len(datasets)} tasks")
-            return MultiTaskInferenceDataset(datasets, processor)
+            return MultiTaskInferenceDataset(
+                datasets=datasets,
+                processor=processor,
+                balance_datasets=False  # Keep inference unbalanced
+            )
     
     @staticmethod
     def from_config(config: Dict[str, Any], datasets, processor=None):

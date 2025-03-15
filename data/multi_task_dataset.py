@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import Dataset
 from typing import Dict, List, Optional, Any, Tuple, Union
 import time
+import numpy as np
 
 from .master_config import DatasetType, DatasetSplit, get_dataset_config, get_swap_config
 from .model_processors import ModelProcessor
@@ -274,7 +275,6 @@ class BaseMultiTaskDataset(Dataset):
                     example_audio = self._get_audio_by_index(example['index'])
                     if example_audio is not None:
                         if isinstance(example_audio['array'], list):
-                            import numpy as np
                             examples_audio.append(np.array(example_audio['array']))
                         else:
                             examples_audio.append(example_audio['array'])
@@ -332,51 +332,67 @@ class BaseMultiTaskDataset(Dataset):
         return list(self.few_shot_examples.keys())
 
 class MultiTaskDataset(Dataset):
-    """Dataset that combines multiple datasets into one"""
+    """Dataset that combines multiple datasets into one with balanced sampling"""
     
     def __init__(
         self,
         datasets: Dict[DatasetType, BaseMultiTaskDataset],
-        processor
+        processor,
+        balance_datasets: bool = True  # New parameter to control balancing
     ):
-        """
-        Initialize the multi-task dataset.
-        
-        Args:
-            datasets: Dictionary mapping dataset types to dataset objects
-            processor: Model-specific processor for text/audio
-        """
         self.datasets = datasets
         self.dataset_types = list(datasets.keys())
         self.processor = processor
+        self.balance_datasets = balance_datasets
         
-        # Calculate dataset sizes and create index mapping
+        # Calculate dataset sizes
         self.dataset_sizes = {dt: len(dataset) for dt, dataset in datasets.items()}
-        self.total_size = sum(self.dataset_sizes.values())
         
-        # Create a mapping from global index to (dataset_type, local_index)
-        self.index_mapping = []
-        for dt in self.dataset_types:
-            for local_idx in range(self.dataset_sizes[dt]):
-                self.index_mapping.append((dt, local_idx))
+        if self.balance_datasets:
+            # Use the maximum dataset size for balanced sampling
+            self.max_size = max(self.dataset_sizes.values())
+            self.total_size = self.max_size * len(self.dataset_types)
+            
+            # Create sampling indices for each dataset
+            self.dataset_indices = {}
+            for dt in self.dataset_types:
+                size = self.dataset_sizes[dt]
+                # If dataset is smaller than max_size, create repeating indices
+                repeats = (self.max_size + size - 1) // size  # Ceiling division
+                self.dataset_indices[dt] = np.tile(np.arange(size), repeats)[:self.max_size]
+                np.random.shuffle(self.dataset_indices[dt])  # Shuffle indices
+        else:
+            # Original unbalanced behavior
+            self.total_size = sum(self.dataset_sizes.values())
+            self.index_mapping = []
+            for dt in self.dataset_types:
+                for local_idx in range(self.dataset_sizes[dt]):
+                    self.index_mapping.append((dt, local_idx))
         
         logger.info(f"Created MultiTaskDataset with {len(self.dataset_types)} tasks")
         for dt in self.dataset_types:
             logger.info(f"  - {dt}: {self.dataset_sizes[dt]} examples")
-        logger.info(f"Total examples: {self.total_size}")
+        logger.info(f"Total examples per epoch: {self.total_size}")
     
     def __len__(self):
-        """Return the total size of all datasets"""
         return self.total_size
     
     def __getitem__(self, idx):
-        # Log before mapping
-        
-        # Map global index to dataset type and local index
-        dataset_type, local_idx = self.index_mapping[idx]
-        
-        # Get the item from the appropriate dataset
-        item = self.datasets[dataset_type][local_idx]
+        if self.balance_datasets:
+            # Interleaved sampling
+            dataset_idx = idx % len(self.dataset_types)  # Cycle through datasets
+            local_idx = idx // len(self.dataset_types)   # Index within dataset
+            dataset_type = self.dataset_types[dataset_idx]
+            
+            # Get the actual index for this dataset
+            actual_idx = int(self.dataset_indices[dataset_type][local_idx % self.max_size])  # Convert numpy.int64 to Python int
+            
+            # Get the item from the appropriate dataset
+            item = self.datasets[dataset_type][actual_idx]
+        else:
+            # Original unbalanced sampling
+            dataset_type, local_idx = self.index_mapping[idx]
+            item = self.datasets[dataset_type][int(local_idx)]  # Convert to Python int here too
         
         # Add the dataset type to the result if not already present
         if "dataset_type" not in item:
@@ -384,11 +400,17 @@ class MultiTaskDataset(Dataset):
         
         return item
 
+    def on_epoch_end(self):
+        """Call this at the end of each epoch to reshuffle indices"""
+        if self.balance_datasets:
+            for dt in self.dataset_types:
+                np.random.shuffle(self.dataset_indices[dt])
+
 class MultiTaskTrainingDataset(MultiTaskDataset):
     """Multi-task dataset for training"""
     
-    def __init__(self, datasets: Dict[DatasetType, BaseMultiTaskDataset], processor):
-        super().__init__(datasets, processor)
+    def __init__(self, datasets: Dict[DatasetType, BaseMultiTaskDataset], processor, balance_datasets: bool = True):
+        super().__init__(datasets, processor, balance_datasets=balance_datasets)
     
     def _is_training(self):
         return True
@@ -396,8 +418,8 @@ class MultiTaskTrainingDataset(MultiTaskDataset):
 class MultiTaskInferenceDataset(MultiTaskDataset):
     """Multi-task dataset for inference"""
     
-    def __init__(self, datasets: Dict[DatasetType, BaseMultiTaskDataset], processor):
-        super().__init__(datasets, processor)
+    def __init__(self, datasets: Dict[DatasetType, BaseMultiTaskDataset], processor, balance_datasets: bool = False):
+        super().__init__(datasets, processor, balance_datasets=balance_datasets)
     
     def _is_training(self):
         return False

@@ -3,7 +3,7 @@
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
 # dataset_type="voxceleb,hvb"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
-dataset_type="voxceleb_swap"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
+dataset_type="voxceleb,hvb"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
 num_examples=5
@@ -66,8 +66,11 @@ fi
 # Calculate effective batch size
 effective_batch_size=$((batch_size * gradient_accumulation_steps))
 
-# Generate a descriptive run name
-RUN_NAME="ft_${num_examples}ex_${num_epochs}e${effective_batch_size}b_${model_type}_${input_mode}_${fewshot_mode}_${CLEAN_DATASET_TYPE}"
+# Get current date and time in DD_MM_HHMM format
+CURRENT_DATETIME=$(date +"%d%m_%H%M")
+
+# Generate a descriptive run name with date and time at the start
+RUN_NAME="${CURRENT_DATETIME}_ft_${num_examples}ex_${num_epochs}e${effective_batch_size}b_${model_type}_${input_mode}_${fewshot_mode}_${CLEAN_DATASET_TYPE}"
 
 # Set script path
 SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/train/train.py"
@@ -103,12 +106,12 @@ if [ "$use_gradient_checkpointing" = true ]; then
 fi
 
 # Submit job
-qsub -q gpu.q -V -cwd \
-    -l hostname=compute-0-7 \
+qsub -q long.q -V -cwd \
+    -l hostname=compute-0-5 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=1,\
+    -v CUDA_VISIBLE_DEVICES=0,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

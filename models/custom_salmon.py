@@ -42,17 +42,13 @@ class CustomSALMONN(BaseModel):
                  freeze_speech_llama_proj: bool = False,
                  lora: bool = True,
                  lora_rank: int = 8,
-                 lora_alpha: int = 16,
+                 lora_alpha: int = 32,
                  lora_dropout: float = 0.05,
-                 multi_prompt: bool = False,
-                 prompt_path: str = "",
-                 prompt_template: str = "",
-                 max_txt_len: int = 128,
-                 end_sym: str = "</s>",
-                 low_resource: bool = False,
                  ckpt_path: str = "/data2/neeraja/neeraja/salmonn_v1.pth",  # Default checkpoint path
                  device=None, 
-                 use_fp16: bool = False):
+                 low_resource: bool = False,
+                 use_fp16: bool = False,
+                 max_txt_len: int = 128):
         """
         Initialize the CustomSALMONN model.
         """
@@ -64,50 +60,37 @@ class CustomSALMONN(BaseModel):
         self.input_processor = WhisperFeatureExtractor.from_pretrained(whisper_path)
         
         # Create config for SALMONN
-        # salmonn_config = {
-        #     "llama_path": llama_path,
-        #     "whisper_path": whisper_path,
-        #     "beats_path": beats_path,
-        #     "use_speech_Qformer": use_speech_Qformer,
-        #     "freeze_whisper": freeze_whisper,
-        #     "freeze_beats": freeze_beats,
-        #     "freeze_speech_QFormer": freeze_speech_QFormer,
-        #     "num_speech_query_token": num_speech_query_token,
-        #     "window_level_Qformer": window_level_Qformer,
-        #     "second_per_window": second_per_window,
-        #     "second_stride": second_stride,
-        #     "speech_llama_proj_model": speech_llama_proj_model,
-        #     "freeze_speech_llama_proj": freeze_speech_llama_proj,
-        #     "lora": lora,
-        #     "lora_rank": lora_rank,
-        #     "lora_alpha": lora_alpha,
-        #     "lora_dropout": lora_dropout,
-        #     "multi_prompt": multi_prompt,
-        #     "prompt_path": prompt_path,
-        #     "prompt_template": prompt_template,
-        #     "max_txt_len": max_txt_len,
-        #     "end_sym": end_sym,
-        #     "low_resource": low_resource,
-        #     "ckpt": ckpt_path
-        # }
-
-
         salmonn_config = {
             "llama_path": llama_path,
             "whisper_path": whisper_path,
             "beats_path": beats_path,
-            "use_speech_Qformer": True,
-            "freeze_whisper": True,
-            "freeze_beats": True,
-            "freeze_speech_QFormer": False,
-            "num_speech_query_token": 1,
-            "window_level_Qformer": True,
-            "second_per_window": 0.333333,
-            "second_stride": 0.333333,
-            "ckpt": ckpt_path,
-            "low_resource": True,
+            "use_speech_Qformer": use_speech_Qformer,
+            "freeze_whisper": freeze_whisper,
+            "freeze_beats": freeze_beats,
+            "freeze_speech_QFormer":freeze_speech_QFormer,
+            "num_speech_query_token": num_speech_query_token,
+            "window_level_Qformer": window_level_Qformer,
+            "second_per_window": second_per_window,
+            "second_stride": second_stride,
+            "speech_llama_proj_model": speech_llama_proj_model,
+            "freeze_speech_llama_proj": freeze_speech_llama_proj,
+            "lora": lora,
+            "lora_rank": lora_rank,
+            "lora_alpha": lora_alpha,
+            "lora_dropout": lora_dropout,
+            "low_resource": low_resource,
+            "ckpt": ckpt_path
         }
-    
+
+        # Add logging for LoRA configuration
+        if lora:
+            logging.info("=== LoRA Configuration ===")
+            logging.info(f"LoRA Rank: {lora_rank}")
+            logging.info(f"LoRA Alpha: {lora_alpha}")
+            logging.info(f"LoRA Dropout: {lora_dropout}")
+        else:
+            logging.info("LoRA is disabled")
+
         # Initialize the SALMONN model using from_config
         self.salmonn = SALMONN.from_config(salmonn_config)
         self.salmonn.to(self.device)

@@ -14,7 +14,7 @@ debug_samples=0  # Add debug_samples parameter (0 = use all samples)
 # Node configuration
 queue_name="long.q"      # Queue to submit job to (gpu.q, med.q, etc.)
 hostname="compute-0-5"  # Hostname to run on
-cuda_device=2          # CUDA device to use
+cuda_device=1          # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
 
@@ -36,8 +36,8 @@ hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb-hvb/checkpoints/epoch_10_loss_0.0060/model.pt"
-peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_swap-hvb_swap/checkpoints/epoch_10_loss_0.0117/model.pt"
-# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0055/model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_swap-hvb_swap/checkpoints/epoch_10_loss_0.0117/model.pt"
+peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0055/model.pt"
 
 
 
@@ -84,6 +84,9 @@ source /home/share/anaconda3/etc/profile.d/conda.sh
 conda deactivate
 conda activate $CONDA_ENV   
 
+# Get current date and time in DD_MM_HHMM format
+CURRENT_DATETIME=$(date +"%d%m_%H%M")
+
 # Extract run name from model path or set default
 if [ -z "$peft_model_path" ]; then
     RUN_NAME="default"
@@ -97,6 +100,9 @@ else
         RUN_NAME="${RUN_NAME}_e${EPOCH_NUM}"
     fi
 fi
+
+# Add datetime to the start of RUN_NAME
+RUN_NAME="${CURRENT_DATETIME}_${RUN_NAME}"
 
 # Set script path
 SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/inference/inference.py"
