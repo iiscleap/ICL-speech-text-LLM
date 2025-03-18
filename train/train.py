@@ -85,7 +85,7 @@ def parse_args():
                         help="Find unused parameters in DDP (use only if getting DDP errors)")
     parser.add_argument("--eval_batch_size", type=int, default=None,
                         help="Batch size for evaluation (defaults to training batch size)")
-    parser.add_argument("--scheduler", type=str, default="linear", 
+    parser.add_argument("--scheduler", type=str, default="cosine", 
                         choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"],
                         help="Learning rate scheduler type")
     
@@ -413,20 +413,30 @@ def main():
             for step, batch in enumerate(train_iter):
                 step_start = time.time()
                 
-                # Add debug logging for first epoch and first 5 iterations
-                if epoch == 0 and step < 5 and is_main_process:
-                    logger.info(f"\n=== Epoch {epoch+1}, Batch {step+1} Prompt ===")
+                # Add detailed logging for first epoch and first 10 iterations
+                if epoch == 0 and step < 10 and is_main_process:
+                    logger.info(f"\n{'='*20} Epoch {epoch+1}, Batch {step+1} {'='*20}")
+                    
+                    # Log input prompt
+                    logger.info("\n=== Input Prompt ===")
                     if "prompt" in batch:
-                        logger.info(batch["prompt"][0])
-                    elif "input_ids" in batch and hasattr(model, "processor") and hasattr(model.processor, "tokenizer"):
-                        try:
-                            decoded_prompt = model.processor.tokenizer.decode(batch["input_ids"][0], skip_special_tokens=False)
-                            logger.info(decoded_prompt)
-                        except Exception as e:
-                            logger.warning(f"Could not decode input_ids: {e}")
-                    else:
-                        logger.info("Prompt not available in batch")
-                    logger.info("=" * 50)
+                        for i in range(min(1, len(batch["prompt"]))):  # Log first example in batch
+                            logger.info(f"Prompt {i+1}:")
+                            logger.info(batch["prompt"][i])
+                    
+                    # Log target completion
+                    logger.info("\n=== Expected Output ===")
+                    if "completion" in batch:
+                        for i in range(min(1, len(batch["completion"]))):
+                            logger.info(f"Target {i+1}:")
+                            logger.info(batch["completion"][i])
+                    
+                    # Log model output/loss
+                    logger.info("\n=== Model Output ===")
+                    outputs = model(batch)
+                    logger.info(f"Loss: {outputs['loss'].item():.4f}")
+                    
+                    logger.info("\n" + "="*60 + "\n")
                 
                 # Clear memory every 50 steps
                 if step > 0 and step % 50 == 0:
@@ -440,6 +450,17 @@ def main():
                     # Move batch to device
                     batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
                     
+                    # Log which precision path we're taking
+                    if step == 0:  # Only log on first step to avoid spam
+                        if amp_dtype is not None:
+                            logging.info(f"=== Using Mixed Precision Training with dtype: {amp_dtype} ===")
+                            if scaler is not None:
+                                logging.info("Using GradScaler for FP16 training")
+                            else:
+                                logging.info("Using BF16 - no GradScaler needed")
+                        else:
+                            logging.info("=== Using Standard Precision Training ===")
+
                     # Forward pass with mixed precision if enabled
                     if amp_dtype is not None:
                         with autocast(dtype=amp_dtype):
@@ -451,14 +472,23 @@ def main():
                         # Backward pass with gradient scaling for float16
                         if scaler is not None:
                             scaler.scale(loss).backward()
+                            if step % 100 == 0:  # Log every 100 steps
+                                logging.info("Using scaled backward pass (FP16)")
                         else:
                             loss.backward()
+                            if step % 100 == 0:
+                                logging.info("Using regular backward pass (BF16)")
                         
                         # Update weights if gradient accumulation is complete
                         if (step + 1) % args.gradient_accumulation_steps == 0:
+                            if step % 100 == 0:
+                                logging.info(f"Updating weights after {args.gradient_accumulation_steps} accumulation steps")
+                            
                             if scaler is not None:
                                 # Unscale gradients for clipping with float16
                                 scaler.unscale_(optimizer)
+                                if step % 100 == 0:
+                                    logging.info("Unscaled gradients for clipping (FP16)")
                             
                             # Clip gradients
                             torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
@@ -467,34 +497,32 @@ def main():
                             if scaler is not None:
                                 scaler.step(optimizer)
                                 scaler.update()
+                                if step % 100 == 0:
+                                    logging.info("Updated weights with scaler (FP16)")
                             else:
                                 optimizer.step()
+                                if step % 100 == 0:
+                                    logging.info("Updated weights without scaler (BF16)")
                                 
-                            optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
-                            
-                            # Update learning rate
+                            optimizer.zero_grad(set_to_none=True)
                             scheduler.step()
                             global_step += 1
                     else:
                         # Standard precision training
+                        if step % 100 == 0:
+                            logging.info("=== Standard precision forward pass ===")
                         outputs = model(batch)
                         loss = outputs["loss"]
-                        # Scale loss for gradient accumulation
                         loss = loss / args.gradient_accumulation_steps
                         
-                        # Backward pass
                         loss.backward()
                         
-                        # Update weights if gradient accumulation is complete
                         if (step + 1) % args.gradient_accumulation_steps == 0:
-                            # Clip gradients
+                            if step % 100 == 0:
+                                logging.info("=== Standard precision weight update ===")
                             torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
-                            
-                            # Update weights
                             optimizer.step()
-                            optimizer.zero_grad(set_to_none=True)  # More efficient than zero_grad()
-                            
-                            # Update learning rate
+                            optimizer.zero_grad(set_to_none=True)
                             scheduler.step()
                             global_step += 1
                     

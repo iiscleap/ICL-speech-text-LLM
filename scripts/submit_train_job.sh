@@ -10,7 +10,7 @@ num_examples=5
 batch_size=1
 gradient_accumulation_steps=8
 learning_rate=1e-5
-num_epochs=20
+num_epochs=10
 warmup_steps=100
 save_every=1
 eval_every=5000
@@ -27,7 +27,7 @@ weight_decay=0.01  # Weight decay for AdamW
 max_grad_norm=1.0  # Max gradient norm for clipping
 
 # Debug options
-debug_samples=0  # Set to 0 to use full dataset, or >0 for limited samples
+debug_samples=50  # Set to 0 to use full dataset, or >0 for limited samples
 
 # If in debug mode (debug_samples > 0), override training parameters for faster iteration
 if [ "$debug_samples" -gt 0 ]; then
@@ -107,11 +107,11 @@ fi
 
 # Submit job
 qsub -q long.q -V -cwd \
-    -l hostname=compute-0-5 \
+    -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=0,\
+    -v CUDA_VISIBLE_DEVICES=1,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

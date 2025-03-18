@@ -134,7 +134,8 @@ def run_inference(args):
         logger.info(f"Creating model of type {args.model_type}")
         model = ModelFactory.create_model(
             model_type=args.model_type,
-            device=args.device
+            device=args.device,
+            low_resource=True
         )
         
 
