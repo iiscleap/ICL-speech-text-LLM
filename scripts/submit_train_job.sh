@@ -27,7 +27,7 @@ weight_decay=0.01  # Weight decay for AdamW
 max_grad_norm=1.0  # Max gradient norm for clipping
 
 # Debug options
-debug_samples=50  # Set to 0 to use full dataset, or >0 for limited samples
+debug_samples=0  # Set to 0 to use full dataset, or >0 for limited samples
 
 # If in debug mode (debug_samples > 0), override training parameters for faster iteration
 if [ "$debug_samples" -gt 0 ]; then

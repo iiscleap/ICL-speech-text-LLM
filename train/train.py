@@ -85,7 +85,7 @@ def parse_args():
                         help="Find unused parameters in DDP (use only if getting DDP errors)")
     parser.add_argument("--eval_batch_size", type=int, default=None,
                         help="Batch size for evaluation (defaults to training batch size)")
-    parser.add_argument("--scheduler", type=str, default="cosine", 
+    parser.add_argument("--scheduler", type=str, default="linear", 
                         choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"],
                         help="Learning rate scheduler type")
     
@@ -431,10 +431,6 @@ def main():
                             logger.info(f"Target {i+1}:")
                             logger.info(batch["completion"][i])
                     
-                    # Log model output/loss
-                    logger.info("\n=== Model Output ===")
-                    outputs = model(batch)
-                    logger.info(f"Loss: {outputs['loss'].item():.4f}")
                     
                     logger.info("\n" + "="*60 + "\n")
                 
