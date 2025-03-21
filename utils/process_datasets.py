@@ -13,19 +13,16 @@ def process_sqa5_dataset():
     cache_dir = '/data2/neeraja/neeraja/data'
     
     try:
-        for split in ['train', 'validation', 'test']:
+        for split in ['train','validation', 'test']:
             logger.info(f"\n{'='*50}")
             logger.info(f"Processing {split} split...")
             
-            # Load with optimized settings
             if split == 'train':
                 split_dataset = load_dataset(
                     dataset_name, 
                     subset, 
                     split='train', 
-                    cache_dir=cache_dir,
-                    num_proc=8,  # Use multiple processes for loading
-                    batch_size=1000  # Larger batch size
+                    cache_dir=cache_dir
                 ).select(range(10000))
                 logger.info(f"Selected first 10000 examples from train split")
             else:
@@ -33,36 +30,29 @@ def process_sqa5_dataset():
                     dataset_name, 
                     subset, 
                     split=split, 
-                    cache_dir=cache_dir,
-                    num_proc=8,
-                    batch_size=1000
+                    cache_dir=cache_dir
                 )
             
             logger.info(f"Initial number of examples: {len(split_dataset)}")
             
-            # Process with optimized settings
+            # Add unique_id column
             logger.info("\n=== Adding unique_id column ===")
-            split_dataset = split_dataset.map(
-                lambda x: {'unique_id': x['question_id'] + "_" + x['document_id']},
-                batch_size=16,
-                num_proc=1,
-                desc="Creating unique IDs"
+            split_dataset = split_dataset.add_column("unique_id", 
+                [f"{q}_{d}" for q, d in zip(split_dataset['question_id'], split_dataset['document_id'])]
             )
             
+            # Add answer_text column
             logger.info("\n=== Adding answer_text column ===")
-            split_dataset = split_dataset.map(
-                lambda x: {'answer_text': json.loads(x['answer_spans'])['answer'][0] if isinstance(x['answer_spans'], str) else x['answer_spans']['answer'][0]},
-                batch_size=16,
-                num_proc=1,
-                desc="Extracting answers"
+            split_dataset = split_dataset.add_column("answer_text",
+                [json.loads(s)['answer'][0] if isinstance(s, str) else s['answer'][0] 
+                 for s in split_dataset['answer_spans']]
             )
             
+            # Add time_spans column
             logger.info("\n=== Adding time_spans column ===")
-            split_dataset = split_dataset.map(
-                lambda x: {'time_spans': [json.loads(x['answer_spans'])['start_second'][0], json.loads(x['answer_spans'])['end_second'][0]] if isinstance(x['answer_spans'], str) else [x['answer_spans']['start_second'][0], x['answer_spans']['end_second'][0]]},
-                batch_size=16,
-                num_proc=1,
-                desc="Extracting time spans"
+            split_dataset = split_dataset.add_column("time_spans",
+                [[json.loads(s)['start_second'][0], json.loads(s)['end_second'][0]] if isinstance(s, str) else [s['start_second'][0], s['end_second'][0]] 
+                 for s in split_dataset['answer_spans']]
             )
             
             # Log unique IDs stats
@@ -90,11 +80,6 @@ def process_sqa5_dataset():
             logger.info(f"Number of examples: {len(split_dataset)}")
             logger.info(f"Columns: {split_dataset.column_names}")
             
-            # Show a complete example
-            logger.info("\nExample data point:")
-            example = split_dataset[0]
-            for k, v in example.items():
-                logger.info(f"{k}: {v} (type: {type(v)})")
             
             # Save processed dataset
             output_path = f"/data2/neeraja/neeraja/data/{dataset_name}_{subset}_{split}"
@@ -106,5 +91,78 @@ def process_sqa5_dataset():
         logger.error(f"Error processing dataset: {str(e)}")
         raise
 
+def process_vp_nel_dataset():
+    dataset_name = "asapp/slue-phase-2"
+    subset = "vp_nel"
+    cache_dir = '/data2/neeraja/neeraja/data'
+    
+    try:
+        logger.info(f"Loading {dataset_name} {subset} dataset...")
+        
+        for split in ['validation', 'test']:  # Only validation and test splits
+            logger.info(f"\n{'='*50}")
+            logger.info(f"Processing {split} split...")
+            
+            # Load split
+            split_dataset = load_dataset(
+                dataset_name, 
+                subset, 
+                split=split, 
+                cache_dir=cache_dir
+            )
+            
+            logger.info(f"Initial number of examples: {len(split_dataset)}")
+            
+            # Process ne_timestamps to create clean format
+            logger.info("\n=== Processing NE timestamps ===")
+            split_dataset = split_dataset.map(
+                lambda x: {
+                    'ne_spans': [
+                        {
+                            'label': label,
+                            'time_span': [start, end]
+                        }
+                        for label, start, end in zip(
+                            x['ne_timestamps']['ne_label'],
+                            x['ne_timestamps']['start_sec'],
+                            x['ne_timestamps']['end_sec']
+                        )
+                    ] if x['ne_timestamps'] else []
+                },
+                desc="Processing NE timestamps"
+            )
+            
+            # Add unique_id column
+            logger.info("\n=== Adding unique_id column ===")
+            split_dataset = split_dataset.add_column(
+                "unique_id", 
+                [str(id_) for id_ in split_dataset['id']]
+            )
+            
+            # Save processed dataset
+            output_path = f"/data2/neeraja/neeraja/data/{dataset_name}_{subset}_{split}"
+            split_dataset.save_to_disk(output_path)
+            logger.info(f"Saved {split} split to {output_path}")
+            
+            # Log some stats
+            logger.info(f"\nSplit {split} statistics:")
+            logger.info(f"Number of examples: {len(split_dataset)}")
+            
+            # Show an example
+            if len(split_dataset) > 0:
+                example = split_dataset[0]
+                logger.info("\nExample data point:")
+                logger.info(f"ID: {example['id']}")
+                logger.info(f"Text: {example['text'][:100]}...")
+                logger.info(f"NE spans: {example['ne_spans']}")
+                logger.info(f"Unique ID: {example['unique_id']}")
+            
+            logger.info("="*50)
+
+    except Exception as e:
+        logger.error(f"Error processing dataset: {str(e)}")
+        raise
+
 if __name__ == "__main__":
-    process_sqa5_dataset()
+    # process_sqa5_dataset()
+    process_vp_nel_dataset()

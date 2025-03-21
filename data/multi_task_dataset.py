@@ -101,9 +101,15 @@ class BaseMultiTaskDataset(Dataset):
             audio_lookup_path = self.config.get_audio_lookup_path(self.split)
             if audio_lookup_path:
                 load_time = time.time()
-                self.audio_lookup = load_from_disk(audio_lookup_path)
-                self.audio_index_map = {str(idx): i for i, idx in enumerate(self.audio_lookup['index'])}
-                logger.info(f"Initialized audio lookup dataset in {time.time() - load_time:.3f}s")
+                if self.dataset_type in [DatasetType.SQA, DatasetType.VOXPOPULI_NEL]:
+                    # For SQA and VP-NEL, just load the dataset
+                    self.audio_lookup = load_from_disk(audio_lookup_path)
+                    logger.info(f"Initialized audio lookup dataset for {self.dataset_type} in {time.time() - load_time:.3f}s")
+                else:
+                    # For other datasets, create index map
+                    self.audio_lookup = load_from_disk(audio_lookup_path)
+                    self.audio_index_map = {str(idx): i for i, idx in enumerate(self.audio_lookup['index'])}
+                    logger.info(f"Initialized audio lookup dataset with index map in {time.time() - load_time:.3f}s")
 
     def __len__(self):
         """Return the length of the dataset"""
@@ -196,6 +202,167 @@ class BaseMultiTaskDataset(Dataset):
         # Get item from dataset
         item = self.dataset[idx]
         
+        # Handle different dataset types
+        if self.dataset_type == DatasetType.SQA:
+            return self._process_sqa_item(item, idx)
+        elif self.dataset_type == DatasetType.VOXPOPULI_NEL:
+            return self._process_vpnel_item(item, idx)
+        else:
+            return self._process_default_item(item, idx)
+
+    def _process_sqa_item(self, item, idx):
+        """Special processing for SQA dataset"""
+        current_config = self.current_config
+        
+        # Instead of getting few_shot_examples from item, randomly sample from audio lookup
+        if self.audio_lookup is not None and self.num_examples > 0:
+            # Randomly sample indices from audio lookup
+            total_examples = len(self.audio_lookup)
+            sampled_indices = random.sample(range(total_examples), min(self.num_examples, total_examples))
+            
+            # Create few-shot examples from sampled indices
+            formatted_examples = []
+            examples_audio = []
+            
+            for sample_idx in sampled_indices:
+                example = self.audio_lookup[sample_idx]
+                formatted_example = {
+                    "question": example[current_config.additional_text_keys['question']],
+                    "document": example[current_config.text_key],
+                    "time_spans": example[current_config.completion_key]
+                }
+                formatted_examples.append(formatted_example)
+                
+                if self.fewshot_mode == 'speech':
+                    example_audio = {
+                        'question_audio': example['question_audio']['array'] if 'question_audio' in example else None,
+                        'document_audio': example['document_audio']['array'] if 'document_audio' in example else None
+                    }
+                    examples_audio.append(example_audio)
+        else:
+            formatted_examples = []
+            examples_audio = None
+        
+        # Create prompt using both question and document
+        prompt = self.processor.format_prompt(
+            template=current_config.prompt_template,
+            text=item[current_config.text_key],  # document text
+            question=item[current_config.additional_text_keys['question']],  # question text
+            examples=formatted_examples,
+            input_mode=self.input_mode,
+            fewshot_mode=self.fewshot_mode,
+            dataset_type=DatasetType.SQA
+        )
+        
+        # Get audio data for both question and document
+        audio_data = {
+            'question_audio': self._get_audio_by_key(item, 'question_audio'),
+            'document_audio': self._get_audio_by_key(item, 'document_audio')
+        }
+        
+        # Process inputs
+        inputs = self.processor.process_inputs(
+            data={
+                "prompt": prompt,
+                "fewshot_mode": self.fewshot_mode,
+                "input_mode": self.input_mode,
+                "completion": item[current_config.completion_key],
+                "audio": audio_data,
+                "examples_audio": examples_audio
+            },
+            is_training=self._is_training()
+        )
+        
+        # Build result with additional metadata
+        result = {
+            "prompt": prompt,
+            "text": item[current_config.text_key],
+            "question": item[current_config.additional_text_keys['question']],
+            "completion": item[current_config.completion_key],
+            "dataset_type": self.dataset_type,
+            "unique_id": item[current_config.additional_metadata_keys['unique_id']],
+            **inputs
+        }
+        
+        return result
+
+
+    def _get_audio_by_key(self, item, key):
+        """Helper to get audio by key from item"""
+        if key in item and item[key] is not None:
+            return item[key]['array']
+        return None
+
+    def _process_vpnel_item(self, item, idx):
+        """Special processing for VP-NEL dataset"""
+        current_config = self.current_config
+        
+        # Instead of getting few_shot_examples from item, randomly sample from audio lookup
+        if self.audio_lookup is not None and self.num_examples > 0:
+            # Randomly sample indices from audio lookup
+            total_examples = len(self.audio_lookup)
+            sampled_indices = random.sample(range(total_examples), min(self.num_examples, total_examples))
+            
+            # Create few-shot examples from sampled indices
+            formatted_examples = []
+            examples_audio = []
+            
+            for sample_idx in sampled_indices:
+                example = self.audio_lookup[sample_idx]
+                formatted_example = {
+                    "text": example[current_config.text_key],
+                    "ne_spans": example[current_config.completion_key]
+                }
+                formatted_examples.append(formatted_example)
+                
+                if self.fewshot_mode == 'speech':
+                    example_audio = example['audio']['array'] if 'audio' in example else None
+                    if example_audio is not None:
+                        examples_audio.append(example_audio)
+        else:
+            formatted_examples = []
+            examples_audio = None
+        
+        # Create prompt
+        prompt = self.processor.format_prompt(
+            template=current_config.prompt_template,
+            text=item[current_config.text_key],
+            examples=formatted_examples,
+            input_mode=self.input_mode,
+            fewshot_mode=self.fewshot_mode,
+            dataset_type=DatasetType.VOXPOPULI_NEL
+        )
+        
+        # Get audio data
+        audio_data = self._get_audio_by_key(item, 'audio')
+        
+        # Process inputs
+        inputs = self.processor.process_inputs(
+            data={
+                "prompt": prompt,
+                "fewshot_mode": self.fewshot_mode,
+                "input_mode": self.input_mode,
+                "completion": item[current_config.completion_key],
+                "audio": audio_data,
+                "examples_audio": examples_audio if examples_audio else None
+            },
+            is_training=self._is_training()
+        )
+        
+        # Build result
+        result = {
+            "prompt": prompt,
+            "text": item[current_config.text_key],
+            "completion": item[current_config.completion_key],
+            "dataset_type": self.dataset_type,
+            "unique_id": item[current_config.additional_metadata_keys['unique_id']],
+            **inputs
+        }
+        
+        return result
+
+    def _process_default_item(self, item, idx):
+        """Original processing logic for other datasets"""
         # Get few-shot examples
         few_shot_examples = item.get('few_shot_examples', [])
         selected_examples = self._select_examples(few_shot_examples)
@@ -207,7 +374,12 @@ class BaseMultiTaskDataset(Dataset):
             current_config = self.current_config
         
         # Process completion using current config
-        completion = self._format_label(item[current_config.completion_key], is_example=False, current_mapping=current_config.label_mapping, text=item[current_config.text_key])
+        completion = self._format_label(
+            item[current_config.completion_key], 
+            is_example=False, 
+            current_mapping=current_config.label_mapping, 
+            text=item[current_config.text_key]
+        )
         
         # Format examples using current config
         formatted_examples = []
@@ -224,7 +396,8 @@ class BaseMultiTaskDataset(Dataset):
             text=item[current_config.text_key],
             examples=formatted_examples,
             input_mode=self.input_mode,
-            fewshot_mode=self.fewshot_mode
+            fewshot_mode=self.fewshot_mode,
+            dataset_type=self.dataset_type
         )
         
         # Get audio data
@@ -247,7 +420,7 @@ class BaseMultiTaskDataset(Dataset):
         )
         
         # Build result
-        result = self._build_result(
+        return self._build_result(
             prompt=prompt,
             item=item,
             completion=completion,
@@ -255,7 +428,6 @@ class BaseMultiTaskDataset(Dataset):
             inputs=inputs
         )
 
-        return result
     def _get_main_audio(self, item):
         """Get main audio data if needed (can be overridden)"""
         audio_data = None

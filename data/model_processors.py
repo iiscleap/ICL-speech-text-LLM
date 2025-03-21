@@ -4,6 +4,7 @@ import torch
 from typing import Dict, List, Optional, Any
 import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
+from .master_config import DatasetType
 
 logger = logging.getLogger(__name__)
 
@@ -272,8 +273,182 @@ class SalmonProcessor(ModelProcessor):
         self.tokenizer = tokenizer
         self.max_length = max_length
     
-    def process_inputs(self, data: Dict[str, Any], is_training: bool = False) -> Dict[str, torch.Tensor]:
-        """Process inputs exactly matching salmon_datasets.py"""
+    def process_inputs(self, data: Dict[str, Any], is_training: bool = False):
+        dataset_type = data.get("dataset_type")
+        
+        if dataset_type == DatasetType.SQA:
+            return self._process_sqa_inputs(data, is_training)
+        elif dataset_type == DatasetType.VOXPOPULI_NEL:
+            return self._process_vpnel_inputs(data, is_training)
+        else:
+            return self._process_default_inputs(data, is_training)
+
+    def _process_sqa_inputs(self, data: Dict[str, Any], is_training: bool = False):
+        """Process inputs for SQA dataset"""
+        prompt = data.get("prompt", "")
+        audio_data = data.get("audio", {})  # Dictionary containing question_audio and document_audio
+        examples_audio = data.get("examples_audio", [])
+        completion = data.get("completion", "")
+        input_mode = data.get("input_mode", "speech_only")
+
+        # Process text input
+        tokenized = self.tokenizer(
+            prompt,
+            padding="max_length",
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt"
+        )
+
+        # Process question and document audio
+        question_spectrogram = None
+        question_raw_wav = None
+        question_wav_length = 0
+        
+        document_spectrogram = None
+        document_raw_wav = None
+        document_wav_length = 0
+
+        if "speech" in input_mode:
+            # Process question audio
+            if audio_data.get("question_audio") is not None:
+                question_raw_wav = torch.tensor(audio_data["question_audio"])
+                question_spectrogram = self.processor(
+                    audio_data["question_audio"],
+                    sampling_rate=16000,
+                    return_tensors="pt"
+                ).input_features.squeeze(0)
+                question_wav_length = len(question_raw_wav)
+
+            # Process document audio
+            if audio_data.get("document_audio") is not None:
+                document_raw_wav = torch.tensor(audio_data["document_audio"])
+                document_spectrogram = self.processor(
+                    audio_data["document_audio"],
+                    sampling_rate=16000,
+                    return_tensors="pt"
+                ).input_features.squeeze(0)
+                document_wav_length = len(document_raw_wav)
+
+        # Process examples
+        examples_speech = []
+        if examples_audio and len(examples_audio) > 0:
+            for example_audio in examples_audio:
+                # Process both question and document audio for each example
+                example_data = {
+                    "question": {
+                        "raw_wav": None,
+                        "spectrogram": None,
+                        "wav_length": 0
+                    },
+                    "document": {
+                        "raw_wav": None,
+                        "spectrogram": None,
+                        "wav_length": 0
+                    }
+                }
+
+                if example_audio.get("question_audio") is not None:
+                    q_raw_wav = torch.tensor(example_audio["question_audio"])
+                    example_data["question"] = {
+                        "raw_wav": q_raw_wav,
+                        "spectrogram": self.processor(
+                            example_audio["question_audio"],
+                            sampling_rate=16000,
+                            return_tensors="pt"
+                        ).input_features.squeeze(0),
+                        "wav_length": len(q_raw_wav)
+                    }
+
+                if example_audio.get("document_audio") is not None:
+                    d_raw_wav = torch.tensor(example_audio["document_audio"])
+                    example_data["document"] = {
+                        "raw_wav": d_raw_wav,
+                        "spectrogram": self.processor(
+                            example_audio["document_audio"],
+                            sampling_rate=16000,
+                            return_tensors="pt"
+                        ).input_features.squeeze(0),
+                        "wav_length": len(d_raw_wav)
+                    }
+
+                examples_speech.append(example_data)
+
+        return {
+            "input_ids": tokenized.input_ids,
+            "attention_mask": tokenized.attention_mask,
+            "question_spectrogram": question_spectrogram,
+            "question_raw_wav": question_raw_wav,
+            "question_wav_length": question_wav_length,
+            "document_spectrogram": document_spectrogram,
+            "document_raw_wav": document_raw_wav,
+            "document_wav_length": document_wav_length,
+            "examples_speech": examples_speech,
+            "num_examples": len(examples_speech),
+            "completion": completion
+        }
+
+    def _process_vpnel_inputs(self, data: Dict[str, Any], is_training: bool = False):
+        """Process inputs for VP-NEL dataset"""
+        prompt = data.get("prompt", "")
+        audio = data.get("audio")
+        examples_audio = data.get("examples_audio", [])
+        completion = data.get("completion", "")
+        input_mode = data.get("input_mode", "speech_only")
+
+        # Process text input
+        tokenized = self.tokenizer(
+            prompt,
+            padding="max_length",
+            truncation=True,
+            max_length=self.max_length,
+            return_tensors="pt"
+        )
+
+        # Process main audio
+        spectrogram = None
+        raw_wav = None
+        wav_length = 0
+
+        if audio is not None and "speech" in input_mode:
+            raw_wav = torch.tensor(audio)
+            spectrogram = self.processor(
+                audio,
+                sampling_rate=16000,
+                return_tensors="pt"
+            ).input_features.squeeze(0)
+            wav_length = len(raw_wav)
+
+        # Process examples
+        examples_speech = []
+        if examples_audio and len(examples_audio) > 0:
+            for example_audio in examples_audio:
+                example_raw_wav = torch.tensor(example_audio)
+                example_spectrogram = self.processor(
+                    example_audio,
+                    sampling_rate=16000,
+                    return_tensors="pt"
+                ).input_features.squeeze(0)
+
+                examples_speech.append({
+                    "raw_wav": example_raw_wav,
+                    "spectrogram": example_spectrogram,
+                    "wav_length": len(example_raw_wav)
+                })
+
+        return {
+            "input_ids": tokenized.input_ids,
+            "attention_mask": tokenized.attention_mask,
+            "spectrogram": spectrogram,
+            "raw_wav": raw_wav,
+            "wav_length": wav_length,
+            "examples_speech": examples_speech,
+            "num_examples": len(examples_speech),
+            "completion": completion
+        }
+
+    def _process_default_inputs(self, data: Dict[str, Any], is_training: bool = False):
+        """Original process_inputs implementation"""
         prompt = data.get("prompt", "")
         audio = data.get("audio")
         examples_audio = data.get("examples_audio", [])
@@ -338,20 +513,108 @@ class SalmonProcessor(ModelProcessor):
                      text: str, 
                      examples: Optional[List[Dict]] = None,
                      input_mode: str = "speech_and_text",
-                     fewshot_mode: str = "text") -> str:
+                     fewshot_mode: str = "text",
+                     dataset_type: Optional[DatasetType] = None,
+                     **kwargs) -> str:
         """
-        Format a prompt for the model based on the input mode.
+        Format a prompt based on dataset type and input mode.
         
         Args:
             template: The prompt template to use
             text: The main text input
-            examples: List of few-shot examples (already formatted)
+            examples: List of few-shot examples
             input_mode: Mode for input ('speech_only', 'text_only', 'speech_and_text')
             fewshot_mode: Mode for few-shot examples ('text' or 'speech')
-            
-        Returns:
-            Formatted prompt string
+            dataset_type: Type of dataset (SQA, VP-NEL, etc.)
+            **kwargs: Additional arguments (like question for SQA)
         """
+        if dataset_type == DatasetType.SQA:
+            return self._format_sqa_prompt(template, text, examples, input_mode, fewshot_mode, **kwargs)
+        elif dataset_type == DatasetType.VOXPOPULI_NEL:
+            return self._format_vpnel_prompt(template, text, examples, input_mode, fewshot_mode)
+        else:
+            return self._format_default_prompt(template, text, examples, input_mode, fewshot_mode)
+
+    def _format_sqa_prompt(self, template: str, text: str, examples: Optional[List[Dict]], 
+                          input_mode: str, fewshot_mode: str, **kwargs):
+        """Format prompt for SQA dataset"""
+        question = kwargs.get('question', '')
+        
+        # Format examples if provided
+        examples_text = ""
+        if examples and len(examples) > 0:
+            if fewshot_mode == "speech":
+                examples_text = "\n\n".join([
+                    f"<Speech>Question{i}</Speech>\n"
+                    f"<Speech>Document{i}</Speech>\n"
+                    f"Time spans: {example.get('time_spans', '')}"
+                    for i, example in enumerate(examples)
+                ])
+            else:
+                examples_text = "\n\n".join([
+                    f"Question: {example.get('question', '')}\n"
+                    f"Document: {example.get('document', '')}\n"
+                    f"Time spans: {example.get('time_spans', '')}"
+                    for example in examples
+                ])
+            
+            examples_text = f"\nHere are few examples to learn from:\n{examples_text}\n\n"
+
+        # Create input section based on input mode
+        if input_mode == "speech_and_text":
+            input_section = (
+                f"<Speech>Question</Speech>\n"
+                f"Question text: {question}\n"
+                f"<Speech>Document</Speech>\n"
+                f"Document text: {text}"
+            )
+        elif input_mode == "text_only":
+            input_section = f"Question: {question}\nDocument: {text}"
+        else:  # speech_only
+            input_section = "<Speech>Question</Speech>\n<Speech>Document</Speech>"
+
+        # Create the final prompt
+        prompt = f"{template}\n{examples_text}Now analyze this input:\n{input_section}\nTime spans:"
+        
+        return prompt
+
+    def _format_vpnel_prompt(self, template: str, text: str, examples: Optional[List[Dict]], 
+                            input_mode: str, fewshot_mode: str):
+        """Format prompt for VP-NEL dataset"""
+        # Format examples if provided
+        examples_text = ""
+        if examples and len(examples) > 0:
+            if fewshot_mode == "speech":
+                examples_text = "\n\n".join([
+                    f"<Speech><Example{i}></Speech>\n"
+                    f"Named entities and timestamps: {example.get('ne_spans', '')}"
+                    for i, example in enumerate(examples)
+                ])
+            else:
+                examples_text = "\n\n".join([
+                    f"Text: {example.get('text', '')}\n"
+                    f"Named entities and timestamps: {example.get('ne_spans', '')}"
+                    for example in examples
+                ])
+            
+            examples_text = f"\nHere are few examples to learn from:\n{examples_text}\n\n"
+
+        # Create input section based on input mode
+        if input_mode == "speech_and_text":
+            input_section = f"<Speech><SpeechHere></Speech>\nTranscript: {text}"
+        elif input_mode == "text_only":
+            input_section = f"Text: {text}"
+        else:  # speech_only
+            input_section = "<Speech><SpeechHere></Speech>"
+
+        # Create the final prompt
+        prompt = f"{template}\n{examples_text}Now analyze this input:\n{input_section}\nNamed entities and timestamps:"
+        
+        return prompt
+
+    def _format_default_prompt(self, template: str, text: str, examples: Optional[List[Dict]], 
+                             input_mode: str, fewshot_mode: str):
+        """Format prompt for default case (classification tasks)"""
         # Format examples if provided
         examples_text = ""
         if examples and len(examples) > 0:

@@ -322,7 +322,7 @@ def run_inference(args):
                     
                     # Process outputs and log them
                     for i, (output, true_label) in enumerate(zip(outputs, batch["completion"])):
-                        cleaned_output = clean_prediction(output)
+                        cleaned_output = clean_prediction(output, batch["dataset_type"][i] if isinstance(batch["dataset_type"], list) else batch["dataset_type"])
                         logger.info(f"Batch {batch_idx+1}, Sample {i+1}:")
                         logger.info(f"Predicted (original): {output}")
                         logger.info(f"Predicted (cleaned): {cleaned_output}")
@@ -393,20 +393,22 @@ def save_final_results(results, args, results_dir):
         
         logger.info(f"Saved results to {results_file}")
         
-        # Evaluate results
+        # Evaluate results based on dataset type
         logger.info("Evaluating results")
         all_metrics = {}
         
-        # Parse dataset types
         if "-" in args.dataset_type:
             dataset_types = [DatasetType(dt.strip()) for dt in args.dataset_type.split("-")]
         else:
             dataset_types = [DatasetType(args.dataset_type)]
         
-        # Evaluate for each dataset type
         for dt in dataset_types:
             dt_results = [r for r in results if r["dataset_type"] == dt.value]
             if dt_results:
+                # Clean predictions based on dataset type
+                for r in dt_results:
+                    r["predicted_label (cleaned)"] = clean_prediction(r["predicted_label"], dt)
+                
                 metrics = evaluate_predictions(dt_results, dt)
                 all_metrics[dt.value] = metrics
                 logger.info(f"Results for {dt}:")
@@ -428,18 +430,49 @@ def save_final_results(results, args, results_dir):
         logger.debug(traceback.format_exc())
 
 
-def clean_prediction(prediction: str) -> str:
-    """Clean prediction by removing escape characters and dataset-specific artifacts"""
+def clean_prediction(prediction: str, dataset_type: DatasetType = None) -> str:
+    """Clean prediction based on dataset type and expected format"""
     # First remove basic escape characters
     cleaned = prediction.replace('\\', '')
-
+    
     if '\n' in cleaned:
         cleaned = cleaned.split('\n')[0]
     
-    # Normalize case to lowercase
-    cleaned = cleaned.lower().strip()
+    # Get dataset-specific config
+    if dataset_type == DatasetType.SQA:
+        # For SQA, expect "start_time end_time"
+        cleaned = cleaned.strip()
+        # Validate format: should be two numbers
+        try:
+            start, end = map(float, cleaned.split())
+            return f"{start:.2f} {end:.2f}"
+        except:
+            return cleaned
+            
+    elif dataset_type == DatasetType.VOXPOPULI_NEL:
+        # For VP_NEL, expect "TYPE: start end" format
+        if cleaned.lower() == 'none':
+            return 'none'
+        
+        # Split by semicolon and clean each entity span
+        try:
+            spans = cleaned.split(';')
+            cleaned_spans = []
+            for span in spans:
+                span = span.strip()
+                if ':' in span:
+                    entity_type, times = span.split(':', 1)
+                    try:
+                        start, end = map(float, times.strip().split())
+                        cleaned_spans.append(f"{entity_type.strip()}: {start:.2f} {end:.2f}")
+                    except:
+                        cleaned_spans.append(span)
+            return '; '.join(cleaned_spans)
+        except:
+            return cleaned
     
-    return cleaned
+    # Default cleaning for other datasets
+    return cleaned.lower().strip()
 
 class DummyContextManager:
     """Dummy context manager for when autocast is not used."""

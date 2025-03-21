@@ -26,6 +26,7 @@ class DatasetType(str, Enum):
 
 class DatasetSplit(Enum):
     TRAIN = "train"
+    VAL = "validation"
     TEST = "test"
 
 @dataclass
@@ -33,11 +34,17 @@ class DatasetConfig:
     name: DatasetType
     paths: Dict[DatasetSplit, str]
     prompt_template: str
-    valid_labels: List[str]
+    valid_labels: Optional[List[str]]
     completion_key: str
     text_key: str
     audio_lookup_paths: Dict[DatasetSplit, str] = None
     label_mapping: Dict[str, str] = None
+    
+    # New optional generic fields for flexible configurations
+    additional_text_keys: Dict[str, str] = None  # For multiple text fields like {'question': 'normalized_question_text'}
+    additional_audio_keys: Dict[str, str] = None  # For multiple audio fields
+    additional_metadata_keys: Dict[str, str] = None  # For any other metadata fields
+    output_format: str = None  # New field to specify expected output format
 
     def get_path(self, split: DatasetSplit) -> str:
         return self.paths[split]
