@@ -16,6 +16,8 @@ from .voxpopuli_config import (
     VOXPOPULI_GREEK_CONFIG, 
     get_voxpopuli_swap_config
 )
+from .sqa_config import SQA_CONFIG
+from .vp_nel_config import VP_NEL_CONFIG
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +27,9 @@ DATASET_CONFIGS: Dict[DatasetType, DatasetConfig] = {
     DatasetType.HVB: HVB_CONFIG,
     DatasetType.HVB_GREEK: HVB_GREEK_CONFIG,
     DatasetType.VOXPOPULI: VOXPOPULI_CONFIG,
-    DatasetType.VOXPOPULI_GREEK: VOXPOPULI_GREEK_CONFIG
+    DatasetType.VOXPOPULI_GREEK: VOXPOPULI_GREEK_CONFIG,
+    DatasetType.SQA: SQA_CONFIG,
+    DatasetType.VP_NEL: VP_NEL_CONFIG
 }
 
 def get_dataset_config(dataset_type: DatasetType) -> DatasetConfig:

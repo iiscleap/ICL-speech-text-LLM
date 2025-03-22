@@ -121,6 +121,9 @@ class CustomSALMONN(BaseModel):
         # Infer device from model parameters
         device = next(self.parameters()).device
         
+        # Add flag for SQA dataset - only check embeds
+        is_sqa = isinstance(embeds, tuple)
+        
         batch_size = len(prompts)
         # logging.info(f"Batch size: {batch_size}")
         max_examples = num_examples.max().item() if num_examples is not None else 0
@@ -130,20 +133,40 @@ class CustomSALMONN(BaseModel):
         for b in range(batch_size):
             parts = []
             suffix = prompts[b]
-            
-            # Split prompt for examples
             if max_examples > 0 and example_embeds is not None:
-                for i in range(max_examples):
-                    example_marker = f"<Example{i}>"
-                    if example_marker in suffix:
-                        before_example, after_example = suffix.split(example_marker, 1)
-                        parts.append(before_example)
-                        suffix = after_example
-                    else:
-                        parts.append("")
+                if is_sqa:
+                    # First handle the examples with Question{i} and Document{i}
+                    for i in range(max_examples):
+                        q_marker = f"<Question{i}>"
+                        d_marker = f"<Document{i}>"
+                        
+                        if q_marker in suffix and d_marker in suffix:
+                            before_q, rest = suffix.split(q_marker, 1)
+                            middle, after_d = rest.split(d_marker, 1)
+                            parts.extend([before_q, middle])
+                            suffix = after_d
+                            
+                            if self.batch_counter == 0:
+                                logging.info(f"After processing example {i}, parts list length: {len(parts)}")
+
+                else:
+                    # Original example handling
+                    for i in range(max_examples):
+                        example_marker = f"<Example{i}>"
+                        if example_marker in suffix:
+                            before_example, after_example = suffix.split(example_marker, 1)
+                            parts.append(before_example)
+                            suffix = after_example
+                        else:
+                            parts.append("")
 
             # Split for main speech input if speech placeholder exists
-            if self.speech_placeholder in suffix:
+            if "<Question>" in suffix:
+                    before_q, rest = suffix.split("<Question>", 1)
+                    middle, after_d = rest.split("<Document>", 1)
+                    parts.extend([before_q, middle])
+                    suffix = after_d
+            elif self.speech_placeholder in suffix:
                 before_speech, after_speech = suffix.split(self.speech_placeholder)
                 parts.append(before_speech)
                 suffix = after_speech
@@ -173,47 +196,82 @@ class CustomSALMONN(BaseModel):
             ]
             part_atts = [tokens['attention_mask'].squeeze(0) for tokens in tokenized_parts]
             
+
+            if self.batch_counter == 0:
+                logging.info(f"After processing example {i}, parts embeds list length: {len(part_embeds)}")
+
+
             # Combine embeddings
             combined_embeds, combined_atts = [], []
             
             # Add text parts and examples
-            for i in range(len(part_embeds) - 2):
-                combined_embeds.append(part_embeds[i])
-                combined_atts.append(part_atts[i])
-                
-                if i < max_examples and example_embeds is not None:
-                    # Add example embeddings if available for this batch and example index
-                    if b < len(example_embeds) and i < len(example_embeds[b]):
-                        combined_embeds.append(example_embeds[b][i])
-                        combined_atts.append(example_atts[b][i])
-            
-            # Add final parts
-            if embeds is not None:  # Speech mode
-                if self.batch_counter == 0:
-                    logging.info(f"Speech embeds shape: {embeds[b].shape}")
-                    logging.info(f"Part embeds shapes: {part_embeds[-2].shape}, {part_embeds[-1].shape}")
-                combined_embeds.extend([part_embeds[-2], embeds[b], part_embeds[-1]])
-                combined_atts.extend([part_atts[-2], atts[b], part_atts[-1]])
-                if self.batch_counter == 0:
-                    logging.info(f"Combined embeds length: {len(combined_embeds)}")
-                    logging.info(f"Individual shapes in combined_embeds: {[e.shape for e in combined_embeds]}")
-            else:  # Text-only mode
-                # For text-only, concatenate the final parts without speech embeddings
-                if len(part_embeds) >= 2:
-                    combined_embeds.extend([part_embeds[-2], part_embeds[-1]])
-                    combined_atts.extend([part_atts[-2], part_atts[-1]])
+            if is_sqa:
+                # Handle SQA dataset
+                for i in range(max_examples):
+                    combined_embeds.append(part_embeds[2*i])
+                    combined_atts.append(part_atts[2*i])
+                    
+                    if example_embeds is not None:
+                        if b < len(example_embeds) and i < len(example_embeds[b]):
+                            q_embed, d_embed = example_embeds[b][i]
+                            q_att, d_att = example_atts[b][i]
+                            combined_embeds.extend([q_embed, part_embeds[2*i+1], d_embed])
+                            combined_atts.extend([q_att, part_atts[2*i+1], d_att])
+                    
+                # Add final question and document embeddings
+                if embeds is not None:  # Speech mode
+                    q_embeds, d_embeds = embeds
+                    q_atts, d_atts = atts
+                    if self.batch_counter == 0:
+                        logging.info(f"Speech embeds shape: {q_embeds[b].shape, d_embeds[b].shape}")
+                        logging.info(f"Part embeds shapes: {part_embeds[-2].shape}, {part_embeds[-1].shape}")
+                    
+                    combined_embeds.extend([part_embeds[-3], q_embeds[b], part_embeds[-2], d_embeds[b], part_embeds[-1]])
+                    combined_atts.extend([part_atts[-3], q_atts[b], part_atts[-2], d_atts[b], part_atts[-1]])
+                    if self.batch_counter == 0:
+                        logging.info(f"Combined embeds length: {len(combined_embeds)}")
+                        logging.info(f"Individual shapes in combined_embeds: {[e.shape for e in combined_embeds]}")
                 else:
-                    # If there's only one part (e.g., no speech placeholder)
-                    combined_embeds.append(part_embeds[-1])
-                    combined_atts.append(part_atts[-1])
+                    combined_embeds.extend([part_embeds[-3], part_embeds[-2], part_embeds[-1]])
+                    combined_atts.extend([part_atts[-3],part_atts[-2], part_atts[-1]])
+            else:
+                for i in range(len(part_embeds) - 2):
+                    combined_embeds.append(part_embeds[i])
+                    combined_atts.append(part_atts[i])
+                    
+                    if i < max_examples and example_embeds is not None:
+                        # Add example embeddings if available for this batch and example index
+                        if b < len(example_embeds) and i < len(example_embeds[b]):
+                            combined_embeds.append(example_embeds[b][i])
+                            combined_atts.append(example_atts[b][i])
                 
-                if self.batch_counter == 0:
-                    logging.info(f"Text-only mode: combined {len(combined_embeds)} parts")
+                # Add final parts
+                if embeds is not None:  # Speech mode
+                    if self.batch_counter == 0:
+                        logging.info(f"Speech embeds shape: {embeds[b].shape}")
+                        logging.info(f"Part embeds shapes: {part_embeds[-2].shape}, {part_embeds[-1].shape}")
+                    combined_embeds.extend([part_embeds[-2], embeds[b], part_embeds[-1]])
+                    combined_atts.extend([part_atts[-2], atts[b], part_atts[-1]])
+                    if self.batch_counter == 0:
+                        logging.info(f"Combined embeds length: {len(combined_embeds)}")
+                        logging.info(f"Individual shapes in combined_embeds: {[e.shape for e in combined_embeds]}")
+                else:  # Text-only mode
+                    # For text-only, concatenate the final parts without speech embeddings
+                    if len(part_embeds) >= 2:
+                        combined_embeds.extend([part_embeds[-2], part_embeds[-1]])
+                        combined_atts.extend([part_atts[-2], part_atts[-1]])
+                    else:
+                        # If there's only one part (e.g., no speech placeholder)
+                        combined_embeds.append(part_embeds[-1])
+                        combined_atts.append(part_atts[-1])
+                    
+                    if self.batch_counter == 0:
+                        logging.info(f"Text-only mode: combined {len(combined_embeds)} parts")
 
-            if self.batch_counter == 0:
-                logging.info("\n=== Attention Mask Debug ===")
-                for i, att in enumerate(combined_atts):
-                    logging.info(f"Attention mask {i} shape: {att.shape}")
+                if self.batch_counter == 0:
+                    logging.info("\n=== Attention Mask Debug ===")
+                    for i, att in enumerate(combined_atts):
+                        logging.info(f"Attention mask {i} shape: {att.shape}")
 
             # Concatenate all parts
             batch_embeds.append(torch.cat(combined_embeds, dim=0))
@@ -240,9 +298,15 @@ class CustomSALMONN(BaseModel):
         Generates speech embeddings for both training and inference.
         """
         start_time = time.time()
+
+        # Check if this is SQA dataset with question and document audio
+        is_sqa = (
+            "question_spectrogram" in samples and 
+            "document_spectrogram" in samples
+        )
         
         # Add detailed logging for first batch
-        if self.batch_counter == 0:
+        if self.batch_counter == 0 and not is_sqa:
             if samples["spectrogram"] is not None:
                 logging.info("=== Input Data Debug (First 5 values) ===")
                 logging.info(f"Spectrogram dtype: {samples['spectrogram'].dtype}")
@@ -267,10 +331,25 @@ class CustomSALMONN(BaseModel):
                     logging.info(f"Non-padded length: {padding_mask.sum().item()}")
                     logging.info(f"Padding percentage: {(1 - padding_mask.float().mean()) * 100:.2f}%")
         
-        # Check if we have valid speech data
-        has_main_speech = "spectrogram" in samples and samples["spectrogram"] is not None and samples["spectrogram"].numel() > 1
-        has_examples = "example_spectrograms" in samples and samples["example_spectrograms"] is not None and samples["example_spectrograms"].numel() > 1
+
         
+        if is_sqa:
+            # Process question and document audio
+            has_main_speech = (
+                samples["question_spectrogram"] is not None and 
+                samples["document_spectrogram"] is not None
+            )
+            has_examples = (
+                "example_question_spectrograms" in samples and 
+                "example_document_spectrograms" in samples and 
+                samples["example_question_spectrograms"] is not None and 
+                samples["example_document_spectrograms"] is not None
+            )
+        else:
+            # Original logic for other datasets
+            has_main_speech = "spectrogram" in samples and samples["spectrogram"] is not None
+            has_examples = "example_spectrograms" in samples and samples["example_spectrograms"] is not None
+
         if self.batch_counter == 0:
             if has_main_speech:
                 logging.info("Valid main speech data detected")
@@ -290,22 +369,45 @@ class CustomSALMONN(BaseModel):
                 tensor = tensor.to(dtype=torch.float16)
             return tensor
 
-        # Process main inputs - only if we have valid main speech
+        # Process main inputs
         speech_embeds = speech_atts = None
         if has_main_speech:
-            samples["spectrogram"] = to_device_and_dtype(samples["spectrogram"])
-            samples["raw_wav"] = to_device_and_dtype(samples.get("raw_wav"))
-            if "padding_mask" in samples:
-                samples["padding_mask"] = samples["padding_mask"].to(self.device)
+            if is_sqa:
+                # Process question audio
+                q_spec = to_device_and_dtype(samples["question_spectrogram"])
+                q_wav = to_device_and_dtype(samples.get("question_raw_wav"))
+                q_mask = samples.get("question_padding_mask", None)
+                if q_mask is not None:
+                    q_mask = q_mask.to(self.device)
+                
+                # Process document audio
+                d_spec = to_device_and_dtype(samples["document_spectrogram"])
+                d_wav = to_device_and_dtype(samples.get("document_raw_wav"))
+                d_mask = samples.get("document_padding_mask", None)
+                if d_mask is not None:
+                    d_mask = d_mask.to(self.device)
+                
+                # Encode both audios
+                q_embeds, q_atts = self.encode_speech(q_spec, q_wav, q_mask)
+                d_embeds, d_atts = self.encode_speech(d_spec, d_wav, d_mask)
+                
+                # Combine embeddings (concatenate along sequence dimension)
+                speech_embeds = (q_embeds, d_embeds)
+                speech_atts = (q_atts, d_atts)
+            else:
+                # ... existing code for other datasets ...
+                samples["spectrogram"] = to_device_and_dtype(samples["spectrogram"])
+                samples["raw_wav"] = to_device_and_dtype(samples.get("raw_wav"))
+                if "padding_mask" in samples:
+                    samples["padding_mask"] = samples["padding_mask"].to(self.device)
+                
+                speech_embeds, speech_atts = self.encode_speech(
+                    spectrogram=samples["spectrogram"],
+                    raw_wav=samples.get("raw_wav"),
+                    audio_padding_mask=samples.get("padding_mask")
+                )
             
-            # Encode main speech
-            speech_embeds, speech_atts = self.encode_speech(
-                spectrogram=samples["spectrogram"],
-                raw_wav=samples.get("raw_wav"),
-                audio_padding_mask=samples.get("padding_mask")
-            )
-            
-            if self.batch_counter == 0:
+            if self.batch_counter == 0 and not is_sqa:
                 logging.info("\n=== Speech Embeddings Debug ===")
                 logging.info(f"Main speech embeddings shape: {speech_embeds.shape}")
                 logging.info(f"Main speech attention mask shape: {speech_atts.shape}")
@@ -328,61 +430,106 @@ class CustomSALMONN(BaseModel):
                 logging.info(f"Non-masked length: {speech_atts.sum().item()}")
                 logging.info(f"Masked percentage: {(1 - speech_atts.float().mean()) * 100:.2f}%")
         
-        # Process examples if present - regardless of whether main speech exists
+        # Process examples
         example_embeds = example_atts = None
         if has_examples:
-            # Process example inputs
-            samples["example_spectrograms"] = to_device_and_dtype(samples["example_spectrograms"])
-            samples["example_wavs"] = to_device_and_dtype(samples.get("example_wavs"))
-            if "example_padding_masks" in samples:
-                samples["example_padding_masks"] = samples["example_padding_masks"].to(self.device)
+            if is_sqa:
+                # Process SQA examples with question and document audio
+                samples["example_question_spectrograms"] = to_device_and_dtype(samples["example_question_spectrograms"])
+                samples["example_document_spectrograms"] = to_device_and_dtype(samples["example_document_spectrograms"])
+                samples["example_question_wavs"] = to_device_and_dtype(samples.get("example_question_wavs"))
+                samples["example_document_wavs"] = to_device_and_dtype(samples.get("example_document_wavs"))
                 
-            B, E = samples["example_spectrograms"].shape[:2]
-            all_example_embeds, all_example_atts = [], []
-            
-            if self.batch_counter == 0:
-                logging.info(f"=== Example Processing Debug ===")
-                logging.info(f"Number of examples: {E}")
-                logging.info(f"Example spectrograms shape: {samples['example_spectrograms'].shape}")
-            
-            for b in range(B):
-                batch_embeds, batch_atts = [], []
-                for e in range(E):
-                    if self.batch_counter == 0:
-                        logging.info(f"\nProcessing example {e}:")
-                        logging.info(f"Example spectrogram shape: {samples['example_spectrograms'][b, e].shape}")
-                        logging.info(f"Has NaN before encode: {torch.isnan(samples['example_spectrograms'][b, e]).any().item()}")
-                    
-                    single_spec = samples["example_spectrograms"][b, e].unsqueeze(0)
-                    single_wav = samples["example_wavs"][b, e].unsqueeze(0) if samples["example_wavs"] is not None else None
-                    single_padding = samples["example_padding_masks"][b, e].unsqueeze(0) if "example_padding_masks" in samples else None
-                    
-                    example_embed, example_att = self.encode_speech(
-                        spectrogram=single_spec,
-                        raw_wav=single_wav,
-                        audio_padding_mask=single_padding
-                    )
-                    
-                    if self.batch_counter == 0:
-                        logging.info(f"Example {e} embeddings shape: {example_embed.shape}")
-                        logging.info(f"Has NaN after encode: {torch.isnan(example_embed).any().item()}")
-                        if torch.isnan(example_embed).any():
-                            logging.info(f"NaN percentage: {torch.isnan(example_embed).float().mean()*100:.2f}%")
-                    
-                    example_att = example_att.squeeze(0)
-                    example_embed = example_embed.squeeze(0)
-                    batch_embeds.append(example_embed)
-                    batch_atts.append(example_att)
 
-                    if self.batch_counter == 0 and b == 0 and e == 0:
-                        logging.info(f"Example embeddings shape: {example_embed.shape}")
-                        logging.info(f"Example attention mask shape: {example_att.shape}")
+                if "example_question_padding_masks" in samples:
+                    samples["example_question_padding_masks"] = samples["example_question_padding_masks"].to(self.device)
+                if "example_document_padding_masks" in samples:
+                    samples["example_document_padding_masks"] = samples["example_document_padding_masks"].to(self.device)
                 
-                all_example_embeds.append(batch_embeds)
-                all_example_atts.append(batch_atts)
-                     
-            example_embeds = all_example_embeds
-            example_atts = all_example_atts
+                B, E = samples["example_question_spectrograms"].shape[:2]
+                all_example_embeds, all_example_atts = [], []
+                
+                for b in range(B):
+                    batch_embeds, batch_atts = [], []
+                    for e in range(E):
+                        # Process question
+                        q_spec = samples["example_question_spectrograms"][b, e].unsqueeze(0)
+                        q_wav = samples["example_question_wavs"][b, e].unsqueeze(0) if samples["example_question_wavs"] is not None else None
+                        q_mask = samples["example_question_padding_masks"][b, e].unsqueeze(0) if "example_question_padding_masks" in samples else None
+                        
+                        # Process document
+                        d_spec = samples["example_document_spectrograms"][b, e].unsqueeze(0)
+                        d_wav = samples["example_document_wavs"][b, e].unsqueeze(0) if samples["example_document_wavs"] is not None else None
+                        d_mask = samples["example_document_padding_masks"][b, e].unsqueeze(0) if "example_document_padding_masks" in samples else None
+                        
+                        # Encode both
+                        q_embed, q_att = self.encode_speech(q_spec, q_wav, q_mask)
+                        d_embed, d_att = self.encode_speech(d_spec, d_wav, d_mask)
+                        
+                        # Combine
+                        example_embed = (q_embed.squeeze(0), d_embed.squeeze(0))
+                        example_att = (q_att.squeeze(0), d_att.squeeze(0))
+                        
+                        batch_embeds.append(example_embed)
+                        batch_atts.append(example_att)
+                    
+                    all_example_embeds.append(batch_embeds)
+                    all_example_atts.append(batch_atts)
+                
+                example_embeds = all_example_embeds
+                example_atts = all_example_atts
+            else:
+                samples["example_spectrograms"] = to_device_and_dtype(samples["example_spectrograms"])
+                samples["example_wavs"] = to_device_and_dtype(samples.get("example_wavs"))
+                if "example_padding_masks" in samples:
+                    samples["example_padding_masks"] = samples["example_padding_masks"].to(self.device)
+                    
+                B, E = samples["example_spectrograms"].shape[:2]
+                all_example_embeds, all_example_atts = [], []
+                
+                if self.batch_counter == 0:
+                    logging.info(f"=== Example Processing Debug ===")
+                    logging.info(f"Number of examples: {E}")
+                    logging.info(f"Example spectrograms shape: {samples['example_spectrograms'].shape}")
+                
+                for b in range(B):
+                    batch_embeds, batch_atts = [], []
+                    for e in range(E):
+                        if self.batch_counter == 0:
+                            logging.info(f"\nProcessing example {e}:")
+                            logging.info(f"Example spectrogram shape: {samples['example_spectrograms'][b, e].shape}")
+                            logging.info(f"Has NaN before encode: {torch.isnan(samples['example_spectrograms'][b, e]).any().item()}")
+                        
+                        single_spec = samples["example_spectrograms"][b, e].unsqueeze(0)
+                        single_wav = samples["example_wavs"][b, e].unsqueeze(0) if samples["example_wavs"] is not None else None
+                        single_padding = samples["example_padding_masks"][b, e].unsqueeze(0) if "example_padding_masks" in samples else None
+                        
+                        example_embed, example_att = self.encode_speech(
+                            spectrogram=single_spec,
+                            raw_wav=single_wav,
+                            audio_padding_mask=single_padding
+                        )
+                        
+                        if self.batch_counter == 0:
+                            logging.info(f"Example {e} embeddings shape: {example_embed.shape}")
+                            logging.info(f"Has NaN after encode: {torch.isnan(example_embed).any().item()}")
+                            if torch.isnan(example_embed).any():
+                                logging.info(f"NaN percentage: {torch.isnan(example_embed).float().mean()*100:.2f}%")
+                        
+                        example_att = example_att.squeeze(0)
+                        example_embed = example_embed.squeeze(0)
+                        batch_embeds.append(example_embed)
+                        batch_atts.append(example_att)
+
+                        if self.batch_counter == 0 and b == 0 and e == 0:
+                            logging.info(f"Example embeddings shape: {example_embed.shape}")
+                            logging.info(f"Example attention mask shape: {example_att.shape}")
+                    
+                    all_example_embeds.append(batch_embeds)
+                    all_example_atts.append(batch_atts)
+                        
+                example_embeds = all_example_embeds
+                example_atts = all_example_atts
         
         logging.info(f"Speech embedding generation took {time.time() - start_time:.2f} seconds")
         
@@ -408,10 +555,22 @@ class CustomSALMONN(BaseModel):
         speech_embeds, speech_atts, example_embeds, example_atts = self.get_speech_embeddings(samples)
         
         if self.batch_counter == 0:
+            logging.info("\n=== Embeddings Status ===")
+            logging.info(f"Main speech embeddings: {'Present' if speech_embeds is not None else 'None'}")
             if speech_embeds is not None:
-                logging.info("Speech data detected and processed")
-                logging.info(f"Speech embeddings device: {speech_embeds.device}")
-                logging.info(f"Speech embeddings range: {speech_embeds.min():.3f} to {speech_embeds.max():.3f}")
+                if isinstance(speech_embeds, tuple):
+                    # For SQA dataset with question and document embeddings
+                    q_embeds, d_embeds = speech_embeds
+                    logging.info("SQA Speech data detected and processed")
+                    logging.info(f"Question embeddings device: {q_embeds.device}")
+                    logging.info(f"Question embeddings range: {q_embeds.min():.3f} to {q_embeds.max():.3f}")
+                    logging.info(f"Document embeddings device: {d_embeds.device}")
+                    logging.info(f"Document embeddings range: {d_embeds.min():.3f} to {d_embeds.max():.3f}")
+                else:
+                    # Original logging for single speech embedding
+                    logging.info("Speech data detected and processed")
+                    logging.info(f"Speech embeddings device: {speech_embeds.device}")
+                    logging.info(f"Speech embeddings range: {speech_embeds.min():.3f} to {speech_embeds.max():.3f}")
             else:
                 logging.info("No speech data detected, using text-only mode")
         
@@ -483,9 +642,19 @@ class CustomSALMONN(BaseModel):
         
         if self.batch_counter == 0:
             if speech_embeds is not None:
-                logging.info("Speech data detected and processed")
-                logging.info(f"Speech embeddings device: {speech_embeds.device}")
-                logging.info(f"Speech embeddings range: {speech_embeds.min():.3f} to {speech_embeds.max():.3f}")
+                if isinstance(speech_embeds, tuple):
+                    # For SQA dataset with question and document embeddings
+                    q_embeds, d_embeds = speech_embeds
+                    logging.info("SQA Speech data detected and processed")
+                    logging.info(f"Question embeddings device: {q_embeds.device}")
+                    logging.info(f"Question embeddings range: {q_embeds.min():.3f} to {q_embeds.max():.3f}")
+                    logging.info(f"Document embeddings device: {d_embeds.device}")
+                    logging.info(f"Document embeddings range: {d_embeds.min():.3f} to {d_embeds.max():.3f}")
+                else:
+                    # Original logging for single speech embedding
+                    logging.info("Speech data detected and processed")
+                    logging.info(f"Speech embeddings device: {speech_embeds.device}")
+                    logging.info(f"Speech embeddings range: {speech_embeds.min():.3f} to {speech_embeds.max():.3f}")
             else:
                 logging.info("No speech data detected, using text-only mode")
         

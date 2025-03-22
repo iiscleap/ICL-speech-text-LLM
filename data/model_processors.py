@@ -130,6 +130,7 @@ class QwenProcessor(ModelProcessor):
         # Convert to float16 for efficiency
         inputs.input_features = inputs.input_features.to(torch.float16)
         
+
         return {
             "input_ids": inputs.input_ids.squeeze(0),
             "attention_mask": inputs.attention_mask.squeeze(0),
@@ -272,15 +273,15 @@ class SalmonProcessor(ModelProcessor):
         self.processor = processor
         self.tokenizer = tokenizer
         self.max_length = max_length
+        self.batch_counter = 0
     
     def process_inputs(self, data: Dict[str, Any], is_training: bool = False):
         dataset_type = data.get("dataset_type")
         
         if dataset_type == DatasetType.SQA:
             return self._process_sqa_inputs(data, is_training)
-        elif dataset_type == DatasetType.VOXPOPULI_NEL:
-            return self._process_vpnel_inputs(data, is_training)
         else:
+            # Use default for both VP-NEL and other datasets
             return self._process_default_inputs(data, is_training)
 
     def _process_sqa_inputs(self, data: Dict[str, Any], is_training: bool = False):
@@ -374,6 +375,7 @@ class SalmonProcessor(ModelProcessor):
 
                 examples_speech.append(example_data)
 
+        self.batch_counter += 1
         return {
             "input_ids": tokenized.input_ids,
             "attention_mask": tokenized.attention_mask,
@@ -383,65 +385,6 @@ class SalmonProcessor(ModelProcessor):
             "document_spectrogram": document_spectrogram,
             "document_raw_wav": document_raw_wav,
             "document_wav_length": document_wav_length,
-            "examples_speech": examples_speech,
-            "num_examples": len(examples_speech),
-            "completion": completion
-        }
-
-    def _process_vpnel_inputs(self, data: Dict[str, Any], is_training: bool = False):
-        """Process inputs for VP-NEL dataset"""
-        prompt = data.get("prompt", "")
-        audio = data.get("audio")
-        examples_audio = data.get("examples_audio", [])
-        completion = data.get("completion", "")
-        input_mode = data.get("input_mode", "speech_only")
-
-        # Process text input
-        tokenized = self.tokenizer(
-            prompt,
-            padding="max_length",
-            truncation=True,
-            max_length=self.max_length,
-            return_tensors="pt"
-        )
-
-        # Process main audio
-        spectrogram = None
-        raw_wav = None
-        wav_length = 0
-
-        if audio is not None and "speech" in input_mode:
-            raw_wav = torch.tensor(audio)
-            spectrogram = self.processor(
-                audio,
-                sampling_rate=16000,
-                return_tensors="pt"
-            ).input_features.squeeze(0)
-            wav_length = len(raw_wav)
-
-        # Process examples
-        examples_speech = []
-        if examples_audio and len(examples_audio) > 0:
-            for example_audio in examples_audio:
-                example_raw_wav = torch.tensor(example_audio)
-                example_spectrogram = self.processor(
-                    example_audio,
-                    sampling_rate=16000,
-                    return_tensors="pt"
-                ).input_features.squeeze(0)
-
-                examples_speech.append({
-                    "raw_wav": example_raw_wav,
-                    "spectrogram": example_spectrogram,
-                    "wav_length": len(example_raw_wav)
-                })
-
-        return {
-            "input_ids": tokenized.input_ids,
-            "attention_mask": tokenized.attention_mask,
-            "spectrogram": spectrogram,
-            "raw_wav": raw_wav,
-            "wav_length": wav_length,
             "examples_speech": examples_speech,
             "num_examples": len(examples_speech),
             "completion": completion
@@ -479,6 +422,11 @@ class SalmonProcessor(ModelProcessor):
             ).input_features.squeeze(0)  # Remove batch dimension
             wav_length = len(raw_wav)
         
+        if self.batch_counter == 0:
+            logging.info(f"\n=== Input Processing Debug ===")
+            logging.info(f"Input mode: {input_mode}")
+            logging.info(f"Spectrogram: {'Present' if spectrogram is not None else 'None'}")
+    
         # Process examples
         examples_speech = []
         if examples_audio and len(examples_audio) > 0:
@@ -497,6 +445,7 @@ class SalmonProcessor(ModelProcessor):
                     "wav_length": len(example_raw_wav)
                 })
 
+        self.batch_counter += 1
         return {
             "input_ids": tokenized.input_ids,
             "attention_mask": tokenized.attention_mask,
@@ -516,24 +465,11 @@ class SalmonProcessor(ModelProcessor):
                      fewshot_mode: str = "text",
                      dataset_type: Optional[DatasetType] = None,
                      **kwargs) -> str:
-        """
-        Format a prompt based on dataset type and input mode.
-        
-        Args:
-            template: The prompt template to use
-            text: The main text input
-            examples: List of few-shot examples
-            input_mode: Mode for input ('speech_only', 'text_only', 'speech_and_text')
-            fewshot_mode: Mode for few-shot examples ('text' or 'speech')
-            dataset_type: Type of dataset (SQA, VP-NEL, etc.)
-            **kwargs: Additional arguments (like question for SQA)
-        """
         if dataset_type == DatasetType.SQA:
             return self._format_sqa_prompt(template, text, examples, input_mode, fewshot_mode, **kwargs)
-        elif dataset_type == DatasetType.VOXPOPULI_NEL:
-            return self._format_vpnel_prompt(template, text, examples, input_mode, fewshot_mode)
         else:
-            return self._format_default_prompt(template, text, examples, input_mode, fewshot_mode)
+            # Use default for both VP-NEL and other datasets
+            return self._format_default_prompt(template, text, examples, input_mode, fewshot_mode, **kwargs)
 
     def _format_sqa_prompt(self, template: str, text: str, examples: Optional[List[Dict]], 
                           input_mode: str, fewshot_mode: str, **kwargs):
@@ -545,8 +481,8 @@ class SalmonProcessor(ModelProcessor):
         if examples and len(examples) > 0:
             if fewshot_mode == "speech":
                 examples_text = "\n\n".join([
-                    f"<Speech>Question{i}</Speech>\n"
-                    f"<Speech>Document{i}</Speech>\n"
+                    f"<Speech><Question{i}></Speech>\n"
+                    f"<Speech><Document{i}></Speech>\n"
                     f"Time spans: {example.get('time_spans', '')}"
                     for i, example in enumerate(examples)
                 ])
@@ -563,57 +499,23 @@ class SalmonProcessor(ModelProcessor):
         # Create input section based on input mode
         if input_mode == "speech_and_text":
             input_section = (
-                f"<Speech>Question</Speech>\n"
+                f"<Speech><Question></Speech>\n"
                 f"Question text: {question}\n"
-                f"<Speech>Document</Speech>\n"
+                f"<Speech><Document></Speech>\n"
                 f"Document text: {text}"
             )
         elif input_mode == "text_only":
             input_section = f"Question: {question}\nDocument: {text}"
         else:  # speech_only
-            input_section = "<Speech>Question</Speech>\n<Speech>Document</Speech>"
+            input_section = "<Speech><Question></Speech>\n<Speech><Document></Speech>"
 
         # Create the final prompt
         prompt = f"{template}\n{examples_text}Now analyze this input:\n{input_section}\nTime spans:"
         
         return prompt
 
-    def _format_vpnel_prompt(self, template: str, text: str, examples: Optional[List[Dict]], 
-                            input_mode: str, fewshot_mode: str):
-        """Format prompt for VP-NEL dataset"""
-        # Format examples if provided
-        examples_text = ""
-        if examples and len(examples) > 0:
-            if fewshot_mode == "speech":
-                examples_text = "\n\n".join([
-                    f"<Speech><Example{i}></Speech>\n"
-                    f"Named entities and timestamps: {example.get('ne_spans', '')}"
-                    for i, example in enumerate(examples)
-                ])
-            else:
-                examples_text = "\n\n".join([
-                    f"Text: {example.get('text', '')}\n"
-                    f"Named entities and timestamps: {example.get('ne_spans', '')}"
-                    for example in examples
-                ])
-            
-            examples_text = f"\nHere are few examples to learn from:\n{examples_text}\n\n"
-
-        # Create input section based on input mode
-        if input_mode == "speech_and_text":
-            input_section = f"<Speech><SpeechHere></Speech>\nTranscript: {text}"
-        elif input_mode == "text_only":
-            input_section = f"Text: {text}"
-        else:  # speech_only
-            input_section = "<Speech><SpeechHere></Speech>"
-
-        # Create the final prompt
-        prompt = f"{template}\n{examples_text}Now analyze this input:\n{input_section}\nNamed entities and timestamps:"
-        
-        return prompt
-
     def _format_default_prompt(self, template: str, text: str, examples: Optional[List[Dict]], 
-                             input_mode: str, fewshot_mode: str):
+                             input_mode: str, fewshot_mode: str, **kwargs):
         """Format prompt for default case (classification tasks)"""
         # Format examples if provided
         examples_text = ""
@@ -649,7 +551,15 @@ class SalmonProcessor(ModelProcessor):
         return prompt
     
     def collate_batch(self, batch_items: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Collate batch exactly matching salmon_datasets.py"""
+        """Route to appropriate collate function based on dataset type"""
+        if batch_items[0].get("dataset_type") == DatasetType.SQA:
+            return self._collate_sqa_batch(batch_items)
+        else:
+            # Use default for both VP-NEL and other datasets
+            return self._collate_default_batch(batch_items)
+
+    def _collate_default_batch(self, batch_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Original collate_batch implementation for default case"""
         batch = {}
         
         # Process text inputs
@@ -657,7 +567,7 @@ class SalmonProcessor(ModelProcessor):
         batch["attention_mask"] = torch.stack([item["attention_mask"] for item in batch_items])
         
         # Check for valid speech data
-        has_valid_speech = all(item['spectrogram'] is not None for item in batch_items)
+        has_valid_speech = all(item.get('spectrogram') is not None for item in batch_items)
         
         if not has_valid_speech:
             # Text-only mode tensors - exact shapes from salmon_datasets.py
@@ -736,9 +646,156 @@ class SalmonProcessor(ModelProcessor):
                 batch["example_padding_masks"] = torch.stack(example_masks)
             else:
                 # No speech examples - exact shapes from salmon_datasets.py
-                batch["example_spectrograms"] = torch.zeros((len(batch_items), max_examples,  1, 1), dtype=torch.float)
+                batch["example_spectrograms"] = torch.zeros((len(batch_items), max_examples, 1, 1), dtype=torch.float)
                 batch["example_wavs"] = torch.zeros((len(batch_items), max_examples, 1), dtype=torch.float)
                 batch["example_padding_masks"] = torch.ones((len(batch_items), max_examples, 1), dtype=torch.bool)
+        
+        # Add non-tensor data
+        batch["num_examples"] = torch.tensor([item["num_examples"] for item in batch_items])
+        for key in ["prompt", "completion", "text", "dataset_type"]:
+            if key in batch_items[0]:
+                batch[key] = [item[key] for item in batch_items]
+        
+        return batch
+
+    def _collate_sqa_batch(self, batch_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Collate batch for SQA dataset"""
+        batch = {}
+        
+        # Process text inputs
+        batch["input_ids"] = torch.stack([item["input_ids"] for item in batch_items])
+        batch["attention_mask"] = torch.stack([item["attention_mask"] for item in batch_items])
+        
+        # Check for valid speech data
+        has_valid_speech = all(
+            item.get('question_spectrogram') is not None and 
+            item.get('document_spectrogram') is not None 
+            for item in batch_items
+        )
+        
+        if not has_valid_speech:
+            # Text-only mode tensors
+            for prefix in ['question_', 'document_']:
+                batch[f"{prefix}wav_lengths"] = torch.zeros(len(batch_items), dtype=torch.long)
+                batch[f"{prefix}raw_wav"] = torch.zeros((len(batch_items), 1), dtype=torch.float)
+                batch[f"{prefix}padding_mask"] = torch.ones((len(batch_items), 1), dtype=torch.bool)
+                batch[f"{prefix}spectrogram"] = torch.zeros((len(batch_items), 1, 1, 1), dtype=torch.float)
+        else:
+            # Process question audio
+            q_wav_lengths = torch.tensor([item['question_wav_length'] for item in batch_items])
+            q_raw_wavs = [item['question_raw_wav'] for item in batch_items]
+            q_raw_wavs_padded = pad_sequence(q_raw_wavs, batch_first=True, padding_value=0)
+            q_padding_mask = torch.arange(q_raw_wavs_padded.size(1)).unsqueeze(0) >= q_wav_lengths.unsqueeze(1)
+            q_spectrograms = torch.stack([item['question_spectrogram'] for item in batch_items])
+            
+            # Process document audio
+            d_wav_lengths = torch.tensor([item['document_wav_length'] for item in batch_items])
+            d_raw_wavs = [item['document_raw_wav'] for item in batch_items]
+            d_raw_wavs_padded = pad_sequence(d_raw_wavs, batch_first=True, padding_value=0)
+            d_padding_mask = torch.arange(d_raw_wavs_padded.size(1)).unsqueeze(0) >= d_wav_lengths.unsqueeze(1)
+            d_spectrograms = torch.stack([item['document_spectrogram'] for item in batch_items])
+            
+            batch.update({
+                "question_wav_lengths": q_wav_lengths,
+                "question_raw_wav": q_raw_wavs_padded,
+                "question_padding_mask": q_padding_mask,
+                "question_spectrogram": q_spectrograms,
+                "document_wav_lengths": d_wav_lengths,
+                "document_raw_wav": d_raw_wavs_padded,
+                "document_padding_mask": d_padding_mask,
+                "document_spectrogram": d_spectrograms,
+            })
+        
+        # Process examples if they exist
+        max_examples = max(item['num_examples'] for item in batch_items)
+        if max_examples > 0:
+            has_speech_examples = any(
+                'examples_speech' in item and 
+                len(item['examples_speech']) > 0 and
+                all(example.get('question', {}).get('spectrogram') is not None and 
+                    example.get('document', {}).get('spectrogram') is not None 
+                    for example in item['examples_speech'])
+                for item in batch_items
+            )
+            
+            if has_speech_examples:
+                # Find max lengths for padding
+                max_q_length = max(
+                    example['question']['wav_length']
+                    for item in batch_items if 'examples_speech' in item
+                    for example in item['examples_speech'][:item['num_examples']]
+                )
+                max_d_length = max(
+                    example['document']['wav_length']
+                    for item in batch_items if 'examples_speech' in item
+                    for example in item['examples_speech'][:item['num_examples']]
+                )
+                
+                example_q_specs, example_q_wavs, example_q_masks = [], [], []
+                example_d_specs, example_d_wavs, example_d_masks = [], [], []
+                
+                for item in batch_items:
+                    examples = item.get('examples_speech', [])[:item['num_examples']]
+                    batch_q_specs, batch_q_wavs, batch_q_masks = [], [], []
+                    batch_d_specs, batch_d_wavs, batch_d_masks = [], [], []
+                    
+                    for example in examples:
+                        # Process question
+                        q_spec = example['question']['spectrogram']
+                        q_wav = example['question']['raw_wav']
+                        q_wav_length = example['question']['wav_length']
+                        
+                        batch_q_specs.append(q_spec)
+                        if q_wav.size(0) < max_q_length:
+                            q_wav = F.pad(q_wav, (0, max_q_length - q_wav.size(0)), value=0)
+                        batch_q_wavs.append(q_wav)
+                        q_mask = torch.arange(max_q_length, device=q_wav.device) >= q_wav_length
+                        batch_q_masks.append(q_mask)
+                        
+                        # Process document
+                        d_spec = example['document']['spectrogram']
+                        d_wav = example['document']['raw_wav']
+                        d_wav_length = example['document']['wav_length']
+                        
+                        batch_d_specs.append(d_spec)
+                        if d_wav.size(0) < max_d_length:
+                            d_wav = F.pad(d_wav, (0, max_d_length - d_wav.size(0)), value=0)
+                        batch_d_wavs.append(d_wav)
+                        d_mask = torch.arange(max_d_length, device=d_wav.device) >= d_wav_length
+                        batch_d_masks.append(d_mask)
+                    
+                    # Pad to max_examples
+                    while len(batch_q_specs) < max_examples:
+                        batch_q_specs.append(torch.zeros_like(batch_q_specs[0]) if batch_q_specs else torch.zeros((80, 3000)))
+                        batch_q_wavs.append(torch.zeros(max_q_length, device=q_wav.device))
+                        batch_q_masks.append(torch.ones(max_q_length, device=q_wav.device, dtype=torch.bool))
+                        
+                        batch_d_specs.append(torch.zeros_like(batch_d_specs[0]) if batch_d_specs else torch.zeros((80, 3000)))
+                        batch_d_wavs.append(torch.zeros(max_d_length, device=d_wav.device))
+                        batch_d_masks.append(torch.ones(max_d_length, device=d_wav.device, dtype=torch.bool))
+                    
+                    example_q_specs.append(torch.stack(batch_q_specs))
+                    example_q_wavs.append(torch.stack(batch_q_wavs))
+                    example_q_masks.append(torch.stack(batch_q_masks))
+                    
+                    example_d_specs.append(torch.stack(batch_d_specs))
+                    example_d_wavs.append(torch.stack(batch_d_wavs))
+                    example_d_masks.append(torch.stack(batch_d_masks))
+                
+                batch.update({
+                    "example_question_spectrograms": torch.stack(example_q_specs),
+                    "example_question_wavs": torch.stack(example_q_wavs),
+                    "example_question_padding_masks": torch.stack(example_q_masks),
+                    "example_document_spectrograms": torch.stack(example_d_specs),
+                    "example_document_wavs": torch.stack(example_d_wavs),
+                    "example_document_padding_masks": torch.stack(example_d_masks),
+                })
+            else:
+                # No speech examples
+                for prefix in ['example_question_', 'example_document_']:
+                    batch[f"{prefix}spectrograms"] = torch.zeros((len(batch_items), max_examples, 1, 1), dtype=torch.float)
+                    batch[f"{prefix}wavs"] = torch.zeros((len(batch_items), max_examples, 1), dtype=torch.float)
+                    batch[f"{prefix}padding_masks"] = torch.ones((len(batch_items), max_examples, 1), dtype=torch.bool)
         
         # Add non-tensor data
         batch["num_examples"] = torch.tensor([item["num_examples"] for item in batch_items])

@@ -3,8 +3,8 @@ from .base_config import DatasetType, DatasetSplit, DatasetConfig
 VP_NEL_CONFIG = DatasetConfig(
     name=DatasetType.VOXPOPULI_NEL,
     paths={
-        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp_slue-phase-2_vp_nel_validation",
-        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp_slue-phase-2_vp_nel_test",
+        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_vp_nel_validation",
+        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_vp_nel_test",
     },
     prompt_template="""You are a named entity recognition expert. Your task is to identify the timestamps and types of named entities in the given text.
 
@@ -36,8 +36,8 @@ Remember: Output should be "TYPE: start end" pairs separated by semicolons.""",
     
     # Use validation split for all audio lookups
     audio_lookup_paths={
-        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp_slue-phase-2_vp_nel_validation",
-        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp_slue-phase-2_vp_nel_validation",  # Use validation for test too
+        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_vp_nel_validation",
+        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_vp_nel_validation",  # Use validation for test too
     },
     output_format="entity_timestamps"  # Indicates we expect "TYPE: start end" format
 ) 

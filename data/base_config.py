@@ -23,6 +23,9 @@ class DatasetType(str, Enum):
     
     # Added for SQA
     SQA = "sqa"
+    
+    # Added for VP_NEL
+    VP_NEL = "vp_nel"
 
 class DatasetSplit(Enum):
     TRAIN = "train"

@@ -56,6 +56,10 @@ def load_dataset(dataset_type: DatasetType, split: str = "train", use_cache: boo
             base_type = DatasetType.HVB
         elif dataset_type in [DatasetType.VOXPOPULI_GREEK, DatasetType.VOXPOPULI_SWAP]:
             base_type = DatasetType.VOXPOPULI
+        elif dataset_type == DatasetType.SQA:
+            base_type = DatasetType.SQA
+        elif dataset_type == DatasetType.VP_NEL:
+            base_type = DatasetType.VP_NEL
         
         config = get_dataset_config(base_type)
         

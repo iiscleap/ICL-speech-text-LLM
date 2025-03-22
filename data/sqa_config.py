@@ -3,9 +3,9 @@ from .base_config import DatasetType, DatasetSplit, DatasetConfig
 SQA_CONFIG = DatasetConfig(
     name=DatasetType.SQA,
     paths={
-        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp_slue-phase-2_sqa5_train",
-        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp_slue-phase-2_sqa5_validation",
-        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp_slue-phase-2_sqa5_test",
+        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_sqa5_train",
+        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_sqa5_validation",
+        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_sqa5_test",
     },
     prompt_template="""You are a spoken question answering expert. Your task is to identify both the start and end timestamps of the answer in a given document.
 
@@ -45,9 +45,9 @@ Remember: Output should be just two numbers separated by a space.""",
     },
     
     audio_lookup_paths={
-        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp_slue-phase-2_sqa5_train",
-        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp_slue-phase-2_sqa5_train",
-        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp_slue-phase-2_sqa5_train",
+        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_sqa5_train",
+        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_sqa5_validation",
+        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_sqa5_test",
     },
     output_format="timestamps_pair"  # Indicates we expect "start_time end_time" format
 ) 

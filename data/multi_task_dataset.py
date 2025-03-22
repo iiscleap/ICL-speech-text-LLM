@@ -149,24 +149,31 @@ class BaseMultiTaskDataset(Dataset):
     
 
 
-    def _format_label(self, example_or_label, is_example=True, current_mapping=None , text=None):
-        """
-        Format label based on dataset type.
-        
-        Args:
-            example_or_label: Either a full example dictionary or just a label value
-            is_example: If True, treat input as example dict; if False, treat as direct label
-            current_mapping: Current label mapping to use (for swap configs)
-            
-        Returns:
-            Formatted label as string
-        """
+    def _format_label(self, example_or_label, is_example=True, current_mapping=None, text=None):
+        """Format label based on dataset type and configuration."""
         # Extract the label from example if needed
         if is_example:
             label = example_or_label['label']
         else:
             label = example_or_label
-        
+
+        # Handle special output formats
+        if hasattr(self.current_config, 'output_format'):
+            # SQA timestamps format: "start_time end_time"
+            if self.current_config.output_format == 'timestamps_pair':
+                if isinstance(label, list) and len(label) >= 2:
+                    return f"{label[0]} {label[1]}"
+                return ""
+
+            # VP-NEL entity timestamps format: "TYPE: start end; TYPE2: start2 end2"
+            elif self.current_config.output_format == 'entity_timestamps':
+                if not label:  # Empty list
+                    return 'none'
+                formatted_spans = []
+                for span in label:
+                    formatted_spans.append(f"{span['label']}: {span['time_span'][0]} {span['time_span'][1]}")
+                return '; '.join(formatted_spans)
+
         # Handle different dataset types first
         if self.dataset_type in [DatasetType.VOXPOPULI, DatasetType.VOXPOPULI_SWAP, DatasetType.VOXPOPULI_GREEK]:
             if isinstance(label, dict):
@@ -205,9 +212,8 @@ class BaseMultiTaskDataset(Dataset):
         # Handle different dataset types
         if self.dataset_type == DatasetType.SQA:
             return self._process_sqa_item(item, idx)
-        elif self.dataset_type == DatasetType.VOXPOPULI_NEL:
-            return self._process_vpnel_item(item, idx)
         else:
+            # Use default for both VP-NEL and other datasets
             return self._process_default_item(item, idx)
 
     def _process_sqa_item(self, item, idx):
@@ -229,7 +235,10 @@ class BaseMultiTaskDataset(Dataset):
                 formatted_example = {
                     "question": example[current_config.additional_text_keys['question']],
                     "document": example[current_config.text_key],
-                    "time_spans": example[current_config.completion_key]
+                    "time_spans": self._format_label(example[current_config.completion_key],
+                        is_example=False, 
+                        current_mapping=current_config.label_mapping
+                    )
                 }
                 formatted_examples.append(formatted_example)
                 
@@ -266,9 +275,13 @@ class BaseMultiTaskDataset(Dataset):
                 "prompt": prompt,
                 "fewshot_mode": self.fewshot_mode,
                 "input_mode": self.input_mode,
-                "completion": item[current_config.completion_key],
+                "completion": self._format_label(item[current_config.completion_key],
+                        is_example=False, 
+                        current_mapping=current_config.label_mapping
+                    ),
                 "audio": audio_data,
-                "examples_audio": examples_audio
+                "examples_audio": examples_audio,
+                "dataset_type": self.dataset_type
             },
             is_training=self._is_training()
         )
@@ -293,25 +306,27 @@ class BaseMultiTaskDataset(Dataset):
             return item[key]['array']
         return None
 
-    def _process_vpnel_item(self, item, idx):
-        """Special processing for VP-NEL dataset"""
+    def _process_default_item(self, item, idx):
+        """Processing logic for VP-NEL and other datasets"""
         current_config = self.current_config
         
-        # Instead of getting few_shot_examples from item, randomly sample from audio lookup
-        if self.audio_lookup is not None and self.num_examples > 0:
-            # Randomly sample indices from audio lookup
+        # Get examples either from audio_lookup or few_shot_examples
+        formatted_examples = []
+        examples_audio = []
+        
+        if self.dataset_type == DatasetType.VOXPOPULI_NEL and self.audio_lookup is not None and self.num_examples > 0:
+            # VP-NEL: Random sampling from audio_lookup
             total_examples = len(self.audio_lookup)
             sampled_indices = random.sample(range(total_examples), min(self.num_examples, total_examples))
-            
-            # Create few-shot examples from sampled indices
-            formatted_examples = []
-            examples_audio = []
             
             for sample_idx in sampled_indices:
                 example = self.audio_lookup[sample_idx]
                 formatted_example = {
                     "text": example[current_config.text_key],
-                    "ne_spans": example[current_config.completion_key]
+                    "label": self._format_label( example[current_config.completion_key],
+                        is_example=False,
+                        current_mapping=current_config.label_mapping
+                    )
                 }
                 formatted_examples.append(formatted_example)
                 
@@ -320,77 +335,21 @@ class BaseMultiTaskDataset(Dataset):
                     if example_audio is not None:
                         examples_audio.append(example_audio)
         else:
-            formatted_examples = []
-            examples_audio = None
+            # Default: Use few_shot_examples from item
+            few_shot_examples = item.get('few_shot_examples', [])
+            selected_examples = self._select_examples(few_shot_examples)
+            
+            for example in selected_examples:
+                formatted_example = {
+                    "text": example['text'],
+                    "label": self._format_label(example, is_example=True, current_mapping=current_config.label_mapping)
+                }
+                formatted_examples.append(formatted_example)
+            
+            # Get examples audio using existing method
+            examples_audio = self._get_examples_audio(selected_examples)
         
         # Create prompt
-        prompt = self.processor.format_prompt(
-            template=current_config.prompt_template,
-            text=item[current_config.text_key],
-            examples=formatted_examples,
-            input_mode=self.input_mode,
-            fewshot_mode=self.fewshot_mode,
-            dataset_type=DatasetType.VOXPOPULI_NEL
-        )
-        
-        # Get audio data
-        audio_data = self._get_audio_by_key(item, 'audio')
-        
-        # Process inputs
-        inputs = self.processor.process_inputs(
-            data={
-                "prompt": prompt,
-                "fewshot_mode": self.fewshot_mode,
-                "input_mode": self.input_mode,
-                "completion": item[current_config.completion_key],
-                "audio": audio_data,
-                "examples_audio": examples_audio if examples_audio else None
-            },
-            is_training=self._is_training()
-        )
-        
-        # Build result
-        result = {
-            "prompt": prompt,
-            "text": item[current_config.text_key],
-            "completion": item[current_config.completion_key],
-            "dataset_type": self.dataset_type,
-            "unique_id": item[current_config.additional_metadata_keys['unique_id']],
-            **inputs
-        }
-        
-        return result
-
-    def _process_default_item(self, item, idx):
-        """Original processing logic for other datasets"""
-        # Get few-shot examples
-        few_shot_examples = item.get('few_shot_examples', [])
-        selected_examples = self._select_examples(few_shot_examples)
-        
-        # Get current config - only get new config for swap datasets
-        if self.is_swap_dataset:
-            current_config = get_swap_config(self.dataset_type)
-        else:
-            current_config = self.current_config
-        
-        # Process completion using current config
-        completion = self._format_label(
-            item[current_config.completion_key], 
-            is_example=False, 
-            current_mapping=current_config.label_mapping, 
-            text=item[current_config.text_key]
-        )
-        
-        # Format examples using current config
-        formatted_examples = []
-        for example in selected_examples:
-            formatted_example = {
-                "text": example['text'],
-                "label": self._format_label(example, is_example=True, current_mapping=current_config.label_mapping)
-            }
-            formatted_examples.append(formatted_example)
-        
-        # Create prompt using current config
         prompt = self.processor.format_prompt(
             template=current_config.prompt_template,
             text=item[current_config.text_key],
@@ -403,8 +362,13 @@ class BaseMultiTaskDataset(Dataset):
         # Get audio data
         audio_data = self._get_main_audio(item)
         
-        # Get examples audio
-        examples_audio = self._get_examples_audio(selected_examples)
+        # Format the completion/label
+        formatted_completion = self._format_label(
+            item[current_config.completion_key], 
+            is_example=False, 
+            current_mapping=current_config.label_mapping,
+            text=item[current_config.text_key]  # Pass text for NER cases
+        )
         
         # Process inputs
         inputs = self.processor.process_inputs(
@@ -412,21 +376,24 @@ class BaseMultiTaskDataset(Dataset):
                 "prompt": prompt,
                 "fewshot_mode": self.fewshot_mode,
                 "input_mode": self.input_mode,
-                "completion": completion,
+                "completion": formatted_completion,  # Use formatted completion
                 "audio": audio_data,
-                "examples_audio": examples_audio
+                "examples_audio": examples_audio if examples_audio else None,
+                "dataset_type": self.dataset_type
             },
             is_training=self._is_training()
         )
         
-        # Build result
-        return self._build_result(
-            prompt=prompt,
-            item=item,
-            completion=completion,
-            text=item[current_config.text_key],
-            inputs=inputs
-        )
+        # Build result with basic fields
+        result = {
+            "prompt": prompt,
+            "text": item[current_config.text_key],
+            "completion": formatted_completion,  # Use formatted completion
+            "dataset_type": self.dataset_type,
+            **inputs
+        }
+        
+        return result
 
     def _get_main_audio(self, item):
         """Get main audio data if needed (can be overridden)"""
@@ -459,16 +426,6 @@ class BaseMultiTaskDataset(Dataset):
     def _is_training(self):
         """Whether this dataset is for training (can be overridden)"""
         return False
-        
-    def _build_result(self, prompt, item, completion, text,inputs):
-        """Build the result dictionary (can be overridden)"""
-        return {
-            "prompt": prompt,
-            "text": text,
-            "completion": completion,
-            "dataset_type": self.dataset_type,
-            **inputs
-        }
 
     def set_task(self, task_type: DatasetType):
         """
