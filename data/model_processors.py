@@ -569,14 +569,8 @@ class SalmonProcessor(ModelProcessor):
         # Check for valid speech data
         has_valid_speech = all(item.get('spectrogram') is not None for item in batch_items)
         
-        if not has_valid_speech:
-            # Text-only mode tensors - exact shapes from salmon_datasets.py
-            batch["wav_lengths"] = torch.zeros(len(batch_items), dtype=torch.long)
-            batch["raw_wav"] = torch.zeros((len(batch_items), 1), dtype=torch.float)
-            batch["padding_mask"] = torch.ones((len(batch_items), 1), dtype=torch.bool)
-            batch["spectrogram"] = torch.zeros((len(batch_items), 1, 1, 1), dtype=torch.float)
-        else:
-            # Speech processing - exactly as in salmon_datasets.py
+        if has_valid_speech:
+            # Only add speech-related tensors if we actually have speech
             wav_lengths = torch.tensor([item['wav_length'] for item in batch_items])
             raw_wavs = [item['raw_wav'] for item in batch_items]
             raw_wavs_padded = pad_sequence(raw_wavs, batch_first=True, padding_value=0)
@@ -644,11 +638,7 @@ class SalmonProcessor(ModelProcessor):
                 batch["example_spectrograms"] = torch.stack(example_specs)
                 batch["example_wavs"] = torch.stack(example_wavs)
                 batch["example_padding_masks"] = torch.stack(example_masks)
-            else:
-                # No speech examples - exact shapes from salmon_datasets.py
-                batch["example_spectrograms"] = torch.zeros((len(batch_items), max_examples, 1, 1), dtype=torch.float)
-                batch["example_wavs"] = torch.zeros((len(batch_items), max_examples, 1), dtype=torch.float)
-                batch["example_padding_masks"] = torch.ones((len(batch_items), max_examples, 1), dtype=torch.bool)
+
         
         # Add non-tensor data
         batch["num_examples"] = torch.tensor([item["num_examples"] for item in batch_items])
@@ -673,14 +663,7 @@ class SalmonProcessor(ModelProcessor):
             for item in batch_items
         )
         
-        if not has_valid_speech:
-            # Text-only mode tensors
-            for prefix in ['question_', 'document_']:
-                batch[f"{prefix}wav_lengths"] = torch.zeros(len(batch_items), dtype=torch.long)
-                batch[f"{prefix}raw_wav"] = torch.zeros((len(batch_items), 1), dtype=torch.float)
-                batch[f"{prefix}padding_mask"] = torch.ones((len(batch_items), 1), dtype=torch.bool)
-                batch[f"{prefix}spectrogram"] = torch.zeros((len(batch_items), 1, 1, 1), dtype=torch.float)
-        else:
+        if has_valid_speech:
             # Process question audio
             q_wav_lengths = torch.tensor([item['question_wav_length'] for item in batch_items])
             q_raw_wavs = [item['question_raw_wav'] for item in batch_items]
@@ -790,12 +773,7 @@ class SalmonProcessor(ModelProcessor):
                     "example_document_wavs": torch.stack(example_d_wavs),
                     "example_document_padding_masks": torch.stack(example_d_masks),
                 })
-            else:
-                # No speech examples
-                for prefix in ['example_question_', 'example_document_']:
-                    batch[f"{prefix}spectrograms"] = torch.zeros((len(batch_items), max_examples, 1, 1), dtype=torch.float)
-                    batch[f"{prefix}wavs"] = torch.zeros((len(batch_items), max_examples, 1), dtype=torch.float)
-                    batch[f"{prefix}padding_masks"] = torch.ones((len(batch_items), max_examples, 1), dtype=torch.bool)
+
         
         # Add non-tensor data
         batch["num_examples"] = torch.tensor([item["num_examples"] for item in batch_items])

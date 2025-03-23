@@ -198,7 +198,7 @@ class CustomSALMONN(BaseModel):
             
 
             if self.batch_counter == 0:
-                logging.info(f"After processing example {i}, parts embeds list length: {len(part_embeds)}")
+                logging.info(f"After processing example, parts embeds list length: {len(part_embeds)}")
 
 
             # Combine embeddings
@@ -304,10 +304,28 @@ class CustomSALMONN(BaseModel):
             "question_spectrogram" in samples and 
             "document_spectrogram" in samples
         )
+
+        if is_sqa:
+            # Process question and document audio
+            has_main_speech = (
+                samples["question_spectrogram"] is not None and 
+                samples["document_spectrogram"] is not None
+            )
+            has_examples = (
+                "example_question_spectrograms" in samples and 
+                "example_document_spectrograms" in samples and 
+                samples["example_question_spectrograms"] is not None and 
+                samples["example_document_spectrograms"] is not None
+            )
+        else:
+            # Original logic for other datasets
+            has_main_speech = "spectrogram" in samples and samples["spectrogram"] is not None
+            has_examples = "example_spectrograms" in samples and samples["example_spectrograms"] is not None
+
         
         # Add detailed logging for first batch
         if self.batch_counter == 0 and not is_sqa:
-            if samples["spectrogram"] is not None:
+            if has_main_speech:
                 logging.info("=== Input Data Debug (First 5 values) ===")
                 logging.info(f"Spectrogram dtype: {samples['spectrogram'].dtype}")
                 logging.info("Spectrogram first 5 values:")
@@ -333,22 +351,7 @@ class CustomSALMONN(BaseModel):
         
 
         
-        if is_sqa:
-            # Process question and document audio
-            has_main_speech = (
-                samples["question_spectrogram"] is not None and 
-                samples["document_spectrogram"] is not None
-            )
-            has_examples = (
-                "example_question_spectrograms" in samples and 
-                "example_document_spectrograms" in samples and 
-                samples["example_question_spectrograms"] is not None and 
-                samples["example_document_spectrograms"] is not None
-            )
-        else:
-            # Original logic for other datasets
-            has_main_speech = "spectrogram" in samples and samples["spectrogram"] is not None
-            has_examples = "example_spectrograms" in samples and samples["example_spectrograms"] is not None
+        
 
         if self.batch_counter == 0:
             if has_main_speech:

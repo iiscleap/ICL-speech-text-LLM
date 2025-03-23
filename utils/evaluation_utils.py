@@ -282,26 +282,57 @@ def evaluate_voxpopuli(df: pd.DataFrame, valid_classes: List[str]) -> Dict:
     df = df[df['gt'].isin(all_valid_classes)]
     after_gt_filter = len(df)
     
-    # Calculate metrics
+    # Handle invalid predictions
+    df_with_invalid = df.copy()
+    df_with_invalid['pd'] = df_with_invalid['pd'].apply(
+        lambda x: x if x in all_valid_classes else 'invalid'
+    )
+    
+    # Count invalid predictions
+    invalid_predictions = len(df[~df['pd'].isin(all_valid_classes)])
+    
+    # Filter for evaluation
+    df_filtered = df[df['pd'].isin(all_valid_classes)]
+    after_pred_filter = len(df_filtered)
+    
+    if after_pred_filter == 0:
+        logger.warning("No valid predictions found for evaluation")
+        return {
+            'accuracy': 0.0,
+            'macro_f1': 0.0,
+            'micro_f1': 0.0,
+            'weighted_f1': 0.0,
+            'class_precision': [0.0] * len(all_valid_classes),
+            'class_recall': [0.0] * len(all_valid_classes),
+            'class_f1': [0.0] * len(all_valid_classes),
+            'support': [0] * len(all_valid_classes),
+            'confusion_matrix': [[0] * len(all_valid_classes)] * len(all_valid_classes),
+            'total_samples': total_samples,
+            'valid_gt_samples': after_gt_filter,
+            'invalid_predictions': invalid_predictions,
+            'valid_classes': all_valid_classes
+        }
+    
+    # Calculate metrics on filtered data
     macro_f1 = f1_score(
-        df['gt'].values,
-        df['pd'].values,
+        df_filtered['gt'].values,
+        df_filtered['pd'].values,
         average="macro",
         labels=all_valid_classes,
         zero_division=0
     )
     
     micro_f1 = f1_score(
-        df['gt'].values,
-        df['pd'].values,
+        df_filtered['gt'].values,
+        df_filtered['pd'].values,
         average="micro",
         labels=all_valid_classes,
         zero_division=0
     )
     
     weighted_f1 = f1_score(
-        df['gt'].values,
-        df['pd'].values,
+        df_filtered['gt'].values,
+        df_filtered['pd'].values,
         average="weighted",
         labels=all_valid_classes,
         zero_division=0
@@ -309,42 +340,42 @@ def evaluate_voxpopuli(df: pd.DataFrame, valid_classes: List[str]) -> Dict:
     
     # Calculate per-class metrics
     class_precision = precision_score(
-        df['gt'].values,
-        df['pd'].values,
+        df_filtered['gt'].values,
+        df_filtered['pd'].values,
         average=None,
         labels=all_valid_classes,
         zero_division=0
     )
     
     class_recall = recall_score(
-        df['gt'].values,
-        df['pd'].values,
+        df_filtered['gt'].values,
+        df_filtered['pd'].values,
         average=None,
         labels=all_valid_classes,
         zero_division=0
     )
     
     class_f1 = f1_score(
-        df['gt'].values,
-        df['pd'].values,
+        df_filtered['gt'].values,
+        df_filtered['pd'].values,
         average=None,
         labels=all_valid_classes,
         zero_division=0
     )
     
     # Calculate support for each class
-    class_support = pd.Series(df['gt'].values).value_counts()
+    class_support = pd.Series(df_filtered['gt'].values).value_counts()
     support_list = [class_support.get(label, 0) for label in all_valid_classes]
     
     # Calculate confusion matrix
     confusion_mat = confusion_matrix(
-        df['gt'].values,
-        df['pd'].values,
+        df_filtered['gt'].values,
+        df_filtered['pd'].values,
         labels=all_valid_classes
     )
     
     # Calculate accuracy
-    accuracy = accuracy_score(df['gt'].values, df['pd'].values)
+    accuracy = accuracy_score(df_filtered['gt'].values, df_filtered['pd'].values)
     
     return {
         'accuracy': accuracy,
@@ -358,7 +389,9 @@ def evaluate_voxpopuli(df: pd.DataFrame, valid_classes: List[str]) -> Dict:
         'confusion_matrix': confusion_mat.tolist(),
         'total_samples': total_samples,
         'valid_gt_samples': after_gt_filter,
-        'valid_classes': all_valid_classes
+        'invalid_predictions': invalid_predictions,
+        'valid_classes': all_valid_classes,
+        'after_pred_filter': after_pred_filter  # Add this to track valid predictions
     }
 
 def clean_prediction(prediction: str) -> str:

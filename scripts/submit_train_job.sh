@@ -4,7 +4,7 @@
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
 # dataset_type="voxceleb,hvb"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
 dataset_type="voxceleb,hvb"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
-input_mode="text_only"  # Options: "speech_only", "text_only", "speech_and_text"
+input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
 num_examples=5
 batch_size=1
@@ -27,7 +27,7 @@ weight_decay=0.01  # Weight decay for AdamW
 max_grad_norm=1.0  # Max gradient norm for clipping
 
 # Debug options
-debug_samples=10  # Set to 0 to use full dataset, or >0 for limited samples
+debug_samples=0  # Set to 0 to use full dataset, or >0 for limited samples
 
 # If in debug mode (debug_samples > 0), override training parameters for faster iteration
 if [ "$debug_samples" -gt 0 ]; then
@@ -111,7 +111,7 @@ qsub -q long.q -V -cwd \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=1,\
+    -v CUDA_VISIBLE_DEVICES=2,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\
