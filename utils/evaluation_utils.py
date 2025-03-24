@@ -42,7 +42,7 @@ def evaluate_predictions(predictions: List[Dict[str, Any]], dataset_type: Datase
         # Extract and clean labels
         true_labels = [p.get("true_label", "") for p in predictions]
         # Clean the predicted labels
-        pred_labels = [clean_prediction(p.get("predicted_label", "")) for p in predictions]
+        pred_labels = [clean_prediction(p.get("predicted_label", ""), dataset_type) for p in predictions]
         
         # Log some example predictions for debugging
         logger.info("\nExample predictions after cleaning:")
@@ -69,6 +69,10 @@ def evaluate_predictions(predictions: List[Dict[str, Any]], dataset_type: Datase
             metrics = evaluate_hvb(df, valid_labels)
         elif dataset_type in [DatasetType.VOXPOPULI, DatasetType.VOXPOPULI_SWAP, DatasetType.VOXPOPULI_GREEK]:
             metrics = evaluate_voxpopuli(df, valid_labels)
+        elif dataset_type == DatasetType.VOXPOPULI_NEL:
+            metrics = evaluate_vp_nel(df, valid_labels)
+        elif dataset_type == DatasetType.SQQ:
+            metrics = evaluate_sqq(df)
         else:
             logger.warning(f"Unsupported dataset type for evaluation: {dataset_type}")
             return {"accuracy": 0.0}
@@ -273,149 +277,244 @@ def evaluate_voxpopuli(df: pd.DataFrame, valid_classes: List[str]) -> Dict:
     """Evaluate VoxPopuli entity type predictions"""
     total_samples = len(df)
     
-    # Convert predictions and ground truth to lowercase
-    df['gt'] = df['gt'].str.lower()
-    df['pd'] = df['pd'].str.lower()
+    # Add 'none' to valid classes if not already present
+    all_valid_classes = valid_classes + ['none'] if 'none' not in valid_classes else valid_classes
     
-    # Filter for valid ground truth labels (including 'none')
-    all_valid_classes = valid_classes + ['none']
-    df = df[df['gt'].isin(all_valid_classes)]
+    # Convert string labels to lists if needed and clean them
+    df['gt'] = df['gt'].apply(lambda x: [label.strip().lower() for label in x.split(',')] if isinstance(x, str) else x)
+    df['pd'] = df['pd'].apply(lambda x: [label.strip().lower() for label in x.split(',')] if isinstance(x, str) else x)
+    
+    # Filter for samples with at least one valid ground truth label
+    df = df[df['gt'].apply(lambda labels: any(label in all_valid_classes for label in labels))]
     after_gt_filter = len(df)
     
-    # Handle invalid predictions
-    df_with_invalid = df.copy()
-    df_with_invalid['pd'] = df_with_invalid['pd'].apply(
-        lambda x: x if x in all_valid_classes else 'invalid'
-    )
-    
     # Count invalid predictions
-    invalid_predictions = len(df[~df['pd'].isin(all_valid_classes)])
+    invalid_samples = sum(1 for pred_labels in df['pd'] 
+                         if not any(label in all_valid_classes for label in pred_labels))
     
-    # Filter for evaluation
-    df_filtered = df[df['pd'].isin(all_valid_classes)]
-    after_pred_filter = len(df_filtered)
+    # Convert to binary matrix format with invalid handling
+    def to_binary_vector(labels: List[str], valid_classes: List[str]) -> np.ndarray:
+        # Check if any valid label exists
+        has_valid_label = any(label in valid_classes for label in labels)
+        if not has_valid_label:
+            # Return zero vector for invalid predictions
+            return np.zeros(len(valid_classes))
+        return np.array([1 if label in labels else 0 for label in valid_classes])
     
-    if after_pred_filter == 0:
-        logger.warning("No valid predictions found for evaluation")
-        return {
-            'accuracy': 0.0,
-            'macro_f1': 0.0,
-            'micro_f1': 0.0,
-            'weighted_f1': 0.0,
-            'class_precision': [0.0] * len(all_valid_classes),
-            'class_recall': [0.0] * len(all_valid_classes),
-            'class_f1': [0.0] * len(all_valid_classes),
-            'support': [0] * len(all_valid_classes),
-            'confusion_matrix': [[0] * len(all_valid_classes)] * len(all_valid_classes),
-            'total_samples': total_samples,
-            'valid_gt_samples': after_gt_filter,
-            'invalid_predictions': invalid_predictions,
-            'valid_classes': all_valid_classes
-        }
+    # Use all_valid_classes (including 'none') for binary vectors
+    y_true = np.array([to_binary_vector(labels, all_valid_classes) for labels in df['gt']])
+    y_pred = np.array([to_binary_vector(labels, all_valid_classes) for labels in df['pd']])
     
-    # Calculate metrics on filtered data
-    macro_f1 = f1_score(
-        df_filtered['gt'].values,
-        df_filtered['pd'].values,
-        average="macro",
-        labels=all_valid_classes,
-        zero_division=0
-    )
-    
-    micro_f1 = f1_score(
-        df_filtered['gt'].values,
-        df_filtered['pd'].values,
-        average="micro",
-        labels=all_valid_classes,
-        zero_division=0
-    )
-    
-    weighted_f1 = f1_score(
-        df_filtered['gt'].values,
-        df_filtered['pd'].values,
-        average="weighted",
-        labels=all_valid_classes,
-        zero_division=0
-    )
+    # Calculate metrics
+    macro_f1 = f1_score(y_true, y_pred, average='macro', zero_division=0)
+    micro_f1 = f1_score(y_true, y_pred, average='micro', zero_division=0)
+    weighted_f1 = f1_score(y_true, y_pred, average='weighted', zero_division=0)
     
     # Calculate per-class metrics
-    class_precision = precision_score(
-        df_filtered['gt'].values,
-        df_filtered['pd'].values,
-        average=None,
-        labels=all_valid_classes,
-        zero_division=0
-    )
-    
-    class_recall = recall_score(
-        df_filtered['gt'].values,
-        df_filtered['pd'].values,
-        average=None,
-        labels=all_valid_classes,
-        zero_division=0
-    )
-    
-    class_f1 = f1_score(
-        df_filtered['gt'].values,
-        df_filtered['pd'].values,
-        average=None,
-        labels=all_valid_classes,
-        zero_division=0
-    )
+    class_precision = precision_score(y_true, y_pred, average=None, zero_division=0)
+    class_recall = recall_score(y_true, y_pred, average=None, zero_division=0)
+    class_f1 = f1_score(y_true, y_pred, average=None, zero_division=0)
     
     # Calculate support for each class
-    class_support = pd.Series(df_filtered['gt'].values).value_counts()
-    support_list = [class_support.get(label, 0) for label in all_valid_classes]
+    support = y_true.sum(axis=0)
     
-    # Calculate confusion matrix
-    confusion_mat = confusion_matrix(
-        df_filtered['gt'].values,
-        df_filtered['pd'].values,
-        labels=all_valid_classes
-    )
-    
-    # Calculate accuracy
-    accuracy = accuracy_score(df_filtered['gt'].values, df_filtered['pd'].values)
+    # Calculate exact match accuracy
+    exact_match = sum(np.array_equal(t, p) for t, p in zip(y_true, y_pred)) / max(1, len(y_true))
     
     return {
-        'accuracy': accuracy,
+        'exact_match': exact_match,
         'macro_f1': macro_f1,
         'micro_f1': micro_f1,
         'weighted_f1': weighted_f1,
         'class_precision': class_precision.tolist(),
         'class_recall': class_recall.tolist(),
         'class_f1': class_f1.tolist(),
-        'support': support_list,
-        'confusion_matrix': confusion_mat.tolist(),
+        'support': support.tolist(),
         'total_samples': total_samples,
         'valid_gt_samples': after_gt_filter,
-        'invalid_predictions': invalid_predictions,
-        'valid_classes': all_valid_classes,
-        'after_pred_filter': after_pred_filter  # Add this to track valid predictions
+        'invalid_samples': invalid_samples,
+        'valid_classes': valid_classes
     }
 
-def clean_prediction(prediction: str) -> str:
-    """Clean prediction by removing escape characters and dataset-specific artifacts"""
-    if prediction is None:
-        return ""
+def parse_entities(entity_string):
+    """Helper function to parse entity string format into list of tuples"""
+    parsed_entities = []
+    if not entity_string or entity_string.strip() == "":
+        return parsed_entities
+        
+    for entity in entity_string.split(';'):
+        if entity.strip():
+            try:
+                entity_type, times = entity.strip().split(':')
+                start, end = map(float, times.strip().split())
+                parsed_entities.append((entity_type.strip(), start, end))
+            except Exception as e:
+                logger.warning(f"Error parsing entity: {entity}, Error: {e}")
+                continue
+    return parsed_entities
+
+def evaluate_vp_nel(df: pd.DataFrame, valid_classes: List[str]) -> Dict:
+    """Evaluate VoxPopuli Named Entity Linking predictions with time alignments"""
+    total_samples = len(df)
     
-    # Convert to lowercase
-    prediction = prediction.lower().strip()
+    # Convert predictions and ground truth to lowercase
+    df['gt'] = df['gt'].str.lower()
+    df['pd'] = df['pd'].str.lower()
     
-    # Remove common prefixes
-    prefixes = ["the answer is", "the label is", "output:", "label:", "the correct answer is", "answer:"]
-    for prefix in prefixes:
-        if prediction.startswith(prefix):
-            prediction = prediction[len(prefix):].strip()
+    # Parse predictions and ground truth
+    parsed_gt = {idx: parse_entities(row['gt']) for idx, row in df.iterrows()}
+    parsed_pred = {idx: parse_entities(row['pd']) for idx, row in df.iterrows()}
     
-    # Remove punctuation at the beginning and end
-    prediction = re.sub(r'^[^\w\s]+|[^\w\s]+$', '', prediction).strip()
+    # Calculate word-level metrics with different tolerances
+    word_metrics = {}
+    tolerances = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
     
-    # Remove newlines and take first line
-    if '\n' in prediction:
-        prediction = prediction.split('\n')[0]
+    for tolerance in tolerances:
+        total_correct = 0
+        total_pred = 0
+        total_gt = 0
+        
+        for idx in parsed_gt.keys():
+            gt_entities = parsed_gt[idx]
+            pred_entities = parsed_pred.get(idx, [])
+            
+            total_gt += len(gt_entities)
+            total_pred += len(pred_entities)
+            
+            # Track matched ground truth entities
+            matched_gt = set()
+            
+            # Check each prediction against ground truth
+            for pred_type, pred_start, pred_end in pred_entities:
+                best_overlap = 0
+                best_match_idx = None
+                
+                # Find best matching ground truth entity of the same type
+                for gt_idx, (gt_type, gt_start, gt_end) in enumerate(gt_entities):
+                    if gt_idx in matched_gt:
+                        continue
+                    
+                    if pred_type.upper() == gt_type.upper():
+                        overlap_start = max(pred_start, gt_start)
+                        overlap_end = min(pred_end, gt_end)
+                        if overlap_end > overlap_start:
+                            overlap = (overlap_end - overlap_start) / (gt_end - gt_start)
+                            if overlap >= tolerance and overlap > best_overlap:
+                                best_overlap = overlap
+                                best_match_idx = gt_idx
+                
+                if best_match_idx is not None:
+                    total_correct += 1
+                    matched_gt.add(best_match_idx)
+        
+        precision = total_correct / max(total_pred, 1)
+        recall = total_correct / max(total_gt, 1)
+        f1 = 2 * (precision * recall) / max((precision + recall), 1e-6)
+        
+        word_metrics[str(tolerance)] = {
+            'precision': precision,
+            'recall': recall,
+            'f1': f1
+        }
     
-    return prediction.strip()
+    # Calculate frame-level metrics
+    total_pred_frames = 0
+    total_gt_frames = 0
+    total_correct_frames = 0
+    
+    for idx in parsed_gt.keys():
+        gt_entities = parsed_gt[idx]
+        pred_entities = parsed_pred.get(idx, [])
+        
+        # Convert time ranges to frame counts for predictions
+        for pred_type, pred_start, pred_end in pred_entities:
+            pred_frames = int((pred_end - pred_start) * 100)  # Convert to centiseconds
+            total_pred_frames += pred_frames
+            
+            # Check overlap with ground truth of same type
+            for gt_type, gt_start, gt_end in gt_entities:
+                if pred_type.upper() == gt_type.upper():
+                    overlap_start = max(pred_start, gt_start)
+                    overlap_end = min(pred_end, gt_end)
+                    if overlap_end > overlap_start:
+                        correct_frames = int((overlap_end - overlap_start) * 100)
+                        total_correct_frames += correct_frames
+        
+        # Count ground truth frames
+        for _, gt_start, gt_end in gt_entities:
+            gt_frames = int((gt_end - gt_start) * 100)
+            total_gt_frames += gt_frames
+    
+    frame_precision = total_correct_frames / max(total_pred_frames, 1)
+    frame_recall = total_correct_frames / max(total_gt_frames, 1)
+    frame_f1 = 2 * (frame_precision * frame_recall) / max((frame_precision + frame_recall), 1e-6)
+    
+    return {
+        'word_metrics': word_metrics,
+        'frame_metrics': {
+            'precision': frame_precision,
+            'recall': frame_recall,
+            'f1': frame_f1
+        },
+        'total_samples': total_samples,
+        'total_gt_entities': sum(len(entities) for entities in parsed_gt.values()),
+        'total_pred_entities': sum(len(entities) for entities in parsed_pred.values()),
+        'total_frames': {
+            'gt': total_gt_frames,
+            'pred': total_pred_frames,
+            'correct': total_correct_frames
+        }
+    }
+
+def clean_prediction(prediction: str, dataset_type: DatasetType = None) -> str:
+    """
+    Clean prediction based on dataset type and expected format.
+    """
+    # First remove basic escape characters
+    cleaned = prediction.replace('\\', '')
+    
+    if '\n' in cleaned:
+        cleaned = cleaned.split('\n')[0]
+    
+    # Common cleaning for all datasets - handle commas
+    cleaned = re.sub(r',\s*,', ',', cleaned)  # Replace multiple commas with single comma
+    cleaned = re.sub(r',\s*$', '', cleaned)   # Remove trailing comma
+    cleaned = re.sub(r'^\s*,', '', cleaned)   # Remove leading comma
+    cleaned = re.sub(r'\s+', ' ', cleaned)    # Normalize whitespace
+    
+    # Dataset-specific cleaning
+    if dataset_type == DatasetType.SQA:
+        # For SQA, expect "start_time end_time"
+        cleaned = cleaned.strip()
+        try:
+            start, end = map(float, cleaned.split())
+            return f"{start:.2f} {end:.2f}"
+        except:
+            return cleaned
+            
+    elif dataset_type == DatasetType.VOXPOPULI_NEL:
+        # For VP_NEL, expect "TYPE: start end" format
+        if cleaned.lower() == 'none':
+            return 'none'
+        
+        try:
+            spans = cleaned.split(';')
+            cleaned_spans = []
+            for span in spans:
+                span = span.strip()
+                if ':' in span:
+                    entity_type, times = span.split(':', 1)
+                    try:
+                        start, end = map(float, times.strip().split())
+                        cleaned_spans.append(f"{entity_type.strip()}: {start:.2f} {end:.2f}")
+                    except:
+                        cleaned_spans.append(span)
+            return '; '.join(cleaned_spans)
+        except:
+            return cleaned
+    
+    # Default cleaning for all datasets
+    return cleaned.lower().strip()
 
 def analyze_errors(true_labels: List[Any], pred_labels: List[Any], dataset_type: DatasetType) -> Dict[str, Any]:
     """
@@ -533,3 +632,121 @@ def save_evaluation_results(metrics: Dict, output_dir: str, filename: str) -> No
         json.dump(metrics_converted, f, indent=2)
     
     logger.info(f"Saved evaluation results to {output_path}")
+
+def evaluate_sqq(df: pd.DataFrame, valid_classes: List[str] = None) -> Dict:
+    """Evaluate SQQ predictions with time alignments (start, end timestamps only)"""
+    total_samples = len(df)
+    
+    def parse_timestamps(time_string):
+        """Parse timestamp string 'start end' into tuple"""
+        if not time_string or time_string.strip() == "":
+            return []
+        try:
+            start, end = map(float, time_string.strip().split())
+            return [(start, end)]
+        except Exception as e:
+            logger.warning(f"Error parsing timestamps: {time_string}, Error: {e}")
+            return []
+    
+    # Parse predictions and ground truth
+    parsed_gt = {idx: parse_timestamps(row['gt']) for idx, row in df.iterrows()}
+    parsed_pred = {idx: parse_timestamps(row['pd']) for idx, row in df.iterrows()}
+    
+    # Calculate word-level metrics with different tolerances
+    word_metrics = {}
+    tolerances = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
+    
+    for tolerance in tolerances:
+        total_correct = 0
+        total_pred = 0
+        total_gt = 0
+        
+        for idx in parsed_gt.keys():
+            gt_timestamps = parsed_gt[idx]
+            pred_timestamps = parsed_pred.get(idx, [])
+            
+            total_gt += len(gt_timestamps)
+            total_pred += len(pred_timestamps)
+            
+            # Track matched ground truth timestamps
+            matched_gt = set()
+            
+            # Check each prediction against ground truth
+            for pred_start, pred_end in pred_timestamps:
+                best_overlap = 0
+                best_match_idx = None
+                
+                # Find best matching ground truth timestamp
+                for gt_idx, (gt_start, gt_end) in enumerate(gt_timestamps):
+                    if gt_idx in matched_gt:
+                        continue
+                    
+                    overlap_start = max(pred_start, gt_start)
+                    overlap_end = min(pred_end, gt_end)
+                    if overlap_end > overlap_start:
+                        overlap = (overlap_end - overlap_start) / (gt_end - gt_start)
+                        if overlap >= tolerance and overlap > best_overlap:
+                            best_overlap = overlap
+                            best_match_idx = gt_idx
+                
+                if best_match_idx is not None:
+                    total_correct += 1
+                    matched_gt.add(best_match_idx)
+        
+        precision = total_correct / max(total_pred, 1)
+        recall = total_correct / max(total_gt, 1)
+        f1 = 2 * (precision * recall) / max((precision + recall), 1e-6)
+        
+        word_metrics[str(tolerance)] = {
+            'precision': precision,
+            'recall': recall,
+            'f1': f1
+        }
+    
+    # Calculate frame-level metrics
+    total_pred_frames = 0
+    total_gt_frames = 0
+    total_correct_frames = 0
+    
+    for idx in parsed_gt.keys():
+        gt_timestamps = parsed_gt[idx]
+        pred_timestamps = parsed_pred.get(idx, [])
+        
+        # Convert time ranges to frame counts for predictions
+        for pred_start, pred_end in pred_timestamps:
+            pred_frames = int((pred_end - pred_start) * 100)  # Convert to centiseconds
+            total_pred_frames += pred_frames
+            
+            # Check overlap with ground truth
+            for gt_start, gt_end in gt_timestamps:
+                overlap_start = max(pred_start, gt_start)
+                overlap_end = min(pred_end, gt_end)
+                if overlap_end > overlap_start:
+                    correct_frames = int((overlap_end - overlap_start) * 100)
+                    total_correct_frames += correct_frames
+        
+        # Count ground truth frames
+        for gt_start, gt_end in gt_timestamps:
+            gt_frames = int((gt_end - gt_start) * 100)
+            total_gt_frames += gt_frames
+    
+    frame_precision = total_correct_frames / max(total_pred_frames, 1)
+    frame_recall = total_correct_frames / max(total_gt_frames, 1)
+    frame_f1 = 2 * (frame_precision * frame_recall) / max((frame_precision + frame_recall), 1e-6)
+    
+    return {
+        'word_metrics': word_metrics,
+        'frame_metrics': {
+            'precision': frame_precision,
+            'recall': frame_recall,
+            'f1': frame_f1
+        },
+        'total_samples': total_samples,
+        'total_gt_segments': sum(len(timestamps) for timestamps in parsed_gt.values()),
+        'total_pred_segments': sum(len(timestamps) for timestamps in parsed_pred.values()),
+        'total_frames': {
+            'gt': total_gt_frames,
+            'pred': total_pred_frames,
+            'correct': total_correct_frames
+        }
+    }

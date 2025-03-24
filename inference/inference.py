@@ -20,10 +20,11 @@ from models.model_factory import ModelFactory
 from data.dataset_factory import DatasetFactory
 from data.master_config import DatasetType
 from utils.training_utils import setup_logging, load_checkpoint
-from utils.evaluation_utils import evaluate_predictions, save_evaluation_results
+from utils.evaluation_utils import evaluate_predictions, save_evaluation_results, clean_prediction
 from utils.performance_utils import log_gpu_memory_usage, log_system_info, time_function, PerformanceTracker
 from utils.data_utils import load_dataset
 from data.model_processors import get_processor
+from config.inference_config import get_inference_config
 
 logger = logging.getLogger(__name__)
 
@@ -130,12 +131,15 @@ def run_inference(args):
         # Initialize performance tracker
         performance_tracker = PerformanceTracker(log_interval=10)
         
+        config = get_inference_config(args.model_type)
         # Create model
         logger.info(f"Creating model of type {args.model_type}")
         model = ModelFactory.create_model(
             model_type=args.model_type,
+            multi_task=False,
             device=args.device,
-            low_resource=True
+            low_resource=True,
+            **config.get("model_args", {})
         )
         
 
@@ -428,51 +432,6 @@ def save_final_results(results, args, results_dir):
     except Exception as e:
         logger.error(f"Error saving final results: {str(e)}")
         logger.debug(traceback.format_exc())
-
-
-def clean_prediction(prediction: str, dataset_type: DatasetType = None) -> str:
-    """Clean prediction based on dataset type and expected format"""
-    # First remove basic escape characters
-    cleaned = prediction.replace('\\', '')
-    
-    if '\n' in cleaned:
-        cleaned = cleaned.split('\n')[0]
-    
-    # Get dataset-specific config
-    if dataset_type == DatasetType.SQA:
-        # For SQA, expect "start_time end_time"
-        cleaned = cleaned.strip()
-        # Validate format: should be two numbers
-        try:
-            start, end = map(float, cleaned.split())
-            return f"{start:.2f} {end:.2f}"
-        except:
-            return cleaned
-            
-    elif dataset_type == DatasetType.VOXPOPULI_NEL:
-        # For VP_NEL, expect "TYPE: start end" format
-        if cleaned.lower() == 'none':
-            return 'none'
-        
-        # Split by semicolon and clean each entity span
-        try:
-            spans = cleaned.split(';')
-            cleaned_spans = []
-            for span in spans:
-                span = span.strip()
-                if ':' in span:
-                    entity_type, times = span.split(':', 1)
-                    try:
-                        start, end = map(float, times.strip().split())
-                        cleaned_spans.append(f"{entity_type.strip()}: {start:.2f} {end:.2f}")
-                    except:
-                        cleaned_spans.append(span)
-            return '; '.join(cleaned_spans)
-        except:
-            return cleaned
-    
-    # Default cleaning for other datasets
-    return cleaned.lower().strip()
 
 class DummyContextManager:
     """Dummy context manager for when autocast is not used."""

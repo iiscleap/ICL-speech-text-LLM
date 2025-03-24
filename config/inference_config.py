@@ -30,8 +30,11 @@ def get_inference_config(model_type: str, dataset_type: Optional[DatasetType] = 
             "model_args": {
                 "llama_path": "lmsys/vicuna-13b-v1.1",
                 "whisper_path": "openai/whisper-large-v2",
-                "beats_path": "beats",
+                "beats_path": "/data2/neeraja/neeraja/BEATs_iter3_plus_AS2M_finetuned_on_AS2M_cpt2.pt",
                 "lora": True,
+                "lora_rank": 8,
+                "lora_alpha": 16,
+                "lora_dropout": 0.05,
                 "max_txt_len": 128,
             }
         }

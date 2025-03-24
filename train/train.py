@@ -151,11 +151,9 @@ def main():
         
         # Parse dataset types for multi-task
         try:
-            all_dataset_types = [DatasetType(dt.strip()) for dt in args.dataset_type.split("-")]
-            if not all_dataset_types:
+            dataset_types = [DatasetType(dt.strip()) for dt in args.dataset_type.split("-")]
+            if not dataset_types:
                 raise ValueError("No valid dataset types provided")
-            # Store the single task dataset type for later use
-            single_task_dataset = [all_dataset_types[0]]  # Use first dataset for single task training
         except ValueError as e:
             logger.error(f"Error parsing dataset types: {e}")
             return 1
@@ -175,8 +173,8 @@ def main():
                 model_type=args.model_type,
                 # multi_task=len(dataset_types) > 1,
                 multi_task=False,
-                task_configs={dt: get_training_config(args.model_type, dt) for dt in all_dataset_types},
-                default_task=all_dataset_types[0] if all_dataset_types else None,
+                task_configs={dt: get_training_config(args.model_type, dt) for dt in dataset_types},
+                default_task=dataset_types[0] if dataset_types else None,
                 **config.get("model_args", {})
             )
             if is_main_process:
@@ -242,7 +240,7 @@ def main():
         train_datasets = {}
         val_datasets = {}
         start_time = time.time()
-        for dt in all_dataset_types:
+        for dt in dataset_types:
             try:
                 full_train_dataset = load_dataset(dt, split="train")
                 full_val_dataset = load_dataset(dt, split=args.val_split)
@@ -272,7 +270,7 @@ def main():
         # Create training dataset using DatasetFactory
         try:
             train_dataset = DatasetFactory.create_dataset(
-                dataset_type=all_dataset_types,
+                dataset_type=dataset_types,
                 dataset=train_datasets,
                 processor=processor,
                 is_training=True,
@@ -292,7 +290,7 @@ def main():
         # Create validation dataset
         try:
             val_dataset = DatasetFactory.create_dataset(
-                dataset_type=all_dataset_types,
+                dataset_type=dataset_types,
                 dataset=val_datasets,
                 processor=processor,
                 is_training=False,  # Use inference mode for validation
@@ -399,61 +397,18 @@ def main():
         
         for epoch in range(start_epoch, args.num_epochs):
             epoch_start_time = time.time()
-            
-            # Determine which dataset types to use for this epoch
-            current_dataset_types = all_dataset_types if epoch < 5 else single_task_dataset
-            
             if is_main_process:
                 logger.info(f"Starting epoch {epoch+1}/{args.num_epochs}")
-                logger.info(f"Training on datasets: {[dt.value for dt in current_dataset_types]}")
                 log_gpu_memory_usage(logger)
-
-            # Create training dataset for current epoch with current dataset types
-            try:
-                current_train_dataset = DatasetFactory.create_dataset(
-                    dataset_type=current_dataset_types,
-                    dataset=train_datasets,
-                    processor=processor,
-                    is_training=True,
-                    input_mode=args.input_mode,
-                    fewshot_mode=args.fewshot_mode,
-                    num_examples=args.num_examples,
-                    random_examples=True,
-                    model_type=args.model_type,
-                    run_name=args.run_name
-                )
-                if is_main_process:
-                    logger.info(f"Created training dataset for epoch {epoch+1} with {len(current_train_dataset)} examples")
-            except Exception as e:
-                logger.error(f"Error creating training dataset: {e}")
-                return 1
-
-            # Create data sampler for current epoch
-            if args.local_rank != -1:
-                current_train_sampler = DistributedSampler(current_train_dataset)
-                current_train_sampler.set_epoch(epoch)
-            else:
-                current_train_sampler = None
-
-            # Create data loader for current epoch
-            current_train_loader = DataLoader(
-                current_train_dataset,
-                batch_size=args.batch_size,
-                sampler=current_train_sampler,
-                shuffle=current_train_sampler is None,
-                collate_fn=processor.collate_batch,
-                num_workers=num_workers,
-                pin_memory=args.dataloader_pin_memory,
-                prefetch_factor=args.dataloader_prefetch_factor if num_workers > 0 else None,
-                persistent_workers=False,
-                drop_last=False
-            )
-
+            
+            if train_sampler is not None:
+                train_sampler.set_epoch(epoch)
+            
             model.train()
             total_loss = 0
             
-            # Use current_train_loader instead of train_loader
-            train_iter = tqdm(current_train_loader, desc=f"Epoch {epoch+1}", disable=not is_main_process)
+            # Use tqdm for progress bar if main process
+            train_iter = tqdm(train_loader, desc=f"Epoch {epoch+1}", disable=not is_main_process)
             
             for step, batch in enumerate(train_iter):
                 step_start = time.time()
@@ -583,7 +538,7 @@ def main():
                         examples_per_second = args.batch_size / (time.time() - step_start)
                         
                         logger.info(
-                            f"Epoch {epoch+1}, Step {step+1}/{len(current_train_loader)}, "
+                            f"Epoch {epoch+1}, Step {step+1}/{len(train_loader)}, "
                             f"Loss: {loss.item() * args.gradient_accumulation_steps:.4f}, "
                             f"LR: {optimizer.param_groups[0]['lr']:.8f}, "
                             f"Speed: {examples_per_second:.2f} examples/s, "
@@ -598,7 +553,7 @@ def main():
                             model=model,
                             val_loader=val_loader,
                             device=device,
-                            dataset_types=current_dataset_types,
+                            dataset_types=dataset_types,
                             amp_dtype=amp_dtype,
                             is_main_process=is_main_process,
                             logger=logger
@@ -628,7 +583,7 @@ def main():
                     continue
             
             # Calculate average loss for the epoch
-            avg_loss = total_loss / len(current_train_loader)
+            avg_loss = total_loss / len(train_loader)
             epoch_time = time.time() - epoch_start_time
             
             if is_main_process:
