@@ -206,6 +206,10 @@ class BaseMultiTaskDataset(Dataset):
         return label
 
     def __getitem__(self, idx):
+
+        if self.is_swap_dataset:
+            self.current_config = get_swap_config(self.dataset_type)
+
         # Get item from dataset
         item = self.dataset[idx]
         

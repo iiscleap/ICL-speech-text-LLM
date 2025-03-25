@@ -3,14 +3,14 @@
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
 # dataset_type="voxceleb,hvb"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
-dataset_type="voxceleb,hvb"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
+dataset_type="voxceleb_swap,hvb_swap"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
 num_examples=5
 batch_size=1
 gradient_accumulation_steps=8
 learning_rate=1e-5
-num_epochs=10
+num_epochs=20
 warmup_steps=100
 save_every=1
 eval_every=5000
@@ -70,7 +70,7 @@ effective_batch_size=$((batch_size * gradient_accumulation_steps))
 CURRENT_DATETIME=$(date +"%d%m_%H%M")
 
 # Generate a descriptive run name with date and time at the start
-RUN_NAME="${CURRENT_DATETIME}_ft_${num_examples}ex_${num_epochs}e${effective_batch_size}b_${model_type}_${input_mode}_${fewshot_mode}_${CLEAN_DATASET_TYPE}"
+RUN_NAME="${CURRENT_DATETIME}_ft_${num_examples}ex_${num_epochs}e${effective_batch_size}b_${model_type}_${input_mode}_${fewshot_mode}_${CLEAN_DATASET_TYPE}_ss"
 
 # Set script path
 SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/train/train.py"

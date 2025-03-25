@@ -59,23 +59,23 @@ Guidelines:
     completion_key=VOXCELEB_CONFIG.completion_key
 )
 
-VOXCELEB_PERMUTATIONS = [
-    ["negative", "positive", "neutral"],
-    ["negative", "neutral", "positive"],
-    ["positive", "neutral", "negative"],
-    ["positive", "negative", "neutral"],
-    ["neutral", "negative", "positive"],
-    ["neutral", "positive", "negative"]
-]
-
 # VOXCELEB_PERMUTATIONS = [
-#     ["beta", "alpha", "gamma"],
-#     ["beta", "gamma", "alpha"],
-#     ["alpha", "gamma", "beta"],
-#     ["alpha", "beta", "gamma"],
-#     ["gamma", "beta", "alpha"],
-#     ["gamma", "alpha", "beta"]
+#     ["negative", "positive", "neutral"],
+#     ["negative", "neutral", "positive"],
+#     ["positive", "neutral", "negative"],
+#     ["positive", "negative", "neutral"],
+#     ["neutral", "negative", "positive"],
+#     ["neutral", "positive", "negative"]
 # ]
+
+VOXCELEB_PERMUTATIONS = [
+    ["beta", "alpha", "gamma"],
+    ["beta", "gamma", "alpha"],
+    ["alpha", "gamma", "beta"],
+    ["alpha", "beta", "gamma"],
+    ["gamma", "beta", "alpha"],
+    ["gamma", "alpha", "beta"]
+]
 
 VOXCELEB_SWAP_CONFIGS = []
 for perm in VOXCELEB_PERMUTATIONS:
