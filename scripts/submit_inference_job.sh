@@ -5,7 +5,7 @@ model_type="salmonn"  # Options: "salmonn" or "qwen2"
 dataset_type="voxceleb,hvb,voxpopuli"  # Options: "voxceleb", "hvb", "voxpopuli", etc., sqa, vp_nel
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
-num_examples=3
+num_examples=2
 batch_size=1
 
 debug_samples=0  # Add debug_samples parameter (0 = use all samples)
@@ -13,8 +13,8 @@ debug_samples=0  # Add debug_samples parameter (0 = use all samples)
 
 # Node configuration
 queue_name="long.q"      # Queue to submit job to (gpu.q, med.q, etc.)
-hostname="compute-0-8"  # Hostname to run on
-cuda_device=0          # CUDA device to use
+hostname="compute-0-9"  # Hostname to run on
+cuda_device=1          # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
 
@@ -55,9 +55,12 @@ hold_job_id=""          # Job ID to wait for (empty = don't wait)
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2503_0016_ft_5ex_20e8b_salmonn_text_only_text_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0997/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2503_1535_ft_5ex_20e8b_salmonn_text_only_text_voxceleb_swap-hvb_swap/checkpoints/epoch_10_loss_0.1935/model.pt"
 
-# peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/INTERSPEECH/finetune_llama2_salmon_speech_15e8b_Q_voxceleb_swap/final_model.pt"
 
 peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2503_1539_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_swap-hvb_swap_ss/checkpoints/epoch_10_loss_0.0063/model.pt"
+
+# peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/INTERSPEECH/finetune_llama2_salmon_speech_15e8b_Q_voxceleb_swap/final_model.pt"
+
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2503_1539_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_swap-hvb_swap_ss/checkpoints/epoch_10_loss_0.0063/model.pt"
 
 
 
