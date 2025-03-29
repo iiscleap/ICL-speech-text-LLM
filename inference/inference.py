@@ -80,6 +80,16 @@ def parse_args():
     parser.add_argument("--debug_samples", type=int, default=0, 
                         help="Number of samples to use for debugging (0 = use all samples)")
     
+    # New argument for randomize swap
+    parser.add_argument("--randomize_swap", type=bool, default=False,
+                        help="Randomize swap configurations during inference")
+    
+    # Add new arguments
+    parser.add_argument("--balance_datasets", type=bool, default=False,
+                        help="Balance datasets during inference")
+    parser.add_argument("--interleave", type=bool, default=False,
+                        help="Interleave datasets during inference")
+    
     return parser.parse_args()
 
 def set_seed(seed):
@@ -213,7 +223,7 @@ def run_inference(args):
         logger.info("Creating dataset and dataloader")
         dataset = DatasetFactory.create_dataset(
             dataset_type=dataset_types,
-            dataset=datasets,  # Pass the loaded datasets
+            dataset=datasets,
             processor=model_processor,
             is_training=False,
             input_mode=args.input_mode,
@@ -221,7 +231,10 @@ def run_inference(args):
             num_examples=args.num_examples,
             random_examples=False,
             model_type=args.model_type,
-            run_name=args.run_name
+            run_name=args.run_name,
+            randomize_swap=args.randomize_swap,
+            balance_datasets=args.balance_datasets,
+            interleave=args.interleave
         )
 
         # Add debug logs here

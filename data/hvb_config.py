@@ -157,5 +157,7 @@ Guidelines:
         completion_key=HVB_CONFIG.completion_key
     ))
 
-def get_hvb_swap_config():
-    return random.choice(HVB_SWAP_CONFIGS) 
+def get_hvb_swap_config(randomize: bool = False):
+    if not hasattr(get_hvb_swap_config, '_fixed_config'):
+        get_hvb_swap_config._fixed_config = random.choice(HVB_SWAP_CONFIGS)
+    return random.choice(HVB_SWAP_CONFIGS) if randomize else get_hvb_swap_config._fixed_config 

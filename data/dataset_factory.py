@@ -24,7 +24,10 @@ class DatasetFactory:
         num_examples: int = 5,
         random_examples: Optional[bool] = None,
         model_type: str = "salmonn",
-        run_name: str = ""
+        run_name: str = "",
+        randomize_swap: bool = False,
+        balance_datasets: bool = True,
+        interleave: bool = True
     ):
         """
         Create a dataset based on the provided parameters.
@@ -85,7 +88,10 @@ class DatasetFactory:
                     num_examples=num_examples,
                     random_examples=random_examples,
                     model_type=model_type,
-                    run_name=run_name
+                    run_name=run_name,
+                    randomize_swap=randomize_swap,
+                    balance_datasets=balance_datasets,
+                    interleave=interleave
                 )
 
             else:
@@ -172,7 +178,10 @@ class DatasetFactory:
         num_examples: int,
         random_examples: bool,
         model_type: str,
-        run_name: str
+        run_name: str,
+        randomize_swap: bool,
+        balance_datasets: bool,
+        interleave: bool
     ):
         """
         Create a multi-task dataset.
@@ -216,7 +225,9 @@ class DatasetFactory:
                         fewshot_mode=fewshot_mode,
                         num_examples=num_examples,
                         random_examples=random_examples,
-                        model_type=model_type
+                        model_type=model_type,
+                        run_name=run_name,
+                        randomize_swap=randomize_swap
                     )
                 else:
                     datasets[dt] = InferenceDataset(
@@ -227,7 +238,9 @@ class DatasetFactory:
                         fewshot_mode=fewshot_mode,
                         num_examples=num_examples,
                         random_examples=random_examples,
-                        model_type=model_type
+                        model_type=model_type,
+                        run_name=run_name,
+                        randomize_swap=randomize_swap
                     )
                 logger.info(f"Added {dt} to multi-task dataset")
             except Exception as e:
@@ -243,14 +256,16 @@ class DatasetFactory:
             return MultiTaskTrainingDataset(
                 datasets=datasets,
                 processor=processor,
-                balance_datasets=True  # Enable balanced sampling for training
+                balance_datasets=balance_datasets,
+                interleave=interleave
             )
         else:
             logger.info(f"Creating MultiTaskInferenceDataset with {len(datasets)} tasks")
             return MultiTaskInferenceDataset(
                 datasets=datasets,
                 processor=processor,
-                balance_datasets=False  # Keep inference unbalanced
+                balance_datasets=balance_datasets,
+                interleave=interleave
             )
     
     @staticmethod

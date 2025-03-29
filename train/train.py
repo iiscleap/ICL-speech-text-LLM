@@ -93,6 +93,16 @@ def parse_args():
     parser.add_argument("--debug_samples", type=int, default=10, 
                         help="Number of samples to use for debugging (0 = use all samples)")
     
+    # Add new argument
+    parser.add_argument("--randomize_swap", type=bool, default=True,
+                        help="Randomize swap configurations during training")
+    
+    # Add new arguments
+    parser.add_argument("--balance_datasets", type=bool, default=False,
+                        help="Balance datasets during training")
+    parser.add_argument("--interleave", type=bool, default=True,
+                        help="Interleave datasets during training")
+    
     return parser.parse_args()
 
 def set_seed(seed):
@@ -279,7 +289,10 @@ def main():
                 num_examples=args.num_examples,
                 random_examples=True,
                 model_type=args.model_type,
-                run_name=args.run_name
+                run_name=args.run_name,
+                randomize_swap=args.randomize_swap,
+                balance_datasets=args.balance_datasets,
+                interleave=args.interleave
             )
             if is_main_process:
                 logger.info(f"Created training dataset with {len(train_dataset)} examples")
@@ -293,13 +306,14 @@ def main():
                 dataset_type=dataset_types,
                 dataset=val_datasets,
                 processor=processor,
-                is_training=False,  # Use inference mode for validation
+                is_training=False,
                 input_mode=args.input_mode,
                 fewshot_mode=args.fewshot_mode,
                 num_examples=args.num_examples,
                 random_examples=False,
                 model_type=args.model_type,
-                run_name=args.run_name
+                run_name=args.run_name,
+                randomize_swap=False
             )
             if is_main_process:
                 logger.info(f"Created validation dataset with {len(val_dataset)} examples")

@@ -99,5 +99,7 @@ Guidelines:
 
 
 
-def get_voxceleb_swap_config():
-    return random.choice(VOXCELEB_SWAP_CONFIGS) 
+def get_voxceleb_swap_config(randomize: bool = False):
+    if not hasattr(get_voxceleb_swap_config, '_fixed_config'):
+        get_voxceleb_swap_config._fixed_config = random.choice(VOXCELEB_SWAP_CONFIGS)
+    return random.choice(VOXCELEB_SWAP_CONFIGS) if randomize else get_voxceleb_swap_config._fixed_config 

@@ -58,7 +58,8 @@ class BaseMultiTaskDataset(Dataset):
         random_examples: bool = False, 
         split: DatasetSplit = DatasetSplit.TEST, 
         model_type: str = "salmonn", 
-        run_name: str = ""
+        run_name: str = "",
+        randomize_swap: bool = False
     ):
         """
         Initialize the base multi-task dataset.
@@ -74,6 +75,7 @@ class BaseMultiTaskDataset(Dataset):
             split: Dataset split (TRAIN, VAL, TEST)
             model_type: Type of model ('salmonn', 'qwen2', etc.)
             run_name: Name of the run (for logging)
+            randomize_swap: Whether to randomize the swap configuration
         """
         self.dataset_type = dataset_type
         self.dataset = dataset
@@ -85,6 +87,7 @@ class BaseMultiTaskDataset(Dataset):
         self.split = split
         self.model_type = model_type.lower()
         self.run_name = run_name
+        self.randomize_swap = randomize_swap
         
         # Get base dataset configuration
         self.config = get_dataset_config(dataset_type)
@@ -206,9 +209,8 @@ class BaseMultiTaskDataset(Dataset):
         return label
 
     def __getitem__(self, idx):
-
         if self.is_swap_dataset:
-            self.current_config = get_swap_config(self.dataset_type)
+            self.current_config = get_swap_config(self.dataset_type, self.randomize_swap)
 
         # Get item from dataset
         item = self.dataset[idx]
@@ -471,12 +473,14 @@ class MultiTaskDataset(Dataset):
         self,
         datasets: Dict[DatasetType, BaseMultiTaskDataset],
         processor,
-        balance_datasets: bool = True  # New parameter to control balancing
+        balance_datasets: bool = True,
+        interleave: bool = True  # Add new parameter
     ):
         self.datasets = datasets
         self.dataset_types = list(datasets.keys())
         self.processor = processor
         self.balance_datasets = balance_datasets
+        self.interleave = interleave
         
         # Calculate dataset sizes
         self.dataset_sizes = {dt: len(dataset) for dt, dataset in datasets.items()}
@@ -490,19 +494,31 @@ class MultiTaskDataset(Dataset):
             self.dataset_indices = {}
             for dt in self.dataset_types:
                 size = self.dataset_sizes[dt]
-                # If dataset is smaller than max_size, create repeating indices
                 repeats = (self.max_size + size - 1) // size  # Ceiling division
                 self.dataset_indices[dt] = np.tile(np.arange(size), repeats)[:self.max_size]
-                np.random.shuffle(self.dataset_indices[dt])  # Shuffle indices
+                np.random.shuffle(self.dataset_indices[dt])
         else:
-            # Original unbalanced behavior
-            self.total_size = sum(self.dataset_sizes.values())
-            self.index_mapping = []
-            for dt in self.dataset_types:
-                for local_idx in range(self.dataset_sizes[dt]):
-                    self.index_mapping.append((dt, local_idx))
+            if self.interleave:
+                # For interleaved but unbalanced sampling
+                self.max_size = max(self.dataset_sizes.values())
+                self.total_size = sum(self.dataset_sizes.values())
+                
+                # Create sampling indices for each dataset
+                self.dataset_indices = {}
+                for dt in self.dataset_types:
+                    size = self.dataset_sizes[dt]
+                    self.dataset_indices[dt] = np.arange(size)
+                    np.random.shuffle(self.dataset_indices[dt])
+            else:
+                # Original sequential sampling
+                self.total_size = sum(self.dataset_sizes.values())
+                self.index_mapping = []
+                for dt in self.dataset_types:
+                    for local_idx in range(self.dataset_sizes[dt]):
+                        self.index_mapping.append((dt, local_idx))
         
         logger.info(f"Created MultiTaskDataset with {len(self.dataset_types)} tasks")
+        logger.info(f"Sampling mode: {'balanced' if balance_datasets else 'unbalanced'}, {'interleaved' if interleave else 'sequential'}")
         for dt in self.dataset_types:
             logger.info(f"  - {dt}: {self.dataset_sizes[dt]} examples")
         logger.info(f"Total examples per epoch: {self.total_size}")
@@ -511,21 +527,26 @@ class MultiTaskDataset(Dataset):
         return self.total_size
     
     def __getitem__(self, idx):
-        if self.balance_datasets:
-            # Interleaved sampling
-            dataset_idx = idx % len(self.dataset_types)  # Cycle through datasets
-            local_idx = idx // len(self.dataset_types)   # Index within dataset
+        if self.balance_datasets or self.interleave:
+            # Interleaved sampling (both balanced and unbalanced)
+            dataset_idx = idx % len(self.dataset_types)
             dataset_type = self.dataset_types[dataset_idx]
             
-            # Get the actual index for this dataset
-            actual_idx = int(self.dataset_indices[dataset_type][local_idx % self.max_size])  # Convert numpy.int64 to Python int
+            if self.balance_datasets:
+                # For balanced sampling
+                local_idx = idx // len(self.dataset_types)
+                actual_idx = int(self.dataset_indices[dataset_type][local_idx % self.max_size])
+            else:
+                # For unbalanced but interleaved sampling
+                local_idx = idx // len(self.dataset_types)
+                dataset_size = len(self.dataset_indices[dataset_type])
+                actual_idx = int(self.dataset_indices[dataset_type][local_idx % dataset_size])
             
-            # Get the item from the appropriate dataset
             item = self.datasets[dataset_type][actual_idx]
         else:
-            # Original unbalanced sampling
+            # Sequential sampling
             dataset_type, local_idx = self.index_mapping[idx]
-            item = self.datasets[dataset_type][int(local_idx)]  # Convert to Python int here too
+            item = self.datasets[dataset_type][int(local_idx)]
         
         # Add the dataset type to the result if not already present
         if "dataset_type" not in item:
@@ -535,7 +556,7 @@ class MultiTaskDataset(Dataset):
 
     def on_epoch_end(self):
         """Call this at the end of each epoch to reshuffle indices"""
-        if self.balance_datasets:
+        if self.balance_datasets or self.interleave:
             for dt in self.dataset_types:
                 np.random.shuffle(self.dataset_indices[dt])
 

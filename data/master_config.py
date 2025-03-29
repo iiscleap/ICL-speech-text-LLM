@@ -36,16 +36,16 @@ def get_dataset_config(dataset_type: DatasetType) -> DatasetConfig:
     """Get the configuration for a specific dataset type."""
     return DATASET_CONFIGS.get(dataset_type)
 
-def get_swap_config(dataset_type: DatasetType) -> DatasetConfig:
+def get_swap_config(dataset_type: DatasetType, randomize: bool = False):
     """Get a random swap configuration for a dataset type"""
     if dataset_type == DatasetType.VOXCELEB_SWAP:
-        return get_voxceleb_swap_config()
+        return get_voxceleb_swap_config(randomize)
     elif dataset_type == DatasetType.HVB_SWAP:
-        return get_hvb_swap_config()
+        return get_hvb_swap_config(randomize)
     elif dataset_type == DatasetType.VOXPOPULI_SWAP:
-        return get_voxpopuli_swap_config()
+        return get_voxpopuli_swap_config(randomize)
     else:
-        raise ValueError(f"No swap configuration available for dataset type: {dataset_type}")
+        raise ValueError(f"No swap config available for dataset type: {dataset_type}")
 
 def apply_label_mapping(examples: List[Dict], label_mapping: Dict[str, str]) -> List[Dict]:
     """Apply label mapping to a list of examples"""

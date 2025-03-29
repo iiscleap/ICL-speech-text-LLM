@@ -17,6 +17,7 @@ COMMON_ARGS="--peft_model_path \"${peft_model_path}\" \
     --num_workers ${num_workers:-4} \
     --seed ${seed:-42} \
     --debug_samples ${debug_samples:-0} \
+    --randomize_swap ${randomize_swap:-false} \
     --fp16"
 
 # Run the inference script
