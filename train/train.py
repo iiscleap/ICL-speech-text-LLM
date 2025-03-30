@@ -94,13 +94,13 @@ def parse_args():
                         help="Number of samples to use for debugging (0 = use all samples)")
     
     # Add new argument
-    parser.add_argument("--randomize_swap", type=bool, default=True,
-                        help="Randomize swap configurations during training")
+    parser.add_argument("--randomize_swap", type=lambda x: x.lower() == 'true', default=False,
+                        help="Randomize swap configurations during training (default: False)")
     
     # Add new arguments
     parser.add_argument("--balance_datasets", type=bool, default=False,
                         help="Balance datasets during training")
-    parser.add_argument("--interleave", type=bool, default=True,
+    parser.add_argument("--interleave", type=bool, default=False,
                         help="Interleave datasets during training")
     
     return parser.parse_args()
@@ -561,7 +561,7 @@ def main():
 
 
                     # Validation
-                    if step % args.eval_every == 0:
+                    if (step % args.eval_every == 0 and epoch !=0) or (epoch==0 and step ==10):
                         val_start_time = time.time()
                         val_loss, val_metrics = validate(
                             model=model,

@@ -24,7 +24,7 @@ COMMON_ARGS="--output_dir \"/data2/neeraja/neeraja/results/model_ICL/trained_mod
         --weight_decay ${weight_decay:-0.01} \
         --max_grad_norm ${max_grad_norm:-1.0} \
         --debug_samples ${debug_samples:-0} \
-        --randomize_swap ${randomize_swap:-true} \
+        --randomize_swap ${randomize_swap} \
         ${OPTIMIZATION_FLAGS}"
 
 # Remove the resume_from_checkpoint argument if it's empty

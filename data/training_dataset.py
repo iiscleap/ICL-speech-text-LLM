@@ -21,7 +21,8 @@ class TrainingDataset(BaseMultiTaskDataset):
         fewshot_mode: str = 'text', 
         num_examples: int = 5, 
         random_examples: bool = True,  # Default to True for training
-        model_type: str = "salmonn"
+        model_type: str = "salmonn",
+        randomize_swap: bool = True,
     ):
         """
         Initialize the training dataset.
@@ -46,7 +47,8 @@ class TrainingDataset(BaseMultiTaskDataset):
             num_examples=num_examples,
             random_examples=random_examples,
             split=DatasetSplit.TRAIN,
-            model_type=model_type
+            model_type=model_type,
+            randomize_swap=randomize_swap
         )
     
     def _is_training(self):

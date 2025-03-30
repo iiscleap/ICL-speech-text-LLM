@@ -74,6 +74,7 @@ class DatasetFactory:
             logger.info(f"  num_examples: {num_examples}")
             logger.info(f"  random_examples: {random_examples}")
             logger.info(f"  model_type: {model_type}")
+            logger.info(f"  randomize_swap: {randomize_swap}")
             
             # Create dataset class based on parameters
             if isinstance(dataset_type, list):
@@ -226,7 +227,6 @@ class DatasetFactory:
                         num_examples=num_examples,
                         random_examples=random_examples,
                         model_type=model_type,
-                        run_name=run_name,
                         randomize_swap=randomize_swap
                     )
                 else:
@@ -239,7 +239,6 @@ class DatasetFactory:
                         num_examples=num_examples,
                         random_examples=random_examples,
                         model_type=model_type,
-                        run_name=run_name,
                         randomize_swap=randomize_swap
                     )
                 logger.info(f"Added {dt} to multi-task dataset")

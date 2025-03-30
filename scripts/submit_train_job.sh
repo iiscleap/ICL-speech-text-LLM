@@ -16,7 +16,7 @@ save_every=1
 eval_every=5000
 
 # Add near the top with other configuration options
-randomize_swap=false  # Default to true for training
+randomize_swap=true  # Default to true for training
 
 # Performance optimization options
 use_fp16=true  # Enable mixed precision training with FP16
@@ -72,7 +72,7 @@ effective_batch_size=$((batch_size * gradient_accumulation_steps))
 CURRENT_DATETIME=$(date +"%d%m_%H%M")
 
 # Generate a descriptive run name with date and time at the start
-RUN_NAME="${CURRENT_DATETIME}_ft_${num_examples}ex_${num_epochs}e${effective_batch_size}b_${model_type}_${input_mode}_${fewshot_mode}_${CLEAN_DATASET_TYPE}"
+RUN_NAME="${CURRENT_DATETIME}_ft_${num_examples}ex_${num_epochs}e${effective_batch_size}b_${model_type}_${input_mode}_${fewshot_mode}_${CLEAN_DATASET_TYPE}_BothShu"
 
 # Set script path
 SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/train/train.py"
@@ -113,7 +113,7 @@ qsub -q long.q -V -cwd \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=0,\
+    -v CUDA_VISIBLE_DEVICES=2,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

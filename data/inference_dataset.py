@@ -18,7 +18,8 @@ class InferenceDataset(BaseMultiTaskDataset):
         fewshot_mode: str = 'text', 
         num_examples: int = 5, 
         random_examples: bool = False,  # Default to False for consistent evaluation
-        model_type: str = "salmonn"
+        model_type: str = "salmonn",
+        randomize_swap: bool = False,
     ):
         """
         Initialize the inference dataset.
@@ -43,7 +44,8 @@ class InferenceDataset(BaseMultiTaskDataset):
             num_examples=num_examples,
             random_examples=random_examples,
             split=DatasetSplit.TEST,
-            model_type=model_type
+            model_type=model_type,
+            randomize_swap=randomize_swap
         )
     
     def _is_training(self):

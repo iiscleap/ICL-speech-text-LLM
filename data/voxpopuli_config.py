@@ -100,7 +100,11 @@ Guidelines:
         name=DatasetType.VOXPOPULI_SWAP
     ))
 
+
+
 def get_voxpopuli_swap_config(randomize: bool = False):
-    if not hasattr(get_voxpopuli_swap_config, '_fixed_config'):
-        get_voxpopuli_swap_config._fixed_config = random.choice(VOXPOPULI_SWAP_CONFIGS)
-    return random.choice(VOXPOPULI_SWAP_CONFIGS) if randomize else get_voxpopuli_swap_config._fixed_config 
+    if randomize:
+        return random.choice(VOXPOPULI_SWAP_CONFIGS)
+    else:
+        # Always return the second config when not randomizing
+        return VOXPOPULI_SWAP_CONFIGS[1] 

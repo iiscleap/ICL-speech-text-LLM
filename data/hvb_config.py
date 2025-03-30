@@ -1,6 +1,8 @@
 from .base_config import DatasetType, DatasetSplit, DatasetConfig
 import random
 
+_fixed_hvb_config = None
+
 HVB_CONFIG = DatasetConfig(
     name=DatasetType.HVB,
     paths={
@@ -110,6 +112,58 @@ HVB_PERMUTATIONS = [
     # Original order
     HVB_CONFIG.valid_labels,
     # Add other permutations as in original file
+    ["question_check", "question_general", "question_repeat", "acknowledge", 
+     "answer_agree", "answer_dis", "answer_general", "apology", "backchannel", 
+     "disfluency", "other", "self", "statement_close", "statement_general",
+     "statement_instruct", "statement_open", "statement_problem", "thanks"],
+    
+    # Permutation 3: Rotate statements to front
+    ["statement_close", "statement_general", "statement_instruct", "statement_open", 
+     "statement_problem", "acknowledge", "answer_agree", "answer_dis", "answer_general", 
+     "apology", "backchannel", "disfluency", "other", "question_check", 
+     "question_general", "question_repeat", "self", "thanks"],
+    
+    # Permutation 4: Rotate answers to front
+    ["answer_agree", "answer_dis", "answer_general", "acknowledge", "apology", 
+     "backchannel", "disfluency", "other", "question_check", "question_general",
+     "question_repeat", "self", "statement_close", "statement_general",
+     "statement_instruct", "statement_open", "statement_problem", "thanks"],
+    
+    # Permutation 5: Group similar actions
+    ["acknowledge", "backchannel", "disfluency", "self", "answer_agree", 
+     "answer_dis", "answer_general", "question_check", "question_general",
+     "question_repeat", "statement_close", "statement_general", "statement_instruct", 
+     "statement_open", "statement_problem", "apology", "thanks", "other"],
+    
+    # Permutation 6: Reverse original
+    ["thanks", "statement_problem", "statement_open", "statement_instruct", 
+     "statement_general", "statement_close", "self", "question_repeat",
+     "question_general", "question_check", "other", "disfluency", "backchannel", 
+     "apology", "answer_general", "answer_dis", "answer_agree", "acknowledge"],
+    
+    # Permutation 7: Group by conversation flow
+    ["statement_open", "question_general", "answer_general", "question_check", 
+     "answer_agree", "answer_dis", "acknowledge", "backchannel", "disfluency",
+     "question_repeat", "statement_general", "statement_problem", "statement_instruct", 
+     "apology", "self", "other", "statement_close", "thanks"],
+    
+    # Permutation 8: Group by response type
+    ["question_general", "question_check", "question_repeat", "answer_general", 
+     "answer_agree", "answer_dis", "statement_general", "statement_open",
+     "statement_close", "statement_problem", "statement_instruct", "acknowledge", 
+     "backchannel", "disfluency", "self", "apology", "thanks", "other"],
+    
+    # Permutation 9: Alternate question/answer/statement
+    ["question_general", "answer_general", "statement_general", "question_check", 
+     "answer_agree", "statement_open", "question_repeat", "answer_dis",
+     "statement_close", "acknowledge", "backchannel", "statement_problem", 
+     "disfluency", "self", "statement_instruct", "apology", "thanks", "other"],
+    
+    # Permutation 10: Group by formality
+    ["statement_instruct", "statement_general", "question_general", "answer_general", 
+     "statement_problem", "question_check", "answer_agree", "answer_dis",
+     "statement_open", "statement_close", "acknowledge", "question_repeat", 
+     "backchannel", "disfluency", "self", "apology", "thanks", "other"]
 ]
 
 HVB_DESCRIPTIONS = [
@@ -158,6 +212,8 @@ Guidelines:
     ))
 
 def get_hvb_swap_config(randomize: bool = False):
-    if not hasattr(get_hvb_swap_config, '_fixed_config'):
-        get_hvb_swap_config._fixed_config = random.choice(HVB_SWAP_CONFIGS)
-    return random.choice(HVB_SWAP_CONFIGS) if randomize else get_hvb_swap_config._fixed_config 
+    if randomize:
+        return random.choice(HVB_SWAP_CONFIGS)
+    else:
+        # Always return the second config when not randomizing
+        return HVB_SWAP_CONFIGS[1] 

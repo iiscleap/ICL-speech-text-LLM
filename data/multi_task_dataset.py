@@ -563,8 +563,8 @@ class MultiTaskDataset(Dataset):
 class MultiTaskTrainingDataset(MultiTaskDataset):
     """Multi-task dataset for training"""
     
-    def __init__(self, datasets: Dict[DatasetType, BaseMultiTaskDataset], processor, balance_datasets: bool = True):
-        super().__init__(datasets, processor, balance_datasets=balance_datasets)
+    def __init__(self, datasets: Dict[DatasetType, BaseMultiTaskDataset], processor, balance_datasets: bool = True, interleave:bool = True):
+        super().__init__(datasets, processor, balance_datasets=balance_datasets, interleave=interleave)
     
     def _is_training(self):
         return True
@@ -572,8 +572,8 @@ class MultiTaskTrainingDataset(MultiTaskDataset):
 class MultiTaskInferenceDataset(MultiTaskDataset):
     """Multi-task dataset for inference"""
     
-    def __init__(self, datasets: Dict[DatasetType, BaseMultiTaskDataset], processor, balance_datasets: bool = False):
-        super().__init__(datasets, processor, balance_datasets=balance_datasets)
+    def __init__(self, datasets: Dict[DatasetType, BaseMultiTaskDataset], processor, balance_datasets: bool = False, interleave:bool = False):
+        super().__init__(datasets, processor, balance_datasets=balance_datasets,interleave=interleave)
     
     def _is_training(self):
         return False
