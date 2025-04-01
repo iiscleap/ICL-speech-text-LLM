@@ -2,10 +2,10 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxceleb,hvb,voxpopuli"  # Options: "voxceleb", "hvb", "voxpopuli", etc., sqa, vp_nel
+dataset_type="voxceleb_greek,hvb_greek"  # Options: "voxceleb", "hvb", "voxpopuli", etc., sqa, vp_nel
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
-num_examples=1
+num_examples=0
 batch_size=1
 
 debug_samples=0  # Add debug_samples parameter (0 = use all samples)
@@ -39,7 +39,7 @@ hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb-hvb/checkpoints/epoch_10_loss_0.0060/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_swap-hvb_swap/checkpoints/epoch_10_loss_0.0117/model.pt"
-# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0055/model.pt"
+peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0055/model.pt"
 
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1503_0227_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb-hvb/checkpoints/epoch_10_loss_0.0060/model.pt"
@@ -67,7 +67,7 @@ hold_job_id=""          # Job ID to wait for (empty = don't wait)
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3003_0050_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_swap_Inter/final_model.pt"
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3003_0157_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_swap-hvb_swap_NEIter/checkpoints/epoch_10_loss_0.0081/model.pt"
-peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3003_0201_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_swap-hvb_swap_BothShu/checkpoints/epoch_10_loss_0.0468/model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3003_0201_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_swap-hvb_swap_BothShu/checkpoints/epoch_10_loss_0.0468/model.pt"
 
 # Clean dataset type for file names and Python
 if [[ $dataset_type == *","* ]]; then

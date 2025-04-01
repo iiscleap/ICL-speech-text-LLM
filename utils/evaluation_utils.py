@@ -470,18 +470,53 @@ def clean_prediction(prediction: str, dataset_type: DatasetType = None) -> str:
     """
     Clean prediction based on dataset type and expected format.
     """
-    # First remove basic escape characters
+    # First remove basic escape characters and normalize whitespace
     cleaned = prediction.replace('\\', '')
+    cleaned = re.sub(r'\s+', ' ', cleaned)  # Normalize whitespace
     
+    # Handle newlines - take first line only
     if '\n' in cleaned:
         cleaned = cleaned.split('\n')[0]
-    
-    # Common cleaning for all datasets - handle commas
+
     cleaned = re.sub(r',\s*,', ',', cleaned)  # Replace multiple commas with single comma
     cleaned = re.sub(r',\s*$', '', cleaned)   # Remove trailing comma
     cleaned = re.sub(r'^\s*,', '', cleaned)   # Remove leading comma
-    cleaned = re.sub(r'\s+', ' ', cleaned)    # Normalize whitespace
     
+    # For VoxCeleb predictions, take only the first word
+    if dataset_type == DatasetType.VOXCELEB:
+        # Split by any non-word character and take first non-empty word
+        words = re.split(r'[^a-zA-Z]', cleaned)
+        words = [w.strip().lower() for w in words]
+        words = [w for w in words if w]  # Remove empty strings
+        
+        if words:
+            return words[0]
+        return cleaned.lower()
+    
+    
+    # For HVB predictions, keep all valid labels
+    elif dataset_type == DatasetType.HVB:
+        # Get valid labels from HVB config
+        valid_labels = [
+        "acknowledge", "answer_agree", "answer_dis", "answer_general",
+        "apology", "backchannel", "disfluency", "other",
+        "question_check", "question_general", "question_repeat",
+        "self", "statement_close", "statement_general",
+        "statement_instruct", "statement_open", "statement_problem",
+        "thanks"
+    ]
+        
+        labels = [l.strip() for l in cleaned.split(',')]
+        # Filter out empty strings and partial/incomplete labels
+        labels = [l for l in labels if l and '(' not in l]
+        
+        # Keep all valid labels found
+        valid_found = [label for label in labels if label in valid_labels]
+        
+        if valid_found:
+            return ', '.join(valid_found)
+        return cleaned
+
     # Dataset-specific cleaning
     if dataset_type == DatasetType.SQA:
         # For SQA, expect "start_time end_time"

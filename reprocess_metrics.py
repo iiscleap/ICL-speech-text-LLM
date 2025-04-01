@@ -2,23 +2,14 @@ import json
 import os
 from utils.evaluation_utils import evaluate_predictions
 from data.master_config import DatasetType
+import traceback
 
-def reprocess_results(results_file: str, dataset_name: str):
-    """Reprocess results file to generate new metrics"""
+def reprocess_results(results_file: str):
+    """Reprocess results file to generate new metrics for all dataset types"""
     try:
         # Get directory path
         dir_path = os.path.dirname(results_file)
         base_name = os.path.basename(results_file)
-        
-        # Assign dataset_type based on dataset_name
-        if dataset_name.lower() == 'voxceleb':
-            dataset_type = DatasetType.VOXCELEB
-        elif dataset_name.lower() == 'hvb':
-            dataset_type = DatasetType.HVB
-        elif dataset_name.lower() == 'voxpopuli':
-            dataset_type = DatasetType.VOXPOPULI
-        else:
-            raise ValueError(f"Unknown dataset name: {dataset_name}")
         
         # Make sure we're using the results file, not metrics file
         if 'metrics' in base_name:
@@ -26,19 +17,17 @@ def reprocess_results(results_file: str, dataset_name: str):
             base_name = os.path.basename(results_file)
         
         print(f"Processing file: {results_file}")
-        print(f"Dataset type: {dataset_type}")
         
         # Check if results file exists
         if not os.path.exists(results_file):
             raise FileNotFoundError(f"Results file not found: {results_file}")
         
-        # Load and print the raw data structure
+        # Load raw data
         with open(results_file, 'r') as f:
             raw_results = json.load(f)
         
-        print("Raw data type:", type(raw_results))
+        # Convert to list if needed
         if isinstance(raw_results, dict):
-            # Convert dictionary to list if needed
             results = [raw_results[key] for key in raw_results.keys() if isinstance(raw_results[key], dict)]
         else:
             results = raw_results
@@ -47,40 +36,75 @@ def reprocess_results(results_file: str, dataset_name: str):
         if not results:
             raise ValueError(f"No valid predictions found in file")
             
-        print(f"Processing {len(results)} predictions")
+        print(f"Processing {len(results)} total predictions")
         
-        # Print first few results for verification
-        print("\nFirst few results before processing:")
-        for i, result in enumerate(results[:3]):
-            print(f"\nResult {i+1}:")
-            print(f"Text: {result['text']}")
-            print(f"True label: {result['true_label']}")
-            print(f"Predicted: {result['predicted_label']}")
-            print(f"Dataset type: {result['dataset_type']}")
+        # Create combined metrics dictionary
+        combined_metrics = {}
         
-        # Generate new metrics
-        metrics = evaluate_predictions(results, dataset_type)
+        # Process each dataset type
+        dataset_types = {
+            'voxceleb': DatasetType.VOXCELEB,
+            'hvb': DatasetType.HVB,
+            'voxpopuli': DatasetType.VOXPOPULI
+        }
+        
+        for dataset_name, dataset_type in dataset_types.items():
+            # Filter results for current dataset type
+            dataset_results = [r for r in results if r['dataset_type'].lower() == dataset_name]
+            
+            if dataset_results:
+                print(f"\nProcessing {len(dataset_results)} predictions for {dataset_name}")
+                # Print sample for verification
+                print(f"Sample {dataset_name} prediction:")
+                print(f"Text: {dataset_results[0]['text']}")
+                print(f"True label: {dataset_results[0]['true_label']}")
+                print(f"Predicted: {dataset_results[0]['predicted_label']}")
+                
+                # Generate metrics for this dataset
+                metrics = evaluate_predictions(dataset_results, dataset_type)
+                combined_metrics[dataset_name] = metrics
+            else:
+                print(f"No predictions found for {dataset_name}")
         
         # Create output filename in same directory
-        output_file = os.path.join(dir_path, base_name.replace('_results.json', '_metrics_new.json'))
+        output_file = os.path.join(dir_path, base_name.replace('_results.json', '_metrics_combined.json'))
         
-        # Save new metrics
+        # Save combined metrics
         with open(output_file, 'w') as f:
-            json.dump(metrics, f, indent=2)
+            json.dump(combined_metrics, f, indent=2)
         
         print(f"\nProcessed {results_file}")
-        print(f"Saved new metrics to {output_file}")
+        print(f"Saved combined metrics to {output_file}")
         
     except Exception as e:
         print(f"Error processing file: {str(e)}")
-        import traceback
-        print(traceback.format_exc())
+        traceback.print_exc()
+
+def process_folder(folder_path: str):
+    """Process all results.json files in the given folder and its subfolders"""
+    print(f"Processing folder: {folder_path}")
+    
+    # Walk through all subdirectories
+    for root, _, files in os.walk(folder_path):
+        for file in files:
+            # Check if file is a results.json file
+            if file.endswith('_results.json'):
+                results_file = os.path.join(root, file)
+                print(f"\nProcessing file: {results_file}")
+                try:
+                    reprocess_results(results_file)
+                except Exception as e:
+                    print(f"Error processing {results_file}: {str(e)}")
+                    traceback.print_exc()
 
 if __name__ == "__main__":
-    # Make sure to use the results file path, not metrics
-    results_file = "/data2/neeraja/neeraja/results/model_ICL/metrics/2025-03-24/2403_1802_ft_5ex_20e8b_sal_sp_only_vox-hvb_voxpopuli_speech_only_text_1shots_results.json"
+    import argparse
     
-    if os.path.exists(results_file):
-        reprocess_results(results_file, "voxpopuli")
+    parser = argparse.ArgumentParser(description='Process results files in a folder')
+    parser.add_argument('folder_path', type=str, help='Path to the folder containing results files')
+    args = parser.parse_args()
+    
+    if os.path.exists(args.folder_path):
+        process_folder(args.folder_path)
     else:
-        print(f"Results file not found: {results_file}") 
+        print(f"Folder not found: {args.folder_path}") 
