@@ -482,8 +482,8 @@ def clean_prediction(prediction: str, dataset_type: DatasetType = None) -> str:
     cleaned = re.sub(r',\s*$', '', cleaned)   # Remove trailing comma
     cleaned = re.sub(r'^\s*,', '', cleaned)   # Remove leading comma
     
-    # For VoxCeleb predictions, take only the first word
-    if dataset_type == DatasetType.VOXCELEB:
+    # For VoxCeleb and VoxCeleb Greek predictions, take only the first word
+    if dataset_type in [DatasetType.VOXCELEB, DatasetType.VOXCELEB_GREEK]:
         # Split by any non-word character and take first non-empty word
         words = re.split(r'[^a-zA-Z]', cleaned)
         words = [w.strip().lower() for w in words]
@@ -494,19 +494,27 @@ def clean_prediction(prediction: str, dataset_type: DatasetType = None) -> str:
         return cleaned.lower()
     
     
-    # For HVB predictions, keep all valid labels
-    elif dataset_type == DatasetType.HVB:
-        # Get valid labels from HVB config
-        valid_labels = [
-        "acknowledge", "answer_agree", "answer_dis", "answer_general",
-        "apology", "backchannel", "disfluency", "other",
-        "question_check", "question_general", "question_repeat",
-        "self", "statement_close", "statement_general",
-        "statement_instruct", "statement_open", "statement_problem",
-        "thanks"
-    ]
+    # For HVB and HVB_GREEK predictions, keep all valid labels
+    elif dataset_type in [DatasetType.HVB, DatasetType.HVB_GREEK]:
+        # Get valid labels based on dataset type
+        if dataset_type == DatasetType.HVB:
+            valid_labels = set([
+                "acknowledge", "answer_agree", "answer_dis", "answer_general",
+                "apology", "backchannel", "disfluency", "other",
+                "question_check", "question_general", "question_repeat",
+                "self", "statement_close", "statement_general",
+                "statement_instruct", "statement_open", "statement_problem",
+                "thanks"
+            ])
+        else:  # HVB_GREEK
+            valid_labels = set([
+                "foo", "bar", "baz", "qux", "quux", 
+                "corge", "grault", "garply", "waldo", "fred",
+                "plugh", "xyzzy", "thud", "wibble", "wobble",
+                "wubble", "flob", "zoop"
+            ])
         
-        labels = [l.strip() for l in cleaned.split(',')]
+        labels = [l.strip().lower() for l in cleaned.split(',')]
         # Filter out empty strings and partial/incomplete labels
         labels = [l for l in labels if l and '(' not in l]
         

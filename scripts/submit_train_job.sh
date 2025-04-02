@@ -72,7 +72,7 @@ effective_batch_size=$((batch_size * gradient_accumulation_steps))
 CURRENT_DATETIME=$(date +"%d%m_%H%M")
 
 # Generate a descriptive run name with date and time at the start
-RUN_NAME="${CURRENT_DATETIME}_ft_${num_examples}ex_${num_epochs}e${effective_batch_size}b_${model_type}_${input_mode}_${fewshot_mode}_${CLEAN_DATASET_TYPE}_BothShu"
+RUN_NAME="${CURRENT_DATETIME}_ft_${num_examples}ex_${num_epochs}e${effective_batch_size}b_${model_type}_${input_mode}_${fewshot_mode}_${CLEAN_DATASET_TYPE}_SS_"
 
 # Set script path
 SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/train/train.py"

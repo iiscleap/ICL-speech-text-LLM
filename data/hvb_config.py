@@ -166,6 +166,60 @@ HVB_PERMUTATIONS = [
      "backchannel", "disfluency", "self", "apology", "thanks", "other"]
 ]
 
+GREEK_PERMUTATIONS = [
+    # Original order
+    ["foo", "bar", "baz", "qux", "quux", "corge", "grault", "garply", 
+     "waldo", "fred", "plugh", "xyzzy", "thud", "wibble", "wobble", 
+     "wubble", "flob", "zoop"],
+    
+    # Group by question-related terms
+    ["waldo", "fred", "plugh", "foo", "bar", "baz", "qux", "quux", 
+     "corge", "grault", "garply", "xyzzy", "thud", "wibble", "wobble", 
+     "wubble", "flob", "zoop"],
+    
+    # Group by statement-related terms
+    ["thud", "wibble", "wobble", "wubble", "flob", "foo", "bar", "baz", 
+     "qux", "quux", "corge", "grault", "garply", "waldo", "fred", 
+     "plugh", "xyzzy", "zoop"],
+    
+    # Group by answer-related terms
+    ["bar", "baz", "qux", "foo", "quux", "corge", "grault", "garply", 
+     "waldo", "fred", "plugh", "xyzzy", "thud", "wibble", "wobble", 
+     "wubble", "flob", "zoop"],
+    
+    # Group similar concepts
+    ["foo", "corge", "grault", "xyzzy", "bar", "baz", "qux", "waldo", 
+     "fred", "plugh", "thud", "wibble", "wobble", "wubble", "flob", 
+     "quux", "zoop", "garply"],
+    
+    # Reverse original
+    ["zoop", "flob", "wubble", "wobble", "wibble", "thud", "xyzzy", 
+     "plugh", "fred", "waldo", "garply", "grault", "corge", "quux", 
+     "qux", "baz", "bar", "foo"],
+    
+    # Group by conversation flow
+    ["wubble", "fred", "qux", "waldo", "bar", "baz", "foo", "corge", 
+     "grault", "plugh", "wibble", "flob", "wobble", "quux", "xyzzy", 
+     "garply", "thud", "zoop"],
+    
+    # Group by response type
+    ["fred", "waldo", "plugh", "qux", "bar", "baz", "wibble", "wubble", 
+     "thud", "flob", "wobble", "foo", "corge", "grault", "xyzzy", 
+     "quux", "zoop", "garply"],
+    
+    # Alternating pattern
+    ["fred", "qux", "wibble", "waldo", "bar", "wubble", "plugh", "baz", 
+     "thud", "foo", "corge", "flob", "grault", "xyzzy", "wobble", 
+     "quux", "zoop", "garply"],
+    
+    # Group by formality
+    ["wobble", "wibble", "fred", "qux", "flob", "waldo", "bar", "baz", 
+     "wubble", "thud", "foo", "plugh", "corge", "grault", "xyzzy", 
+     "quux", "zoop", "garply"]
+] 
+
+
+
 HVB_DESCRIPTIONS = [
     "Shows understanding or receipt of information",
     "Expresses agreement",
@@ -188,7 +242,8 @@ HVB_DESCRIPTIONS = [
 ]
 
 HVB_SWAP_CONFIGS = []
-for perm in HVB_PERMUTATIONS:
+# for perm in HVB_PERMUTATIONS:
+for perm in GREEK_PERMUTATIONS:
     mapping = {orig: swapped for orig, swapped in zip(HVB_CONFIG.valid_labels, perm)}
     descriptions = {label: desc for label, desc in zip(HVB_CONFIG.valid_labels, HVB_DESCRIPTIONS)}
     HVB_SWAP_CONFIGS.append(DatasetConfig(
@@ -216,4 +271,5 @@ def get_hvb_swap_config(randomize: bool = False):
         return random.choice(HVB_SWAP_CONFIGS)
     else:
         # Always return the second config when not randomizing
-        return HVB_SWAP_CONFIGS[1] 
+        return HVB_SWAP_CONFIGS[1]
+

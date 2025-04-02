@@ -44,8 +44,11 @@ def reprocess_results(results_file: str):
         # Process each dataset type
         dataset_types = {
             'voxceleb': DatasetType.VOXCELEB,
+            'voxceleb_greek': DatasetType.VOXCELEB_GREEK,
             'hvb': DatasetType.HVB,
-            'voxpopuli': DatasetType.VOXPOPULI
+            'hvb_greek': DatasetType.HVB_GREEK,
+            'voxpopuli': DatasetType.VOXPOPULI,
+            'voxpopuli_greek': DatasetType.VOXPOPULI_GREEK
         }
         
         for dataset_name, dataset_type in dataset_types.items():

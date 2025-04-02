@@ -6,20 +6,20 @@ VP_NEL_CONFIG = DatasetConfig(
         DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_vp_nel_validation",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_vp_nel_test",
     },
-    prompt_template="""You are a named entity recognition expert. Your task is to identify each word and its timestamps in the given text.
+    prompt_template="""You are a named entity recognition expert. Your task is to identify the timestamps and types of named entities in the given text.
 
 Guidelines:
-- For each word in the text, provide the word and its precise start and end timestamps
-- Format: word1:start1-end1 word2:start2-end2 word3:start3-end3
-- Timestamps should be in seconds with decimal precision
-- Include all words, not just named entities
-- Words should be in the exact order they appear in the text
-- Ensure timestamps are sequential and don't overlap
+- For each entity, provide its type followed by start and end timestamps
+- Format: ENTITY_TYPE: start_time end_time
+- Separate multiple entities with semicolons
+- Timestamps should be in seconds
+- If no entities are found, respond with 'none'
+- Entity types can be: DATE, GPE, PERSON, ORG, etc.
 
 Example format:
-the:1.79-1.85 president:1.85-2.14 of:2.14-2.25 France:2.25-2.64 said:2.64-2.89
+DATE: 1.79 2.64; GPE: 2.96 3.19; DATE: 7.09 8.47
 
-Remember: Each word should have its own timestamp pair, connected with a hyphen, and words should be separated by spaces.""",
+Remember: Output should be "TYPE: start end" pairs separated by semicolons.""",
     
     valid_labels=None,
     completion_key="ne_spans",

@@ -7,20 +7,20 @@ SQA_CONFIG = DatasetConfig(
         DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_sqa5_validation",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_sqa5_test",
     },
-    prompt_template="""You are a spoken question answering expert. Your task is to identify both the start and end timestamps of the answer along with the exact words in a given document.
+    prompt_template="""You are a spoken question answering expert. Your task is to identify both the start and end timestamps of the answer in a given document.
 
 Guidelines:
-- Provide the answer in the format: words|start_time end_time
-- The words should be the exact text from the document that answers the question
+- Provide ONLY two numerical timestamp values: start_time end_time
 - The first timestamp marks where the answer begins
 - The second timestamp marks where the answer ends
 - Be precise with both timestamps for accurate answer extraction
+- Do not include any explanations or additional text
 - If multiple occurrences exist, choose the first relevant instance
 - Timestamps should be in seconds, separated by a space
 
-Example format: twenty five dollars|10.42 10.86
+Example format: 10.42 10.86
 
-Remember: Output should be the answer text, followed by a pipe symbol (|), followed by two timestamps separated by a space.""",
+Remember: Output should be just two numbers separated by a space.""",
     
     valid_labels=None,  # Since we're predicting timestamps, not classification
     completion_key="time_spans",

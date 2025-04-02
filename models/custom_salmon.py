@@ -684,7 +684,7 @@ class CustomSALMONN(BaseModel):
             outputs = self.llama_model.generate(
                 inputs_embeds=wrapped_embeds,
                 attention_mask=wrapped_atts,
-                max_new_tokens=samples.get("max_new_tokens", 10),
+                max_new_tokens=samples.get("max_new_tokens", 100),
                 num_beams=samples.get("num_beams", 1),
                 do_sample=samples.get("do_sample", False),
                 min_length=samples.get("min_length", 1),
