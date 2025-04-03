@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Configuration - Edit these values as needed
-model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="vp_nel"  # Options: "voxceleb", "hvb", "voxpopuli", etc., sqa, vp_nel
+model_type="qwen2"  # Options: "salmonn" or "qwen2"
+dataset_type="voxceleb"  # Options: "voxceleb", "hvb", "voxpopuli", etc., sqa, vp_nel
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
 num_examples=0
@@ -15,7 +15,7 @@ randomize_swap=false  # Set to true to randomize swap configurations
 
 # Node configuration
 queue_name="long.q"      # Queue to submit job to (gpu.q, med.q, etc.)
-hostname="compute-0-9"  # Hostname to run on
+hostname="compute-0-8"  # Hostname to run on
 cuda_device=1         # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
@@ -23,7 +23,7 @@ hold_job_id=""          # Job ID to wait for (empty = don't wait)
 # Path to the trained model - REQUIRED
 # peft_model_path=""
 
-# peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_qwen2_speech_text_voxceleb/final_model.pt"
+peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_qwen2_speech_text_voxceleb/final_model.pt"
 
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_swap_symbol/final_model.pt"
