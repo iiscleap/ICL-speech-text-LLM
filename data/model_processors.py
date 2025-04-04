@@ -64,10 +64,77 @@ class QwenProcessor(ModelProcessor):
         """
         self.processor = processor
         self.max_length = max_length
+        self.batch_counter = 0 
+
+    def process_inputs(self, data: Dict[str, Any], is_training: bool = False):
+        """Add dataset type routing"""
+        dataset_type = data.get("dataset_type")
+        
+        if dataset_type == DatasetType.SQA:
+            return self._process_sqa_inputs(data, is_training)
+        else:
+            return self._process_default_inputs(data, is_training)
+        
+    def _process_sqa_inputs(self, data: Dict[str, Any], is_training: bool = False):
+        """New method for SQA dataset processing"""
+        prompt = data.get("prompt", "")
+        audio_data = data.get("audio", {})
+        examples_audio = data.get("examples_audio", [])
+        completion = data.get("completion", "")
+        
+        # Process text input
+        tokenized = self.processor.tokenizer(
+            prompt,
+            return_tensors="pt"
+        )
+        
+        # Process question and document audio
+        question_features = None
+        document_features = None
+        
+        if audio_data.get("question_audio") is not None:
+            question_features = self.processor(
+                audio_data["question_audio"],
+                return_tensors="pt"
+            ).input_features
+            
+        if audio_data.get("document_audio") is not None:
+            document_features = self.processor(
+                audio_data["document_audio"],
+                return_tensors="pt"
+            ).input_features
+            
+        # Process examples
+        examples_speech = []
+        if examples_audio:
+            for example in examples_audio:
+                example_data = {
+                    "question": {
+                        "features": self.processor(
+                            example["question_audio"],
+                            return_tensors="pt"
+                        ).input_features if example.get("question_audio") else None
+                    },
+                    "document": {
+                        "features": self.processor(
+                            example["document_audio"],
+                            return_tensors="pt"
+                        ).input_features if example.get("document_audio") else None
+                    }
+                }
+                examples_speech.append(example_data)
+                
+        return {
+            "input_ids": tokenized.input_ids,
+            "attention_mask": tokenized.attention_mask,
+            "question_features": question_features,
+            "document_features": document_features,
+            "examples_speech": examples_speech,
+            "num_examples": len(examples_speech),
+            "completion": completion
+        }
     
-    def process_inputs(self, 
-                      data: Dict[str, Any],
-                      is_training: bool = False) -> Dict[str, torch.Tensor]:
+    def _process_default_inputs(self, data: Dict[str, Any], is_training: bool = False):
         """
         Process inputs for Qwen2 model.
         
@@ -139,13 +206,63 @@ class QwenProcessor(ModelProcessor):
             "prompt_length": prompt_length
         }
     
+
     def format_prompt(self, 
                      template: str, 
                      text: str, 
                      examples: Optional[List[Dict]] = None,
-                     input_mode: str = "speech_only",
-                     fewshot_mode: str = "text"
-                     ) -> str:
+                     input_mode: str = "speech_and_text",
+                     fewshot_mode: str = "text",
+                     dataset_type: Optional[DatasetType] = None,
+                     **kwargs) -> str:
+        """Add dataset type routing for prompt formatting"""
+        if dataset_type == DatasetType.SQA:
+            return self._format_sqa_prompt(template, text, examples, input_mode, fewshot_mode, **kwargs)
+        else:
+            return self._format_default_prompt(template, text, examples, input_mode, fewshot_mode)
+
+    def _format_sqa_prompt(self, template: str, text: str, examples: Optional[List[Dict]], 
+                          input_mode: str, fewshot_mode: str, **kwargs):
+        """New method for SQA prompt formatting"""
+        question = kwargs.get('question', '')
+        
+        # Format examples
+        examples_text = ""
+        if examples:
+            if fewshot_mode == "speech":
+                examples_text = "\n\n".join([
+                    f"<Audio>Question {i}</Audio>\n"
+                    f"<Audio>Document {i}</Audio>\n"
+                    f"Answer: {example.get('answer', '')}"
+                    for i, example in enumerate(examples)
+                ])
+            else:
+                examples_text = "\n\n".join([
+                    f"Question: {example.get('question', '')}\n"
+                    f"Document: {example.get('document', '')}\n"
+                    f"Answer: {example.get('answer', '')}"
+                    for example in examples
+                ])
+            examples_text = f"\nExamples:\n{examples_text}\n\n"
+            
+        # Format input based on mode
+        if input_mode == "speech_and_text":
+            input_section = (
+                f"<Audio>Question</Audio>\n"
+                f"Question text: {question}\n"
+                f"<Audio>Document</Audio>\n"
+                f"Document text: {text}"
+            )
+        elif input_mode == "text_only":
+            input_section = f"Question: {question}\nDocument: {text}"
+        else:  # speech_only
+            input_section = "<Audio>Question</Audio>\n<Audio>Document</Audio>"
+            
+        return f"{template}\n{examples_text}Now analyze:\n{input_section}\nAnswer:"
+
+
+    def _format_default_prompt(self, template: str, text: str, examples: Optional[List[Dict]], 
+                             input_mode: str, fewshot_mode: str):
         """
         Format a prompt for Qwen2 model using the chat template.
         
@@ -212,6 +329,20 @@ class QwenProcessor(ModelProcessor):
         return formatted_prompt
     
     def collate_batch(self, batch_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Add dataset type routing for batch collation"""
+        if batch_items[0].get("dataset_type") == DatasetType.SQA:
+            return self._collate_sqa_batch(batch_items)
+        else:
+            return self._collate_default_batch(batch_items)
+
+    def _collate_sqa_batch(self, batch_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """New method for SQA batch collation"""
+        # Implementation similar to SalmonProcessor's _collate_sqa_batch
+        pass
+
+    def _collate_default_batch(self, batch_items: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Rename existing collate_batch to _collate_default_batch"""
+        # Current implementation remains the same
         """
         Collate a batch of items for model input.
         
@@ -483,14 +614,14 @@ class SalmonProcessor(ModelProcessor):
                 examples_text = "\n\n".join([
                     f"<Speech><Question{i}></Speech>\n"
                     f"<Speech><Document{i}></Speech>\n"
-                    f"Time spans: {example.get('time_spans', '')}"
+                    f"Output: {example.get('completion', '')}"
                     for i, example in enumerate(examples)
                 ])
             else:
                 examples_text = "\n\n".join([
                     f"Question: {example.get('question', '')}\n"
                     f"Document: {example.get('document', '')}\n"
-                    f"Time spans: {example.get('time_spans', '')}"
+                    f"Output: {example.get('completion', '')}"
                     for example in examples
                 ])
             
@@ -510,7 +641,7 @@ class SalmonProcessor(ModelProcessor):
             input_section = "<Speech><Question></Speech>\n<Speech><Document></Speech>"
 
         # Create the final prompt
-        prompt = f"{template}\n{examples_text}Now analyze this input:\n{input_section}\nTime spans:"
+        prompt = f"{template}\n{examples_text}Now analyze this input:\n{input_section}\nOutput:"
         
         return prompt
 

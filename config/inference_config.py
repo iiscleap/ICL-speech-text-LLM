@@ -44,6 +44,7 @@ def get_inference_config(model_type: str, dataset_type: Optional[DatasetType] = 
                 "model_path": "Qwen/Qwen2-Audio-7B-Instruct",
                 "lora": True,
                 "max_txt_len": 512,
+                "ckpt_path": "/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_qwen2_speech_text_voxceleb/final_model.pt"
             }
         }
     else:

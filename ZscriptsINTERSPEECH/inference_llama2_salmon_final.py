@@ -15,6 +15,7 @@ import time
 from typing import List, Dict
 import ast
 from utils.generate_fewshots import convert_ner_to_dict
+from peft import LoraConfig, get_peft_model,TaskType
 
 parser = argparse.ArgumentParser()
 # Model paths
@@ -148,6 +149,18 @@ def main():
         
         # Load finetuned weights if provided
         if args.peft_model_path and args.peft_model_path.strip():
+
+            lora_config = LoraConfig(
+            r=8,
+            lora_alpha=32,
+            target_modules=["q_proj", "k_proj"],
+            lora_dropout=0.1,
+            inference_mode=False, 
+            task_type=TaskType.CAUSAL_LM,
+        )
+
+            model = get_peft_model(model, lora_config)
+
             logging.info(f"Loading finetuned weights for Qwen2 from {args.peft_model_path}")
             checkpoint = torch.load(args.peft_model_path, map_location=device)
             model.load_state_dict(checkpoint['model'], strict=False)

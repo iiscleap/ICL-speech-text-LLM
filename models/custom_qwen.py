@@ -10,6 +10,8 @@ import torch.nn.functional as F
 from transformers import AutoProcessor, Qwen2AudioForConditionalGeneration
 from peft import LoraConfig, get_peft_model, TaskType
 
+from utils.training_utils import setup_logging, load_checkpoint
+
 # Import our base model
 from .base_model import BaseModel
 
@@ -27,7 +29,7 @@ class CustomQwen(BaseModel):
     def __init__(self, 
                  model_path: str = "Qwen/Qwen2-Audio-7B-Instruct",
                  lora: bool = True,
-                 low_resource: bool = False,
+                 low_resource: bool = True,
                  lora_rank: int = 8,
                  lora_alpha: int = 32,
                  lora_dropout: float = 0.05,
@@ -35,7 +37,7 @@ class CustomQwen(BaseModel):
                  max_txt_len: int = 512,
                  ckpt_path: str = None,
                  device=None, 
-                 use_fp16: bool = False):
+                 use_fp16: bool = True):
         """
         Initialize the CustomQwen model.
         """
@@ -85,7 +87,8 @@ class CustomQwen(BaseModel):
         
         # Load checkpoint if provided
         if ckpt_path:
-            self.load_checkpoint_weights(ckpt_path)
+            checkpoint = load_checkpoint(ckpt_path, map_location=device)
+            self.model.load_state_dict(checkpoint["model"], strict=False)
             
         # Store model attributes
         self.prompt_template = prompt_template

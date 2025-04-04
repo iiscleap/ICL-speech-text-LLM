@@ -164,9 +164,10 @@ class BaseMultiTaskDataset(Dataset):
         if hasattr(self.current_config, 'output_format'):
             # SQA timestamps format: "start_time end_time"
             if self.current_config.output_format == 'timestamps_pair':
-                if isinstance(label, list) and len(label) >= 2:
-                    return f"{label[0]} {label[1]}"
-                return ""
+                # if isinstance(label, list) and len(label) >= 2:
+                #     return f"{label[0]} {label[1]}"
+                # return ""
+                return f"{label}"
 
             # VP-NEL entity timestamps format: "TYPE: start end; TYPE2: start2 end2"
             elif self.current_config.output_format == 'entity_timestamps':
@@ -241,7 +242,7 @@ class BaseMultiTaskDataset(Dataset):
                 formatted_example = {
                     "question": example[current_config.additional_text_keys['question']],
                     "document": example[current_config.text_key],
-                    "time_spans": self._format_label(example[current_config.completion_key],
+                    "completion": self._format_label(example[current_config.completion_key],
                         is_example=False, 
                         current_mapping=current_config.label_mapping
                     )
