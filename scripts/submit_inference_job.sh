@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # Configuration - Edit these values as needed
-model_type="salmonn"  # Options: "salmonn" or "qwen2"
+model_type="qwen2"  # Options: "salmonn" or "qwen2"
 dataset_type="sqa"  # Options: "voxceleb", "hvb", "voxpopuli", etc., sqa, vp_nel
-input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
-fewshot_mode="speech"  # Options: "text" or "speech"
-num_examples=2
+input_mode="text_only"  # Options: "speech_only", "text_only", "speech_and_text"
+fewshot_mode="text"  # Options: "text" or "speech"
+num_examples=3
 batch_size=1
 
-debug_samples=10  # Add debug_samples parameter (0 = use all samples)
+debug_samples=20  # Add debug_samples parameter (0 = use all samples)
 
 # Add near the top with other configuration options
 randomize_swap=false  # Set to true to randomize swap configurations
@@ -62,7 +62,7 @@ peft_model_path=""
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2503_1539_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_swap-hvb_swap_ss/checkpoints/epoch_10_loss_0.0063/model.pt"
 
-peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/INTERSPEECH/finetune_llama2_salmon_speech_15e8b_Q_voxceleb_swap/final_model.pt"
+# peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/INTERSPEECH/finetune_llama2_salmon_speech_15e8b_Q_voxceleb_swap/final_model.pt"
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2503_1539_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_swap-hvb_swap_ss/checkpoints/epoch_10_loss_0.0063/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3003_0050_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_swap_Inter/final_model.pt"

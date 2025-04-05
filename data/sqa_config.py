@@ -7,17 +7,17 @@ SQA_CONFIG = DatasetConfig(
         DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_sqa5_validation",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_sqa5_test",
     },
-    prompt_template="""You are a spoken question answering expert. Your task is to identify both the start and end timestamps of the answer in a given document.
-
-Guidelines:
-- Provide a clear and concise answer to the question
-- Base your answer solely on the information provided in the document
-- Keep the answer focused and relevant to the question
-- Use natural, conversational language
-- If the answer is not found in the document, say "I cannot find the answer in the given document"
-- Avoid including unnecessary context or explanations
-
-Remember: Output should be just the answer text..""",
+        prompt_template="""You are a spoken question answering expert. Your task is to identify the answer in a given document.
+    
+    Guidelines:
+    - Provide a clear and concise answer to the question
+    - Keep answers short (1-2 words whenever possible)
+    - Base your answer solely on the information provided in the document
+    - Keep the answer focused and relevant to the question
+    - Use natural, conversational language
+    - Avoid including unnecessary context or explanations
+    
+    Remember: Output should be just the answer text.""",
     
     valid_labels=None,  # Since we're predicting timestamps, not classification
     completion_key="answer_text",

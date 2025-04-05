@@ -100,19 +100,19 @@ class BaseMultiTaskDataset(Dataset):
         # Pre-load audio lookup if using speech examples
         self.audio_lookup = None
         self.audio_index_map = None
-        if fewshot_mode == 'speech':
-            audio_lookup_path = self.config.get_audio_lookup_path(self.split)
-            if audio_lookup_path:
-                load_time = time.time()
-                if self.dataset_type in [DatasetType.SQA, DatasetType.VOXPOPULI_NEL]:
-                    # For SQA and VP-NEL, just load the dataset
-                    self.audio_lookup = load_from_disk(audio_lookup_path)
-                    logger.info(f"Initialized audio lookup dataset for {self.dataset_type} in {time.time() - load_time:.3f}s")
-                else:
-                    # For other datasets, create index map
-                    self.audio_lookup = load_from_disk(audio_lookup_path)
-                    self.audio_index_map = {str(idx): i for i, idx in enumerate(self.audio_lookup['index'])}
-                    logger.info(f"Initialized audio lookup dataset with index map in {time.time() - load_time:.3f}s")
+        # if fewshot_mode == 'speech':
+        audio_lookup_path = self.config.get_audio_lookup_path(self.split)
+        if audio_lookup_path:
+            load_time = time.time()
+            if self.dataset_type in [DatasetType.SQA, DatasetType.VOXPOPULI_NEL]:
+                # For SQA and VP-NEL, just load the dataset
+                self.audio_lookup = load_from_disk(audio_lookup_path)
+                logger.info(f"Initialized audio lookup dataset for {self.dataset_type} in {time.time() - load_time:.3f}s")
+            else:
+                # For other datasets, create index map
+                self.audio_lookup = load_from_disk(audio_lookup_path)
+                self.audio_index_map = {str(idx): i for i, idx in enumerate(self.audio_lookup['index'])}
+                logger.info(f"Initialized audio lookup dataset with index map in {time.time() - load_time:.3f}s")
 
     def __len__(self):
         """Return the length of the dataset"""

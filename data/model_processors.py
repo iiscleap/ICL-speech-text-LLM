@@ -76,62 +76,66 @@ class QwenProcessor(ModelProcessor):
             return self._process_default_inputs(data, is_training)
         
     def _process_sqa_inputs(self, data: Dict[str, Any], is_training: bool = False):
-        """New method for SQA dataset processing"""
-        prompt = data.get("prompt", "")
+        """Process SQA dataset inputs for Qwen2 model."""
+        text = data.get("prompt", "")
         audio_data = data.get("audio", {})
         examples_audio = data.get("examples_audio", [])
         completion = data.get("completion", "")
         
-        # Process text input
-        tokenized = self.processor.tokenizer(
-            prompt,
-            return_tensors="pt"
-        )
+        # Prepare audio inputs
+        audios = []
         
-        # Process question and document audio
-        question_features = None
-        document_features = None
-        
-        if audio_data.get("question_audio") is not None:
-            question_features = self.processor(
-                audio_data["question_audio"],
-                return_tensors="pt"
-            ).input_features
-            
-        if audio_data.get("document_audio") is not None:
-            document_features = self.processor(
-                audio_data["document_audio"],
-                return_tensors="pt"
-            ).input_features
-            
-        # Process examples
-        examples_speech = []
+        # Add example audios if available
         if examples_audio:
             for example in examples_audio:
-                example_data = {
-                    "question": {
-                        "features": self.processor(
-                            example["question_audio"],
-                            return_tensors="pt"
-                        ).input_features if example.get("question_audio") else None
-                    },
-                    "document": {
-                        "features": self.processor(
-                            example["document_audio"],
-                            return_tensors="pt"
-                        ).input_features if example.get("document_audio") else None
-                    }
-                }
-                examples_speech.append(example_data)
-                
+                if example.get("question_audio") is not None:
+                    audios.append(example["question_audio"])
+                if example.get("document_audio") is not None:
+                    audios.append(example["document_audio"])
+        
+        # Add current question and document audio
+        if audio_data.get("question_audio") is not None:
+            audios.append(audio_data["question_audio"])
+        if audio_data.get("document_audio") is not None:
+            audios.append(audio_data["document_audio"])
+        
+        # Process text input
+        input_text = text
+        if is_training:
+            # Add completion with EOS token for training
+            completion_with_eos = f"{completion}{self.processor.tokenizer.eos_token}"
+            input_text = f"{text}{completion_with_eos}"
+        
+        # Calculate prompt length by tokenizing prompt separately
+        prompt_tokens = self.processor.tokenizer(text, return_tensors="pt").input_ids
+        prompt_length = prompt_tokens.size(1)
+        
+        # Process inputs with the Qwen2 processor
+        inputs = self.processor(
+            text=input_text,
+            audios=audios,
+            return_tensors="pt",
+            sampling_rate=16000
+        )
+        
+        if 'input_ids' in inputs:
+            try:
+                decoded = self.processor.tokenizer.decode(inputs['input_ids'][0][:50])
+                logging.info(f"SQA Decoded first 50 tokens: {decoded}")
+            except Exception as e:
+                logging.error(f"Error decoding SQA tokens: {str(e)}")
+        else:
+            logging.warning("No input_ids in SQA processor output!")
+        
+        # Convert to float16 for efficiency
+        inputs.input_features = inputs.input_features.to(torch.float16)
+        
         return {
-            "input_ids": tokenized.input_ids,
-            "attention_mask": tokenized.attention_mask,
-            "question_features": question_features,
-            "document_features": document_features,
-            "examples_speech": examples_speech,
-            "num_examples": len(examples_speech),
-            "completion": completion
+            "input_ids": inputs.input_ids.squeeze(0),
+            "attention_mask": inputs.attention_mask.squeeze(0),
+            "input_features": inputs.input_features.squeeze(0),
+            "feature_attention_mask": inputs.feature_attention_mask.squeeze(0),
+            "prompt_length": prompt_length
         }
     
     def _process_default_inputs(self, data: Dict[str, Any], is_training: bool = False):
@@ -226,40 +230,78 @@ class QwenProcessor(ModelProcessor):
         """New method for SQA prompt formatting"""
         question = kwargs.get('question', '')
         
-        # Format examples
-        examples_text = ""
-        if examples:
-            if fewshot_mode == "speech":
-                examples_text = "\n\n".join([
-                    f"<Audio>Question {i}</Audio>\n"
-                    f"<Audio>Document {i}</Audio>\n"
-                    f"Answer: {example.get('answer', '')}"
-                    for i, example in enumerate(examples)
-                ])
-            else:
-                examples_text = "\n\n".join([
-                    f"Question: {example.get('question', '')}\n"
-                    f"Document: {example.get('document', '')}\n"
-                    f"Answer: {example.get('answer', '')}"
-                    for example in examples
-                ])
-            examples_text = f"\nExamples:\n{examples_text}\n\n"
+        # Create conversation format for Qwen2
+        conversation = [
+            {'role': 'system', 'content': template}
+        ]
+        
+        user_content = []
+        
+        # Add examples if provided
+        if examples and len(examples) > 0:
+            user_content.append({"type": "text", "text": "Here are few examples to learn from:\n"})
             
-        # Format input based on mode
-        if input_mode == "speech_and_text":
-            input_section = (
-                f"<Audio>Question</Audio>\n"
-                f"Question text: {question}\n"
-                f"<Audio>Document</Audio>\n"
-                f"Document text: {text}"
-            )
-        elif input_mode == "text_only":
-            input_section = f"Question: {question}\nDocument: {text}"
-        else:  # speech_only
-            input_section = "<Audio>Question</Audio>\n<Audio>Document</Audio>"
+            for i, example in enumerate(examples):
+                example_question = example.get("question", "")
+                example_document = example.get("document", "")
+                example_answer = example.get("answer", "")
+                
+                if fewshot_mode == 'speech':
+                    # Add question audio placeholder
+                    user_content.append({"type": "audio", "audio_url": f"question_{i}"})  # Placeholder
+                    
+                    # Add document audio placeholder
+                    user_content.append({"type": "audio", "audio_url": f"document_{i}"})  # Placeholder
+                    
+                    # Add answer text
+                    user_content.append({"type": "text", "text": f"Answer: {example_answer}\n"})
+                else:  # text mode
+                    # Add text-only example
+                    user_content.extend([
+                        {"type": "text", "text": f"Question: {example_question}\n"},
+                        {"type": "text", "text": f"Document: {example_document}\n"},
+                        {"type": "text", "text": f"Answer: {example_answer}\n"}
+                    ])
+        
+        # Add current input instruction
+        user_content.append({"type": "text", "text": "\nNow analyze this input:\n"})
+        
+        # Add current input based on input mode
+        if input_mode == "speech_and_text" or input_mode == "speech_only":
+            # Add question audio placeholder
+            user_content.append({"type": "audio", "audio_url": "question"})
             
-        return f"{template}\n{examples_text}Now analyze:\n{input_section}\nAnswer:"
-
+            # Add question text if in speech_and_text mode
+            if input_mode == "speech_and_text" and question:
+                user_content.append({"type": "text", "text": f"Question text: {question}\n"})
+            
+            # Add document audio placeholder
+            user_content.append({"type": "audio", "audio_url": "document"})
+            
+            # Add document text if in speech_and_text mode
+            if input_mode == "speech_and_text" and text:
+                user_content.append({"type": "text", "text": f"Document text: {text}"})
+        else:  # text_only mode
+            # Add text-only input
+            user_content.extend([
+                {"type": "text", "text": f"Question: {question}\n"},
+                {"type": "text", "text": f"Document: {text}"}
+            ])
+        
+        # Add user message to conversation
+        conversation.append({
+            "role": "user", 
+            "content": user_content
+        })
+        
+        # Apply chat template to get formatted text
+        formatted_prompt = self.processor.apply_chat_template(
+            conversation,
+            add_generation_prompt=True,
+            tokenize=False
+        )
+        
+        return formatted_prompt
 
     def _format_default_prompt(self, template: str, text: str, examples: Optional[List[Dict]], 
                              input_mode: str, fewshot_mode: str):
@@ -338,7 +380,38 @@ class QwenProcessor(ModelProcessor):
     def _collate_sqa_batch(self, batch_items: List[Dict[str, Any]]) -> Dict[str, Any]:
         """New method for SQA batch collation"""
         # Implementation similar to SalmonProcessor's _collate_sqa_batch
-        pass
+        batch = {}
+        
+        # Get all keys from the first item
+        keys = batch_items[0].keys()
+        
+        # Process each key
+        for key in keys:
+            if key in ["input_ids", "attention_mask"]:
+                # Stack tensors
+                batch[key] = torch.stack([item[key] for item in batch_items if key in item])
+            elif key == "input_features" and all(item.get("input_features") is not None for item in batch_items):
+                # For input features, we need to check the shape
+                if len(batch_items[0]["input_features"].shape) == 3:  # Has examples
+                    # Concatenate all input features
+                    batch[key] = torch.cat([item["input_features"] for item in batch_items])
+                else:  # No examples, just stack normally
+                    batch[key] = torch.stack([item["input_features"] for item in batch_items])
+            elif key == "feature_attention_mask" and all(item.get("feature_attention_mask") is not None for item in batch_items):
+                # For feature attention mask, we need to check the shape
+                if len(batch_items[0]["feature_attention_mask"].shape) == 2:  # Has examples
+                    # Concatenate all feature attention masks
+                    batch[key] = torch.cat([item["feature_attention_mask"] for item in batch_items])
+                else:  # No examples, just stack normally
+                    batch[key] = torch.stack([item["feature_attention_mask"] for item in batch_items])
+            elif key == "prompt_length":
+                # Convert to tensor
+                batch[key] = torch.tensor([item["prompt_length"] for item in batch_items])
+            elif key in ["prompt", "text", "true_label", "question" ,"dataset_type", "completion"]:
+                # Collect non-tensor data
+                batch[key] = [item[key] for item in batch_items if key in item]
+        
+        return batch
 
     def _collate_default_batch(self, batch_items: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Rename existing collate_batch to _collate_default_batch"""
@@ -908,7 +981,7 @@ class SalmonProcessor(ModelProcessor):
         
         # Add non-tensor data
         batch["num_examples"] = torch.tensor([item["num_examples"] for item in batch_items])
-        for key in ["prompt", "completion", "text", "dataset_type"]:
+        for key in ["prompt", "completion", "text", "question","dataset_type"]:
             if key in batch_items[0]:
                 batch[key] = [item[key] for item in batch_items]
         
@@ -933,4 +1006,4 @@ def get_processor(model_type: str, processor, tokenizer=None) -> ModelProcessor:
     elif model_type == "qwen2":
         return QwenProcessor(processor)
     else:
-        raise ValueError(f"Unsupported model type: {model_type}") 
+        raise ValueError(f"Unsupported model type: {model_type}")

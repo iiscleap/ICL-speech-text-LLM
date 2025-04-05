@@ -346,6 +346,7 @@ def run_inference(args):
                         logger.info(f"True: {true_label}")
                         logger.info("-" * 50)
 
+
                         prediction = {
                             "text": batch["text"][i] if isinstance(batch["text"], list) else batch["text"],
                             "true_label": true_label,
@@ -353,6 +354,14 @@ def run_inference(args):
                             "predicted_label": output.strip(),
                             "dataset_type": batch["dataset_type"][i].value if isinstance(batch["dataset_type"], list) else batch["dataset_type"].value
                         }
+                        
+                        # Add question field for SQA dataset
+                        if (isinstance(batch["dataset_type"], list) and batch["dataset_type"][i].value == "sqa") or \
+                           (not isinstance(batch["dataset_type"], list) and batch["dataset_type"].value == "sqa"):
+                            prediction["question"] = batch["question"][i] if isinstance(batch["question"], list) else batch["question"]
+
+
+
                         results.append(prediction)
                     
                     # Update performance tracker
