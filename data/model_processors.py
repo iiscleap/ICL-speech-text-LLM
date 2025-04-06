@@ -81,7 +81,7 @@ class QwenProcessor(ModelProcessor):
         audio_data = data.get("audio", {})
         examples_audio = data.get("examples_audio", [])
         completion = data.get("completion", "")
-        
+        input_mode = data.get("input_mode", "text_only")
         # Prepare audio inputs
         audios = []
         
@@ -129,14 +129,26 @@ class QwenProcessor(ModelProcessor):
         
         # Convert to float16 for efficiency
         inputs.input_features = inputs.input_features.to(torch.float16)
-        
-        return {
-            "input_ids": inputs.input_ids.squeeze(0),
-            "attention_mask": inputs.attention_mask.squeeze(0),
-            "input_features": inputs.input_features.squeeze(0),
-            "feature_attention_mask": inputs.feature_attention_mask.squeeze(0),
-            "prompt_length": prompt_length
-        }
+
+
+        if input_mode == "text_only":
+            return {
+                "input_ids": inputs.input_ids.squeeze(0),
+                "attention_mask": inputs.attention_mask.squeeze(0),
+                "prompt_length": prompt_length
+                # Intentionally omitting input_features and feature_attention_mask
+            }
+        else:
+            # Convert to float16 for efficiency
+            inputs.input_features = inputs.input_features.to(torch.float16)
+            
+            return {
+                "input_ids": inputs.input_ids.squeeze(0),
+                "attention_mask": inputs.attention_mask.squeeze(0),
+                "input_features": inputs.input_features.squeeze(0),
+                "feature_attention_mask": inputs.feature_attention_mask.squeeze(0),
+                "prompt_length": prompt_length
+            }
     
     def _process_default_inputs(self, data: Dict[str, Any], is_training: bool = False):
         """
@@ -348,11 +360,11 @@ class QwenProcessor(ModelProcessor):
         
         # Add current input based on whether text is provided
         # For speech input, add audio placeholder (actual audio is passed separately)
-        if input_mode == "speech_only":
+        if input_mode == "speech_only" or input_mode == "speech_and_text":
             user_content.append({"type": "audio", "audio_url": "dummy_url"})
         
         # Add text if provided (for text_only or speech_and_text modes)
-        if text:
+        if input_mode == "speech_and_text" and text:
             user_content.append({"type": "text", "text": text})
         
         # Add user message to conversation
@@ -407,7 +419,7 @@ class QwenProcessor(ModelProcessor):
             elif key == "prompt_length":
                 # Convert to tensor
                 batch[key] = torch.tensor([item["prompt_length"] for item in batch_items])
-            elif key in ["prompt", "text", "true_label", "question" ,"dataset_type", "completion"]:
+            elif key in ["prompt", "text", "true_label", "question", "dataset_type", "completion"]:
                 # Collect non-tensor data
                 batch[key] = [item[key] for item in batch_items if key in item]
         

@@ -204,6 +204,14 @@ class CustomQwen(BaseModel):
         input_features = batch.get("input_features")
         feature_attention_mask = batch.get("feature_attention_mask")
 
+
+        # Check empty feature tensors 
+        if input_features is not None and input_features.shape[0] == 0:
+            input_features = None
+        if feature_attention_mask is not None and feature_attention_mask.shape[0] == 0:
+            feature_attention_mask = None
+            
+
         # Handle input features with consistent dtype
         if input_features is not None:
             input_features = input_features.to(self.device)

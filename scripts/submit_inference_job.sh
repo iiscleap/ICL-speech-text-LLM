@@ -1,21 +1,21 @@
 #!/bin/bash
 
 # Configuration - Edit these values as needed
-model_type="qwen2"  # Options: "salmonn" or "qwen2"
-dataset_type="sqa"  # Options: "voxceleb", "hvb", "voxpopuli", etc., sqa, vp_nel
-input_mode="text_only"  # Options: "speech_only", "text_only", "speech_and_text"
+model_type="salmonn"  # Options: "salmonn" or "qwen2"
+dataset_type="voxpopuli"  # Options: "voxceleb", "hvb", "voxpopuli", etc., sqa, vp_nel
+input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
-num_examples=3
+num_examples=0
 batch_size=1
 
-debug_samples=20  # Add debug_samples parameter (0 = use all samples)
+debug_samples=0  # Add debug_samples parameter (0 = use all samples)
 
 # Add near the top with other configuration options
 randomize_swap=false  # Set to true to randomize swap configurations
 
 # Node configuration
 queue_name="gpu.q"      # Queue to submit job to (gpu.q, med.q, etc.)
-hostname="compute-0-8"  # Hostname to run on
+hostname="compute-0-9"  # Hostname to run on
 cuda_device=1         # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
@@ -23,6 +23,8 @@ hold_job_id=""          # Job ID to wait for (empty = don't wait)
 # Path to the trained model - REQUIRED
 peft_model_path=""
 
+peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/0304_1326_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0079/model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/0204_1802_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb-hvb/checkpoints/epoch_10_loss_0.0042/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_qwen2_speech_text_voxceleb/final_model.pt"
 
 

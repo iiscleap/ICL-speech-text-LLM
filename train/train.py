@@ -242,7 +242,7 @@ def main():
             if args.model_type == "salmonn":    
                 processor = get_processor(args.model_type, model.input_processor,model.llama_tokenizer)
             else:
-                processor = get_processor(args.model_type, model.processor)
+                processor = get_processor(args.model_type, model.input_processor)
         else:
             processor = get_processor(model.module.processor)
         
