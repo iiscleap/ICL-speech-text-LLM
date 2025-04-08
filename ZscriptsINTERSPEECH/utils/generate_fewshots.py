@@ -259,8 +259,8 @@ def main():
 
     # source_split = ["train"]
     source_split = ["train","validation"]
-    target_split = "test"
-    top_k = 20
+    target_split = "train"
+    top_k = 1
     gpu_id = 1
 
     # Initialize few-shot generator

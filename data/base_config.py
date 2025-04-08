@@ -27,6 +27,12 @@ class DatasetType(str, Enum):
     # Added for VP_NEL
     VP_NEL = "vp_nel"
 
+    # Added for MELD
+    MELD = "meld"
+    MELD_GREEK = "meld_greek"
+    MELD_EMOTION = "meld_emotion"
+    MELD_EMOTION_GREEK = "meld_emotion_greek"
+
 class DatasetSplit(Enum):
     TRAIN = "train"
     VAL = "validation"

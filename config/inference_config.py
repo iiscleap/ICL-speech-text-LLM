@@ -44,7 +44,11 @@ def get_inference_config(model_type: str, dataset_type: Optional[DatasetType] = 
                 "model_path": "Qwen/Qwen2-Audio-7B-Instruct",
                 "lora": True,
                 "max_txt_len": 512,
-                # "ckpt_path": "/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_qwen2_speech_text_voxceleb/final_model.pt"
+                "lora_alpha": 32,
+                "lora_dropout": 0.05,
+                "lora_rank": 8,
+                "ckpt_path": "/data2/neeraja/neeraja/code/SALMONN/results/trained_models/ft_20e8b_qwen2_speech_text_voxceleb/final_model.pt"
+                # "ckpt_path":"/data2/neeraja/neeraja/results/model_ICL/trained_models/0604_1443_ft_5ex_20e8b_qwen2_speech_only_text_voxceleb-hvb/checkpoints/epoch_15_loss_0.0000/model.pt",
             }
         }
     else:

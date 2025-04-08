@@ -19,6 +19,16 @@ from .voxpopuli_config import (
 from .sqa_config import SQA_CONFIG
 from .vp_nel_config import VP_NEL_CONFIG
 
+from .meld_config import (
+    MELD_CONFIG,
+    MELD_GREEK_CONFIG
+)
+from .meld_emotion_config import (
+    MELD_EMOTION_CONFIG, 
+    MELD_EMOTION_GREEK_CONFIG
+)
+
+
 logger = logging.getLogger(__name__)
 
 DATASET_CONFIGS: Dict[DatasetType, DatasetConfig] = {
@@ -29,7 +39,12 @@ DATASET_CONFIGS: Dict[DatasetType, DatasetConfig] = {
     DatasetType.VOXPOPULI: VOXPOPULI_CONFIG,
     DatasetType.VOXPOPULI_GREEK: VOXPOPULI_GREEK_CONFIG,
     DatasetType.SQA: SQA_CONFIG,
-    DatasetType.VP_NEL: VP_NEL_CONFIG
+    DatasetType.VP_NEL: VP_NEL_CONFIG,
+    DatasetType.MELD: MELD_CONFIG,
+    DatasetType.MELD_GREEK: MELD_GREEK_CONFIG,
+    DatasetType.MELD_EMOTION: MELD_EMOTION_CONFIG,
+    DatasetType.MELD_EMOTION_GREEK: MELD_EMOTION_GREEK_CONFIG
+
 }
 
 def get_dataset_config(dataset_type: DatasetType) -> DatasetConfig:
@@ -53,6 +68,12 @@ def apply_label_mapping(examples: List[Dict], label_mapping: Dict[str, str]) -> 
         if "sentiment" in example:
             if example["sentiment"] in label_mapping:
                 example["sentiment"] = label_mapping[example["sentiment"]]
+        elif "sentiment_label" in example:
+            if example["sentiment_label"] in label_mapping:
+                example["sentiment_label"] = label_mapping[example["sentiment_label"]]
+        elif "emotion_label" in example:
+            if example["emotion_label"] in label_mapping:
+                example["emotion_label"] = label_mapping[example["emotion_label"]] 
         elif "dialog_acts" in example:
             acts = example["dialog_acts"].split(",")
             mapped_acts = []

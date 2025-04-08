@@ -4,7 +4,7 @@ import random
 VOXPOPULI_CONFIG = DatasetConfig(
     name=DatasetType.VOXPOPULI,
     paths={
-        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_20fewshots",
+        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_test_20fewshots",
     },
     prompt_template="""You are an Entity Type Classification system. For the given input, identify which of the following entity types are present:
@@ -24,9 +24,13 @@ Guidelines:
     valid_labels=["LAW", "NORP", "ORG", "PERSON", "PLACE", "QUANT", "WHEN"],
     completion_key="normalized_combined_ner",
     text_key="normalized_text",
+    # audio_lookup_paths={
+    #     DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_audio_lookup",
+    #     DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_test_audio_lookup",
+    # }
     audio_lookup_paths={
-        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_audio_lookup",
-        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_test_audio_lookup",
+        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
+        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
     }
 )
 

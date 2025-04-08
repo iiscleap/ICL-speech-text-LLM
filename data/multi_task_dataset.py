@@ -104,7 +104,16 @@ class BaseMultiTaskDataset(Dataset):
         audio_lookup_path = self.config.get_audio_lookup_path(self.split)
         if audio_lookup_path:
             load_time = time.time()
-            if self.dataset_type in [DatasetType.SQA, DatasetType.VOXPOPULI_NEL]:
+            if  self.dataset_type in [
+                DatasetType.SQA, 
+                DatasetType.VOXPOPULI_NEL,
+                DatasetType.MELD,
+                DatasetType.MELD_EMOTION,
+                DatasetType.MELD_GREEK,
+                DatasetType.MELD_EMOTION_GREEK,
+                DatasetType.VOXPOPULI,
+                DatasetType.VOXPOPULI_GREEK
+            ]:
                 # For SQA and VP-NEL, just load the dataset
                 self.audio_lookup = load_from_disk(audio_lookup_path)
                 logger.info(f"Initialized audio lookup dataset for {self.dataset_type} in {time.time() - load_time:.3f}s")
@@ -164,9 +173,6 @@ class BaseMultiTaskDataset(Dataset):
         if hasattr(self.current_config, 'output_format'):
             # SQA timestamps format: "start_time end_time"
             if self.current_config.output_format == 'timestamps_pair':
-                # if isinstance(label, list) and len(label) >= 2:
-                #     return f"{label[0]} {label[1]}"
-                # return ""
                 return f"{label}"
 
             # VP-NEL entity timestamps format: "TYPE: start end; TYPE2: start2 end2"
@@ -321,8 +327,15 @@ class BaseMultiTaskDataset(Dataset):
         formatted_examples = []
         examples_audio = []
         
-        if self.dataset_type == DatasetType.VOXPOPULI_NEL and self.audio_lookup is not None and self.num_examples > 0:
-            # VP-NEL: Random sampling from audio_lookup
+        if (self.dataset_type == DatasetType.VOXPOPULI_NEL or 
+        self.dataset_type == DatasetType.MELD or 
+        self.dataset_type == DatasetType.MELD_EMOTION or
+        self.dataset_type == DatasetType.MELD_GREEK or
+        self.dataset_type == DatasetType.MELD_EMOTION_GREEK or 
+        self.dataset_type == DatasetType.VOXPOPULI or
+        self.dataset_type == DatasetType.VOXPOPULI_GREEK) and self.audio_lookup is not None and self.num_examples > 0:
+            
+            # Random sampling from audio_lookup
             total_examples = len(self.audio_lookup)
             sampled_indices = random.sample(range(total_examples), min(self.num_examples, total_examples))
             

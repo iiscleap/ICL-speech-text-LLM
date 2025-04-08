@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Configuration - Edit these values as needed
-model_type="qwen2"  # Options: "salmonn" or "qwen2"
+model_type="salmonn"  # Options: "salmonn" or "qwen2"
 # dataset_type="voxceleb,hvb"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
-dataset_type="voxceleb,hvb"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
+dataset_type="meld_emotion,voxpopuli"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
 num_examples=5

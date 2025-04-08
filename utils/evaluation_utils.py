@@ -63,7 +63,15 @@ def evaluate_predictions(predictions: List[Dict[str, Any]], dataset_type: Datase
         valid_labels = [label.lower() for label in config.valid_labels]
         
         # Calculate metrics based on dataset type
-        if dataset_type in [DatasetType.VOXCELEB, DatasetType.VOXCELEB_SWAP, DatasetType.VOXCELEB_GREEK]:
+        if dataset_type in [
+            DatasetType.VOXCELEB, 
+            DatasetType.VOXCELEB_SWAP, 
+            DatasetType.VOXCELEB_GREEK,
+            DatasetType.MELD,
+            DatasetType.MELD_GREEK,
+            DatasetType.MELD_EMOTION,
+            DatasetType.MELD_EMOTION_GREEK
+        ]:
             metrics = evaluate_voxceleb(df, valid_labels)
         elif dataset_type in [DatasetType.HVB, DatasetType.HVB_SWAP, DatasetType.HVB_GREEK]:
             metrics = evaluate_hvb(df, valid_labels)
@@ -483,7 +491,14 @@ def clean_prediction(prediction: str, dataset_type: DatasetType = None) -> str:
     cleaned = re.sub(r'^\s*,', '', cleaned)   # Remove leading comma
     
     # For VoxCeleb and VoxCeleb Greek predictions, take only the first word
-    if dataset_type in [DatasetType.VOXCELEB, DatasetType.VOXCELEB_GREEK]:
+    if dataset_type in [
+            DatasetType.VOXCELEB, 
+            DatasetType.VOXCELEB_GREEK, 
+            DatasetType.MELD, 
+            DatasetType.MELD_GREEK,
+            DatasetType.MELD_EMOTION,
+            DatasetType.MELD_EMOTION_GREEK
+        ]:
         # Split by any non-word character and take first non-empty word
         words = re.split(r'[^a-zA-Z]', cleaned)
         words = [w.strip().lower() for w in words]

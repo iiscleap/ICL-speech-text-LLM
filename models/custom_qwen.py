@@ -89,6 +89,8 @@ class CustomQwen(BaseModel):
         if ckpt_path:
             checkpoint = load_checkpoint(ckpt_path, map_location=device)
             self.model.load_state_dict(checkpoint["model"], strict=False)
+            # self.model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+            
             
         # Store model attributes
         self.prompt_template = prompt_template

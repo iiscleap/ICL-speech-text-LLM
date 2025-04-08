@@ -48,7 +48,11 @@ def reprocess_results(results_file: str):
             'hvb': DatasetType.HVB,
             'hvb_greek': DatasetType.HVB_GREEK,
             'voxpopuli': DatasetType.VOXPOPULI,
-            'voxpopuli_greek': DatasetType.VOXPOPULI_GREEK
+            'voxpopuli_greek': DatasetType.VOXPOPULI_GREEK,
+            'meld': DatasetType.MELD,
+            'meld_greek': DatasetType.MELD_GREEK,
+            'meld_emotion': DatasetType.MELD_EMOTION,
+            'meld_emotion_greek': DatasetType.MELD_EMOTION_GREEK
         }
         
         for dataset_name, dataset_type in dataset_types.items():

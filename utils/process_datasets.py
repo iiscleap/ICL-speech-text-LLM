@@ -163,6 +163,110 @@ def process_vp_nel_dataset():
         logger.error(f"Error processing dataset: {str(e)}")
         raise
 
+def process_meld_dataset():
+    cache_dir = '/data2/neeraja/neeraja/data'
+    dataset_name = "zrr1999/MELD_Text_Audio"
+    
+    emotion_labels = {
+        0: "neutral",
+        1: "joy",
+        2: "sadness",
+        3: "anger", 
+        4: "fear",
+        5: "disgust",
+        6: "surprise"
+    }
+    
+    # Sentiment mapping 
+    sentiment_labels = {
+        0: "neutral",
+        1: "positive",
+        2: "negative"
+    }
+    
+    try:
+        # Process each split
+        for split in ['train']:
+            logger.info(f"\n{'='*50}")
+            logger.info(f"Processing {split} split...")
+            
+            split_dataset = load_dataset(
+                dataset_name,
+                split=split,
+                cache_dir=cache_dir
+            )
+            
+            logger.info(f"Initial number of examples: {len(split_dataset)}")
+            
+            # Filter out examples with missing audio files
+            logger.info("\n=== Filtering examples with missing audio files ===")
+            valid_indices = []
+            for i, path in enumerate(split_dataset['path']):
+                if os.path.exists(path):
+                    valid_indices.append(i)
+                else:
+                    logger.warning(f"Audio file not found: {path}")
+            
+            split_dataset = split_dataset.select(valid_indices)
+            logger.info(f"Remaining examples after filtering: {len(split_dataset)}")
+            
+            # Add unique_id column based on audio path
+            logger.info("\n=== Adding unique_id column ===")
+            split_dataset = split_dataset.add_column(
+                "unique_id", 
+                [f"meld_{os.path.basename(p).replace('.flac', '')}" for p in split_dataset['path']]
+            )
+            
+            # Convert emotion integer to text label
+            logger.info("\n=== Converting emotion to text labels ===")
+            split_dataset = split_dataset.add_column(
+                "emotion_label",
+                [emotion_labels.get(e, "unknown") for e in split_dataset['emotion']]
+            )
+            
+            # Convert sentiment integer to text label
+            logger.info("\n=== Converting sentiment to text labels ===")
+            split_dataset = split_dataset.add_column(
+                "sentiment_label",
+                [sentiment_labels.get(s, "unknown") for s in split_dataset['sentiment']]
+            )
+            
+            # # Create audio lookup
+            # logger.info("\n=== Creating audio lookup ===")
+            # audio_lookup = {uid: path for uid, path in zip(split_dataset['unique_id'], split_dataset['path'])}
+            
+            # Save processed dataset
+            output_path = f"/data2/neeraja/neeraja/data/meld_{split}"
+            split_dataset.save_to_disk(output_path)
+            logger.info(f"Saved {split} split to {output_path}")
+            
+            # # Save audio lookup
+            # audio_lookup_path = f"/data2/neeraja/neeraja/data/meld_{split}_audio_lookup"
+            # os.makedirs(os.path.dirname(audio_lookup_path), exist_ok=True)
+            # with open(f"{audio_lookup_path}.json", 'w') as f:
+            #     json.dump(audio_lookup, f)
+            # logger.info(f"Saved audio lookup to {audio_lookup_path}.json")
+            
+            # Log some stats
+            logger.info(f"\nSplit {split} statistics:")
+            logger.info(f"Number of examples: {len(split_dataset)}")
+            
+            # Show an example
+            if len(split_dataset) > 0:
+                example = split_dataset[0]
+                logger.info("\nExample data point:")
+                logger.info(f"Text: {example['text'][:100]}...")
+                logger.info(f"Emotion: {example['emotion']} → {example['emotion_label']}")
+                logger.info(f"Sentiment: {example['sentiment']} → {example['sentiment_label']}")
+                logger.info(f"Unique ID: {example['unique_id']}")
+            
+            logger.info("="*50)
+
+    except Exception as e:
+        logger.error(f"Error processing dataset: {str(e)}")
+        raise
+
 if __name__ == "__main__":
     # process_sqa5_dataset()
-    process_vp_nel_dataset()
+    # process_vp_nel_dataset()
+    process_meld_dataset()
