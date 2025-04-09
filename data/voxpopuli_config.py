@@ -56,13 +56,13 @@ Guidelines:
     text_key="normalized_text",
     audio_lookup_paths=VOXPOPULI_CONFIG.audio_lookup_paths,
     label_mapping={
-        "LAW": "zeta1",
-        "NORP": "zeta2",
-        "ORG": "zeta3",
-        "PERSON": "zeta4",
-        "PLACE": "zeta5",
-        "QUANT": "zeta6",
-        "WHEN": "zeta7"
+        "law": "zeta1",
+        "norp": "zeta2",
+        "org": "zeta3",
+        "person": "zeta4",
+        "place": "zeta5",
+        "quant": "zeta6",
+        "when": "zeta7"
     }
 )
 

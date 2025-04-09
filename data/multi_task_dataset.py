@@ -191,7 +191,7 @@ class BaseMultiTaskDataset(Dataset):
                 if not is_example:
                     label = convert_ner_to_dict(text, label)
                 label_dict = [k for k, v in label.items() if v]
-                return ', '.join(label_dict) if label_dict else 'None'
+                label= ', '.join(label_dict) if label_dict else 'None'
         
         # Handle list-type labels (for HVB datasets)
         if isinstance(label, list):
@@ -345,7 +345,8 @@ class BaseMultiTaskDataset(Dataset):
                     "text": example[current_config.text_key],
                     "label": self._format_label( example[current_config.completion_key],
                         is_example=False,
-                        current_mapping=current_config.label_mapping
+                        current_mapping=current_config.label_mapping,
+                        text=example[current_config.text_key]
                     )
                 }
                 formatted_examples.append(formatted_example)
