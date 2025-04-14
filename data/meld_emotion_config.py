@@ -56,3 +56,106 @@ Guidelines:
     text_key=MELD_EMOTION_CONFIG.text_key,
     completion_key=MELD_EMOTION_CONFIG.completion_key
 )
+
+# Descriptions for each emotion category
+MELD_EMOTION_DESCRIPTIONS = [
+    "no distinct emotional state",
+    "happiness, excitement, delight, pleasure, or positive enthusiasm",
+    "unhappiness, sorrow, grief, disappointment, or regret",
+    "irritation, rage, fury, annoyance, or hostility",
+    "terror, anxiety, worry, concern, or nervousness",
+    "repulsion, distaste, revulsion, or strong dislike",
+    "astonishment, shock, amazement, or unexpected reaction"
+]
+
+# 10 different permutations of the emotion labels
+MELD_EMOTION_PERMUTATIONS = [
+    # Original order
+    ["neutral", "joy", "sadness", "anger", "fear", "disgust", "surprise"],
+    
+    # Permutation 2: Group by valence (positive/negative/neutral)
+    ["neutral", "joy", "surprise", "sadness", "anger", "fear", "disgust"],
+    
+    # Permutation 3: Group by intensity (low to high)
+    ["neutral", "sadness", "joy", "disgust", "surprise", "fear", "anger"],
+    
+    # Permutation 4: Group by basic emotions first (Ekman's six basic emotions)
+    ["joy", "sadness", "anger", "fear", "disgust", "surprise", "neutral"],
+    
+    # Permutation 5: Alphabetical order
+    ["anger", "disgust", "fear", "joy", "neutral", "sadness", "surprise"],
+    
+    # Permutation 6: Reverse original
+    ["surprise", "disgust", "fear", "anger", "sadness", "joy", "neutral"],
+    
+    # Permutation 7: Group by social emotions vs. survival emotions
+    ["joy", "sadness", "neutral", "surprise", "anger", "fear", "disgust"],
+    
+    # Permutation 8: Group by approach vs. avoidance emotions
+    ["joy", "anger", "surprise", "sadness", "fear", "disgust", "neutral"],
+    
+    # Permutation 9: Group by common vs. uncommon in conversation
+    ["neutral", "joy", "anger", "sadness", "surprise", "fear", "disgust"],
+    
+    # Permutation 10: Group by complexity (simple to complex)
+    ["neutral", "joy", "anger", "fear", "disgust", "sadness", "surprise"]
+]
+
+# 10 corresponding Greek permutations
+MELD_EMOTION_GREEK_PERMUTATIONS = [
+    # Original order
+    ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta"],
+    
+    # Permutation 2: Group by valence (positive/negative/neutral)
+    ["alpha", "beta", "eta", "gamma", "delta", "epsilon", "zeta"],
+    
+    # Permutation 3: Group by intensity (low to high)
+    ["alpha", "gamma", "beta", "zeta", "eta", "epsilon", "delta"],
+    
+    # Permutation 4: Group by basic emotions first
+    ["beta", "gamma", "delta", "epsilon", "zeta", "eta", "alpha"],
+    
+    # Permutation 5: Alphabetical order (matching the emotional labels)
+    ["delta", "zeta", "epsilon", "beta", "alpha", "gamma", "eta"],
+    
+    # Permutation 6: Reverse original
+    ["eta", "zeta", "epsilon", "delta", "gamma", "beta", "alpha"],
+    
+    # Permutation 7: Group by social emotions vs. survival emotions
+    ["beta", "gamma", "alpha", "eta", "delta", "epsilon", "zeta"],
+    
+    # Permutation 8: Group by approach vs. avoidance emotions
+    ["beta", "delta", "eta", "gamma", "epsilon", "zeta", "alpha"],
+    
+    # Permutation 9: Group by common vs. uncommon in conversation
+    ["alpha", "beta", "delta", "gamma", "eta", "epsilon", "zeta"],
+    
+    # Permutation 10: Group by complexity (simple to complex)
+    ["alpha", "beta", "delta", "epsilon", "zeta", "gamma", "eta"]
+]
+
+# Create swap configurations using the permutations
+MELD_EMOTION_SWAP_CONFIGS = []
+for perm in MELD_EMOTION_GREEK_PERMUTATIONS:
+    mapping = {orig: swapped for orig, swapped in zip(MELD_EMOTION_CONFIG.valid_labels, perm)}
+    descriptions = {label: desc for label, desc in zip(MELD_EMOTION_CONFIG.valid_labels, MELD_EMOTION_DESCRIPTIONS)}
+    MELD_EMOTION_SWAP_CONFIGS.append(DatasetConfig(
+        prompt_template=f"""You are an emotion recognition expert. Based on the input, respond with EXACTLY ONE WORD from these options: {', '.join(perm)}.
+
+Guidelines:
+{chr(10).join(f'- Choose {label} if there is {descriptions[orig]}' for label, orig in zip(perm, MELD_EMOTION_CONFIG.valid_labels))}""",
+        label_mapping=mapping,
+        valid_labels=perm,
+        name=DatasetType.MELD_EMOTION_SWAP,
+        paths=MELD_EMOTION_CONFIG.paths,
+        audio_lookup_paths=MELD_EMOTION_CONFIG.audio_lookup_paths,
+        text_key=MELD_EMOTION_CONFIG.text_key,
+        completion_key=MELD_EMOTION_CONFIG.completion_key
+    ))
+
+def get_meld_emotion_swap_config(randomize: bool = False):
+    if randomize:
+        return random.choice(MELD_EMOTION_SWAP_CONFIGS)
+    else:
+        # Always return the second config when not randomizing
+        return MELD_EMOTION_SWAP_CONFIGS[1]

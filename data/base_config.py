@@ -33,6 +33,8 @@ class DatasetType(str, Enum):
     MELD_EMOTION = "meld_emotion"
     MELD_EMOTION_GREEK = "meld_emotion_greek"
 
+    MELD_EMOTION_SWAP="meld_emotion_swap"
+
 class DatasetSplit(Enum):
     TRAIN = "train"
     VAL = "validation"

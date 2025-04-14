@@ -25,7 +25,8 @@ from .meld_config import (
 )
 from .meld_emotion_config import (
     MELD_EMOTION_CONFIG, 
-    MELD_EMOTION_GREEK_CONFIG
+    MELD_EMOTION_GREEK_CONFIG,
+    get_meld_emotion_swap_config
 )
 
 
