@@ -44,7 +44,9 @@ DATASET_CONFIGS: Dict[DatasetType, DatasetConfig] = {
     DatasetType.MELD: MELD_CONFIG,
     DatasetType.MELD_GREEK: MELD_GREEK_CONFIG,
     DatasetType.MELD_EMOTION: MELD_EMOTION_CONFIG,
-    DatasetType.MELD_EMOTION_GREEK: MELD_EMOTION_GREEK_CONFIG
+    DatasetType.MELD_EMOTION_GREEK: MELD_EMOTION_GREEK_CONFIG,
+    DatasetType.MELD_EMOTION_SWAP: MELD_EMOTION_CONFIG,
+    DatasetType.VOXPOPULI_SWAP: VOXCELEB_CONFIG
 
 }
 
@@ -60,6 +62,8 @@ def get_swap_config(dataset_type: DatasetType, randomize: bool = False):
         return get_hvb_swap_config(randomize)
     elif dataset_type == DatasetType.VOXPOPULI_SWAP:
         return get_voxpopuli_swap_config(randomize)
+    elif dataset_type == DatasetType.MELD_EMOTION_SWAP:
+        return get_meld_emotion_swap_config(randomize)
     else:
         raise ValueError(f"No swap config available for dataset type: {dataset_type}")
 

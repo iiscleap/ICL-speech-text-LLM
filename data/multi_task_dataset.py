@@ -93,7 +93,7 @@ class BaseMultiTaskDataset(Dataset):
         self.config = get_dataset_config(dataset_type)
         
         # For non-swap datasets, we can get the config once
-        self.is_swap_dataset = dataset_type in [DatasetType.VOXCELEB_SWAP, DatasetType.HVB_SWAP, DatasetType.VOXPOPULI_SWAP]
+        self.is_swap_dataset = dataset_type in [DatasetType.VOXCELEB_SWAP, DatasetType.HVB_SWAP, DatasetType.VOXPOPULI_SWAP, DatasetType.MELD_EMOTION_SWAP]
         if not self.is_swap_dataset:
             self.current_config = self.config
         
@@ -112,7 +112,9 @@ class BaseMultiTaskDataset(Dataset):
                 DatasetType.MELD_GREEK,
                 DatasetType.MELD_EMOTION_GREEK,
                 DatasetType.VOXPOPULI,
-                DatasetType.VOXPOPULI_GREEK
+                DatasetType.VOXPOPULI_GREEK,
+                DatasetType.VOXPOPULI_SWAP,
+                DatasetType.MELD_EMOTION_SWAP
             ]:
                 # For SQA and VP-NEL, just load the dataset
                 self.audio_lookup = load_from_disk(audio_lookup_path)
@@ -153,13 +155,19 @@ class BaseMultiTaskDataset(Dataset):
             return None
 
     def _select_examples(self, few_shot_examples):
-        """Helper method to select examples consistently"""
+        """Helper method to select a random number of examples between 0 and num_examples"""
         if self.random_examples:
-            num_examples = min(self.num_examples, len(few_shot_examples))
-            return random.sample(few_shot_examples, num_examples) if num_examples > 0 else []
+            # First select a random number between 0 and num_examples
+            random_count = random.randint(0, self.num_examples)
+            if random_count > 0:
+                # If random count is greater than 0, select that many examples (or all available)
+                num_to_select = min(random_count, len(few_shot_examples))
+                return random.sample(few_shot_examples, num_to_select) if num_to_select > 0 else []
+            else:
+                # If random count is 0, return empty list
+                return []
+        # Original behavior for non-random mode
         return few_shot_examples[:self.num_examples]
-    
-
 
     def _format_label(self, example_or_label, is_example=True, current_mapping=None, text=None):
         """Format label based on dataset type and configuration."""
@@ -237,7 +245,19 @@ class BaseMultiTaskDataset(Dataset):
         if self.audio_lookup is not None and self.num_examples > 0:
             # Randomly sample indices from audio lookup
             total_examples = len(self.audio_lookup)
-            sampled_indices = random.sample(range(total_examples), min(self.num_examples, total_examples))
+            if self.random_examples:
+                # First select a random number between 0 and num_examples
+                random_count = random.randint(0, self.num_examples)
+                if random_count > 0:
+                    # If random count is greater than 0, select that many examples
+                    num_to_select = min(random_count, total_examples)
+                    sampled_indices = random.sample(range(total_examples), num_to_select)
+                else:
+                    # If random count is 0, select no examples
+                    sampled_indices = []
+            else:
+                # Original behavior - select exactly num_examples or all available
+                sampled_indices = random.sample(range(total_examples), min(self.num_examples, total_examples))
             
             # Create few-shot examples from sampled indices
             formatted_examples = []
@@ -333,11 +353,25 @@ class BaseMultiTaskDataset(Dataset):
         self.dataset_type == DatasetType.MELD_GREEK or
         self.dataset_type == DatasetType.MELD_EMOTION_GREEK or 
         self.dataset_type == DatasetType.VOXPOPULI or
-        self.dataset_type == DatasetType.VOXPOPULI_GREEK) and self.audio_lookup is not None and self.num_examples > 0:
+        self.dataset_type == DatasetType.VOXPOPULI_GREEK or
+        self.dataset_type == DatasetType.VOXPOPULI_SWAP or
+        self.dataset_type == DatasetType.MELD_EMOTION_SWAP) and self.audio_lookup is not None and self.num_examples > 0:
             
             # Random sampling from audio_lookup
             total_examples = len(self.audio_lookup)
-            sampled_indices = random.sample(range(total_examples), min(self.num_examples, total_examples))
+            if self.random_examples:
+                # First select a random number between 0 and num_examples
+                random_count = random.randint(0, self.num_examples)
+                if random_count > 0:
+                    # If random count is greater than 0, select that many examples
+                    num_to_select = min(random_count, total_examples)
+                    sampled_indices = random.sample(range(total_examples), num_to_select)
+                else:
+                    # If random count is 0, select no examples
+                    sampled_indices = []
+            else:
+                # Original behavior - select exactly num_examples or all available
+                sampled_indices = random.sample(range(total_examples), min(self.num_examples, total_examples))
             
             for sample_idx in sampled_indices:
                 example = self.audio_lookup[sample_idx]

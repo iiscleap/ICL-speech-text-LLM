@@ -2,8 +2,8 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-# dataset_type="voxceleb,hvb"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
-dataset_type="meld_emotion_greek,voxpopuli_greek"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
+# dataset_type="voxceleb_swap"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
+dataset_type="meld_emotion_swap,voxpopuli_swap"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
 num_examples=5

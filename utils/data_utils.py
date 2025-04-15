@@ -60,6 +60,8 @@ def load_dataset(dataset_type: DatasetType, split: str = "train", use_cache: boo
             base_type = DatasetType.SQA
         elif dataset_type == DatasetType.VP_NEL:
             base_type = DatasetType.VP_NEL
+        elif dataset_type in [DatasetType.MELD_EMOTION_GREEK, DatasetType.MELD_EMOTION_SWAP]:
+            base_type = DatasetType.MELD_EMOTION
         
         config = get_dataset_config(base_type)
         
