@@ -118,6 +118,7 @@ class BaseMultiTaskDataset(Dataset):
             ]:
                 # For SQA and VP-NEL, just load the dataset
                 self.audio_lookup = load_from_disk(audio_lookup_path)
+                logger.info(f"self.audio_lookup keys: {self.audio_lookup[0].keys()}")
                 logger.info(f"Initialized audio lookup dataset for {self.dataset_type} in {time.time() - load_time:.3f}s")
             else:
                 # For other datasets, create index map
@@ -375,6 +376,8 @@ class BaseMultiTaskDataset(Dataset):
             
             for sample_idx in sampled_indices:
                 example = self.audio_lookup[sample_idx]
+                # if self.dataset_type == DatasetType.VOXPOPULI_SWAP:
+                    # logger.info(f"Sample {sample_idx} example: {example.keys()}")
                 formatted_example = {
                     "text": example[current_config.text_key],
                     "label": self._format_label( example[current_config.completion_key],
