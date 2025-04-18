@@ -3,14 +3,14 @@
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
 # dataset_type="voxceleb_swap"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
-dataset_type="meld_emotion_greek,voxpopuli_greek"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
+dataset_type="meld_emotion,voxpopuli"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
 num_examples=5
 batch_size=1
 gradient_accumulation_steps=8
 learning_rate=1e-5
-num_epochs=20
+num_epochs=15
 warmup_steps=100
 save_every=1
 eval_every=5000
@@ -108,12 +108,12 @@ if [ "$use_gradient_checkpointing" = true ]; then
 fi
 
 # Submit job
-qsub -q gpu.q -V -cwd \
+qsub -q longgpu.q -V -cwd \
     -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=2,\
+    -v CUDA_VISIBLE_DEVICES=1,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

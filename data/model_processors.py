@@ -697,15 +697,15 @@ class SalmonProcessor(ModelProcessor):
         if examples and len(examples) > 0:
             if fewshot_mode == "speech":
                 examples_text = "\n\n".join([
-                    f"<Speech><Question{i}></Speech>\n"
                     f"<Speech><Document{i}></Speech>\n"
+                    f"<Speech><Question{i}></Speech>\n"
                     f"Output: {example.get('completion', '')}"
                     for i, example in enumerate(examples)
                 ])
             else:
                 examples_text = "\n\n".join([
-                    f"Question: {example.get('question', '')}\n"
                     f"Document: {example.get('document', '')}\n"
+                    f"Question: {example.get('question', '')}\n"
                     f"Output: {example.get('completion', '')}"
                     for example in examples
                 ])
@@ -715,15 +715,17 @@ class SalmonProcessor(ModelProcessor):
         # Create input section based on input mode
         if input_mode == "speech_and_text":
             input_section = (
-                f"<Speech><Question></Speech>\n"
-                f"Question text: {question}\n"
                 f"<Speech><Document></Speech>\n"
-                f"Document text: {text}"
+                f"Document text: {text}\n"
+                f"<Speech><Question></Speech>\n"
+                f"Question text: {question}"
+                
             )
         elif input_mode == "text_only":
-            input_section = f"Question: {question}\nDocument: {text}"
+            # input_section = f"Question: {question}\nDocument: {text}"
+            input_section = f"\nDocument: {text}\nQuestion: {question}"
         else:  # speech_only
-            input_section = "<Speech><Question></Speech>\n<Speech><Document></Speech>"
+            input_section = "\n<Speech><Document></Speech>\n<Speech><Question></Speech>"
 
         # Create the final prompt
         prompt = f"{template}\n{examples_text}Now analyze this input:\n{input_section}\nOutput:"
