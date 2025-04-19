@@ -141,10 +141,10 @@ class CustomSALMONN(BaseModel):
                         d_marker = f"<Document{i}>"
                         
                         if q_marker in suffix and d_marker in suffix:
-                            before_q, rest = suffix.split(q_marker, 1)
-                            middle, after_d = rest.split(d_marker, 1)
-                            parts.extend([before_q, middle])
-                            suffix = after_d
+                            before_d, rest = suffix.split(d_marker, 1)
+                            middle, after_q = rest.split(q_marker, 1)
+                            parts.extend([before_d, middle])
+                            suffix = after_q
                             
                             if self.batch_counter == 0:
                                 logging.info(f"After processing example {i}, parts list length: {len(parts)}")
@@ -162,10 +162,10 @@ class CustomSALMONN(BaseModel):
 
             # Split for main speech input if speech placeholder exists
             if "<Question>" in suffix:
-                    before_q, rest = suffix.split("<Question>", 1)
-                    middle, after_d = rest.split("<Document>", 1)
-                    parts.extend([before_q, middle])
-                    suffix = after_d
+                    before_d, rest = suffix.split("<Document>", 1)
+                    middle, after_q = rest.split("<Question>", 1)
+                    parts.extend([before_d, middle])
+                    suffix = after_q
             elif self.speech_placeholder in suffix:
                 before_speech, after_speech = suffix.split(self.speech_placeholder)
                 parts.append(before_speech)
@@ -215,19 +215,26 @@ class CustomSALMONN(BaseModel):
                         if b < len(example_embeds) and i < len(example_embeds[b]):
                             q_embed, d_embed = example_embeds[b][i]
                             q_att, d_att = example_atts[b][i]
-                            combined_embeds.extend([q_embed, part_embeds[2*i+1], d_embed])
-                            combined_atts.extend([q_att, part_atts[2*i+1], d_att])
+                            # combined_embeds.extend([q_embed, part_embeds[2*i+1], d_embed])
+                            # combined_atts.extend([q_att, part_atts[2*i+1], d_att])
+                            combined_embeds.extend([d_embed, part_embeds[2*i+1], q_embed])
+                            combined_atts.extend([d_att, part_atts[2*i+1], q_att])
                     
                 # Add final question and document embeddings
                 if embeds is not None:  # Speech mode
+                    # logging.info(f"Processing SQA dataset with question and document audio")
                     q_embeds, d_embeds = embeds
                     q_atts, d_atts = atts
                     if self.batch_counter == 0:
                         logging.info(f"Speech embeds shape: {q_embeds[b].shape, d_embeds[b].shape}")
                         logging.info(f"Part embeds shapes: {part_embeds[-2].shape}, {part_embeds[-1].shape}")
                     
-                    combined_embeds.extend([part_embeds[-3], q_embeds[b], part_embeds[-2], d_embeds[b], part_embeds[-1]])
-                    combined_atts.extend([part_atts[-3], q_atts[b], part_atts[-2], d_atts[b], part_atts[-1]])
+                    # combined_embeds.extend([part_embeds[-3], q_embeds[b], part_embeds[-2], d_embeds[b], part_embeds[-1]])
+                    # combined_atts.extend([part_atts[-3], q_atts[b], part_atts[-2], d_atts[b], part_atts[-1]])
+
+                    combined_embeds.extend([part_embeds[-3], d_embeds[b], part_embeds[-2], q_embeds[b], part_embeds[-1]])
+                    combined_atts.extend([part_atts[-3], d_atts[b], part_atts[-2], q_atts[b], part_atts[-1]])
+
                     if self.batch_counter == 0:
                         logging.info(f"Combined embeds length: {len(combined_embeds)}")
                         logging.info(f"Individual shapes in combined_embeds: {[e.shape for e in combined_embeds]}")

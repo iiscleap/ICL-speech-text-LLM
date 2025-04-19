@@ -697,8 +697,8 @@ class SalmonProcessor(ModelProcessor):
         if examples and len(examples) > 0:
             if fewshot_mode == "speech":
                 examples_text = "\n\n".join([
-                    f"<Speech><Document{i}></Speech>\n"
-                    f"<Speech><Question{i}></Speech>\n"
+                    f"Document: <Speech><Document{i}></Speech>\n"
+                    f"Question: ><Speech><Question{i}></Speech>\n"
                     f"Output: {example.get('completion', '')}"
                     for i, example in enumerate(examples)
                 ])
@@ -715,9 +715,9 @@ class SalmonProcessor(ModelProcessor):
         # Create input section based on input mode
         if input_mode == "speech_and_text":
             input_section = (
-                f"<Speech><Document></Speech>\n"
+                f"Document: <Speech><Document></Speech>\n"
                 f"Document text: {text}\n"
-                f"<Speech><Question></Speech>\n"
+                f"Question: <Speech><Question></Speech>\n"
                 f"Question text: {question}"
                 
             )
@@ -725,10 +725,10 @@ class SalmonProcessor(ModelProcessor):
             # input_section = f"Question: {question}\nDocument: {text}"
             input_section = f"\nDocument: {text}\nQuestion: {question}"
         else:  # speech_only
-            input_section = "\n<Speech><Document></Speech>\n<Speech><Question></Speech>"
+            input_section = f"\nDocument: <Speech><Document></Speech>\n Question: <Speech><Question></Speech>"
 
         # Create the final prompt
-        prompt = f"{template}\n{examples_text}Now analyze this input:\n{input_section}\nOutput:"
+        prompt = f"{template}\n{examples_text} Now analyze this input:\n{input_section}\nOutput:"
         
         return prompt
 
