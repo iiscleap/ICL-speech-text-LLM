@@ -10,14 +10,14 @@ fewshot_mode="text"  # Options: "text" or "speech"
 num_examples=0
 batch_size=1
 
-debug_samples=0  # Add debug_samples parameter (0 = use all samples)
+debug_samples=10  # Add debug_samples parameter (0 = use all samples)
 
 # Add near the top with other configuration options
 randomize_swap=false  # Set to true to randomize swap configurations
 
 # Node configuration
-queue_name="longpu.q"      # Queue to submit job to (gpu.q, med.q, etc.)
-hostname="compute-0-5"  # Hostname to run on
+queue_name="long.q"      # Queue to submit job to (gpu.q, med.q, etc.)
+hostname="compute-0-9"  # Hostname to run on
 cuda_device=2         # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
 

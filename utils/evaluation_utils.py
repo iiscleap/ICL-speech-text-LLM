@@ -81,6 +81,8 @@ def evaluate_predictions(predictions: List[Dict[str, Any]], dataset_type: Datase
             metrics = evaluate_vp_nel(df, valid_labels)
         elif dataset_type == DatasetType.SQQ:
             metrics = evaluate_sqq(df)
+        elif dataset_type == DatasetType.SQA:
+            metrics = evaluate_sqa(df)
         else:
             logger.warning(f"Unsupported dataset type for evaluation: {dataset_type}")
             return {"accuracy": 0.0}
@@ -808,3 +810,113 @@ def evaluate_sqq(df: pd.DataFrame, valid_classes: List[str] = None) -> Dict:
             'correct': total_correct_frames
         }
     }
+
+def evaluate_sqa(df: pd.DataFrame, valid_classes: List[str] = None) -> Dict:
+    """
+    Evaluate Question-Answering predictions.
+    
+    Metrics:
+    - Exact Match (EM): Binary measure that checks if the predicted answer exactly matches the ground truth
+    - F1 Score: Token-level F1 score treating answers as bags of words
+    - BLEU Score: N-gram precision metric for evaluating text similarity
+    
+    Args:
+        df: DataFrame with columns 'text' (questions), 'gt' (ground truth answers), 'pd' (predicted answers)
+        valid_classes: Not used for QA evaluation, included for API consistency
+        
+    Returns:
+        Dictionary with evaluation metrics
+    """
+    import nltk
+    from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+    
+    # Make sure nltk has necessary data
+    try:
+        nltk.data.find('tokenizers/punkt')
+    except LookupError:
+        nltk.download('punkt', quiet=True)
+    
+    total_samples = len(df)
+    
+    # Process ground truth and predicted answers
+    def normalize_answer(text):
+        """Normalize answer by lowercasing, removing punctuation and extra spaces"""
+        if not text:
+            return ""
+        text = text.lower()
+        text = re.sub(r'[^\w\s]', ' ', text)  # Replace punctuation with space
+        text = re.sub(r'\s+', ' ', text).strip()  # Normalize whitespace
+        return text
+    
+    def get_tokens(text):
+        """Get tokens from normalized text"""
+        normalized = normalize_answer(text)
+        if not normalized:
+            return []
+        return normalized.split()
+    
+    # Calculate metrics
+    exact_matches = 0
+    f1_scores = []
+    bleu_scores = []
+    
+    # Initialize smoother for BLEU score calculation
+    smoother = SmoothingFunction().method1
+    
+    for _, row in df.iterrows():
+        # Get ground truth and prediction
+        gt = row['gt']
+        pred = row['pd']
+        
+        # Exact match
+        exact_match = 1 if normalize_answer(gt) == normalize_answer(pred) else 0
+        exact_matches += exact_match
+        
+        # F1 Score (token level)
+        gt_tokens = get_tokens(gt)
+        pred_tokens = get_tokens(pred)
+        
+        if not gt_tokens and not pred_tokens:
+            f1 = 1.0  # Both empty means perfect match
+        elif not gt_tokens or not pred_tokens:
+            f1 = 0.0  # One empty means no match
+        else:
+            # Calculate token overlap
+            common_tokens = Counter(gt_tokens) & Counter(pred_tokens)
+            num_common = sum(common_tokens.values())
+            
+            # Calculate precision and recall
+            precision = num_common / max(len(pred_tokens), 1)
+            recall = num_common / max(len(gt_tokens), 1)
+            
+            # Calculate F1
+            f1 = 2 * (precision * recall) / max((precision + recall), 1e-6)
+        
+        f1_scores.append(f1)
+        
+        # BLEU Score
+        if gt_tokens:
+            bleu = sentence_bleu([gt_tokens], pred_tokens, smoothing_function=smoother)
+        else:
+            bleu = 0.0 if pred_tokens else 1.0
+        bleu_scores.append(bleu)
+    
+    # Calculate averages
+    em_score = exact_matches / max(total_samples, 1)
+    avg_f1 = sum(f1_scores) / max(len(f1_scores), 1)
+    avg_bleu = sum(bleu_scores) / max(len(bleu_scores), 1)
+    
+    # Create results dictionary
+    results = {
+        'exact_match': em_score,
+        'f1_score': avg_f1,
+        'bleu_score': avg_bleu,
+        'total_samples': total_samples,
+        'sample_metrics': {
+            'exact_match': [1 if f == 1.0 else 0 for f in f1_scores],
+            'f1_scores': f1_scores,
+            'bleu_scores': bleu_scores
+        }
+    }
+    
+    return results
