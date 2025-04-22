@@ -28,6 +28,7 @@ def evaluate_predictions(predictions: List[Dict[str, Any]], dataset_type: Datase
         logger.warning("Empty predictions list provided for evaluation")
         return {"error": "Empty predictions list", "accuracy": 0.0}
     
+
     try:
         # Get the appropriate config based on dataset type
         if dataset_type in [DatasetType.VOXCELEB_SWAP, DatasetType.HVB_SWAP, DatasetType.VOXPOPULI_SWAP]:
@@ -35,6 +36,8 @@ def evaluate_predictions(predictions: List[Dict[str, Any]], dataset_type: Datase
         else:
             config = get_dataset_config(dataset_type)
         
+        
+
         if not config:
             logger.warning(f"No config found for dataset type: {dataset_type}")
             return {"error": "Invalid dataset type"}
@@ -43,6 +46,8 @@ def evaluate_predictions(predictions: List[Dict[str, Any]], dataset_type: Datase
         true_labels = [p.get("true_label", "") for p in predictions]
         # Clean the predicted labels
         pred_labels = [clean_prediction(p.get("predicted_label", ""), dataset_type) for p in predictions]
+        
+
         
         # Log some example predictions for debugging
         logger.info("\nExample predictions after cleaning:")
@@ -60,7 +65,9 @@ def evaluate_predictions(predictions: List[Dict[str, Any]], dataset_type: Datase
         })
         
         # Get valid labels for this dataset type
-        valid_labels = [label.lower() for label in config.valid_labels]
+        valid_labels = None
+        if hasattr(config, 'valid_labels') and config.valid_labels is not None:
+            valid_labels = [label.lower() for label in config.valid_labels]
         
         # Calculate metrics based on dataset type
         if dataset_type in [
@@ -79,32 +86,34 @@ def evaluate_predictions(predictions: List[Dict[str, Any]], dataset_type: Datase
             metrics = evaluate_voxpopuli(df, valid_labels)
         elif dataset_type == DatasetType.VOXPOPULI_NEL:
             metrics = evaluate_vp_nel(df, valid_labels)
-        elif dataset_type == DatasetType.SQQ:
-            metrics = evaluate_sqq(df)
+        # elif dataset_type == DatasetType.SQQ:
+        #     print(f"Calling evaluate_sqq with {len(df)} samples")
+        #     metrics = evaluate_sqq(df)
         elif dataset_type == DatasetType.SQA:
+            print(f"Calling evaluate_sqa with {len(df)} samples")
             metrics = evaluate_sqa(df)
         else:
             logger.warning(f"Unsupported dataset type for evaluation: {dataset_type}")
             return {"accuracy": 0.0}
         
         # Add error analysis
-        error_analysis = analyze_errors(true_labels, pred_labels, dataset_type)
-        metrics["error_analysis"] = error_analysis
+        # error_analysis = analyze_errors(true_labels, pred_labels, dataset_type)
+        # metrics["error_analysis"] = error_analysis
         
-        # Log error analysis summary
-        logger.info("\nError Analysis Summary:")
-        logger.info(f"Total errors: {error_analysis.get('num_errors', 0)}")
-        logger.info(f"Error rate: {error_analysis.get('error_rate', 0):.4f}")
+        # # Log error analysis summary
+        # logger.info("\nError Analysis Summary:")
+        # logger.info(f"Total errors: {error_analysis.get('num_errors', 0)}")
+        # logger.info(f"Error rate: {error_analysis.get('error_rate', 0):.4f}")
         
-        if 'common_confusions' in error_analysis:
-            logger.info("\nMost common confusions:")
-            for confusion, count in error_analysis['common_confusions'].items():
-                logger.info(f"  {confusion}: {count}")
+        # if 'common_confusions' in error_analysis:
+        #     logger.info("\nMost common confusions:")
+        #     for confusion, count in error_analysis['common_confusions'].items():
+        #         logger.info(f"  {confusion}: {count}")
         
-        if 'common_missing_labels' in error_analysis:
-            logger.info("\nMost common missing labels:")
-            for label, count in error_analysis['common_missing_labels'].items():
-                logger.info(f"  {label}: {count}")
+        # if 'common_missing_labels' in error_analysis:
+        #     logger.info("\nMost common missing labels:")
+        #     for label, count in error_analysis['common_missing_labels'].items():
+        #         logger.info(f"  {label}: {count}")
         
         return metrics
     
@@ -813,19 +822,7 @@ def evaluate_sqq(df: pd.DataFrame, valid_classes: List[str] = None) -> Dict:
 
 def evaluate_sqa(df: pd.DataFrame, valid_classes: List[str] = None) -> Dict:
     """
-    Evaluate Question-Answering predictions.
-    
-    Metrics:
-    - Exact Match (EM): Binary measure that checks if the predicted answer exactly matches the ground truth
-    - F1 Score: Token-level F1 score treating answers as bags of words
-    - BLEU Score: N-gram precision metric for evaluating text similarity
-    
-    Args:
-        df: DataFrame with columns 'text' (questions), 'gt' (ground truth answers), 'pd' (predicted answers)
-        valid_classes: Not used for QA evaluation, included for API consistency
-        
-    Returns:
-        Dictionary with evaluation metrics
+    Evaluate Question-Answering predictions with improved error handling.
     """
     import nltk
     from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
@@ -838,12 +835,19 @@ def evaluate_sqa(df: pd.DataFrame, valid_classes: List[str] = None) -> Dict:
     
     total_samples = len(df)
     
+    # Add debug logging for first few rows
+    logger.info(f"SQA evaluation - processing {total_samples} samples")
+    if total_samples > 0:
+        sample_rows = df.head(3)
+        for i, row in sample_rows.iterrows():
+            logger.info(f"Sample {i}: GT='{row.get('gt', 'None')}', Pred='{row.get('pd', 'None')}'")
+    
     # Process ground truth and predicted answers
     def normalize_answer(text):
         """Normalize answer by lowercasing, removing punctuation and extra spaces"""
-        if not text:
+        if text is None:
             return ""
-        text = text.lower()
+        text = str(text).lower()
         text = re.sub(r'[^\w\s]', ' ', text)  # Replace punctuation with space
         text = re.sub(r'\s+', ' ', text).strip()  # Normalize whitespace
         return text
@@ -863,60 +867,82 @@ def evaluate_sqa(df: pd.DataFrame, valid_classes: List[str] = None) -> Dict:
     # Initialize smoother for BLEU score calculation
     smoother = SmoothingFunction().method1
     
-    for _, row in df.iterrows():
-        # Get ground truth and prediction
-        gt = row['gt']
-        pred = row['pd']
-        
-        # Exact match
-        exact_match = 1 if normalize_answer(gt) == normalize_answer(pred) else 0
-        exact_matches += exact_match
-        
-        # F1 Score (token level)
-        gt_tokens = get_tokens(gt)
-        pred_tokens = get_tokens(pred)
-        
-        if not gt_tokens and not pred_tokens:
-            f1 = 1.0  # Both empty means perfect match
-        elif not gt_tokens or not pred_tokens:
-            f1 = 0.0  # One empty means no match
-        else:
-            # Calculate token overlap
-            common_tokens = Counter(gt_tokens) & Counter(pred_tokens)
-            num_common = sum(common_tokens.values())
+    try:
+        for _, row in df.iterrows():
+            # Get ground truth and prediction with fallback to empty string
+            gt = row.get('gt', "")
+            pred = row.get('pd', "")
             
-            # Calculate precision and recall
-            precision = num_common / max(len(pred_tokens), 1)
-            recall = num_common / max(len(gt_tokens), 1)
+            # Handle None values
+            if gt is None: gt = ""
+            if pred is None: pred = ""
             
-            # Calculate F1
-            f1 = 2 * (precision * recall) / max((precision + recall), 1e-6)
+            # Exact match
+            exact_match = 1 if normalize_answer(gt) == normalize_answer(pred) else 0
+            exact_matches += exact_match
+            
+            # F1 Score (token level)
+            gt_tokens = get_tokens(gt)
+            pred_tokens = get_tokens(pred)
+            
+            if not gt_tokens and not pred_tokens:
+                f1 = 1.0  # Both empty means perfect match
+            elif not gt_tokens or not pred_tokens:
+                f1 = 0.0  # One empty means no match
+            else:
+                # Calculate token overlap
+                common_tokens = Counter(gt_tokens) & Counter(pred_tokens)
+                num_common = sum(common_tokens.values())
+                
+                # Calculate precision and recall
+                precision = num_common / max(len(pred_tokens), 1)
+                recall = num_common / max(len(gt_tokens), 1)
+                
+                # Calculate F1
+                f1 = 2 * (precision * recall) / max((precision + recall), 1e-6)
+            
+            f1_scores.append(f1)
+            
+            # BLEU Score - with safety checks
+            try:
+                if gt_tokens:
+                    bleu = sentence_bleu([gt_tokens], pred_tokens, smoothing_function=smoother)
+                else:
+                    bleu = 0.0 if pred_tokens else 1.0
+            except Exception as e:
+                logger.warning(f"Error calculating BLEU score: {e}")
+                bleu = 0.0
+                
+            bleu_scores.append(bleu)
         
-        f1_scores.append(f1)
+        # Calculate averages
+        em_score = exact_matches / max(total_samples, 1)
+        avg_f1 = sum(f1_scores) / max(len(f1_scores), 1)
+        avg_bleu = sum(bleu_scores) / max(len(bleu_scores), 1)
         
-        # BLEU Score
-        if gt_tokens:
-            bleu = sentence_bleu([gt_tokens], pred_tokens, smoothing_function=smoother)
-        else:
-            bleu = 0.0 if pred_tokens else 1.0
-        bleu_scores.append(bleu)
-    
-    # Calculate averages
-    em_score = exact_matches / max(total_samples, 1)
-    avg_f1 = sum(f1_scores) / max(len(f1_scores), 1)
-    avg_bleu = sum(bleu_scores) / max(len(bleu_scores), 1)
-    
-    # Create results dictionary
-    results = {
-        'exact_match': em_score,
-        'f1_score': avg_f1,
-        'bleu_score': avg_bleu,
-        'total_samples': total_samples,
-        'sample_metrics': {
-            'exact_match': [1 if f == 1.0 else 0 for f in f1_scores],
-            'f1_scores': f1_scores,
-            'bleu_scores': bleu_scores
+        # Create results dictionary
+        results = {
+            'exact_match': em_score,
+            'f1_score': avg_f1,
+            'bleu_score': avg_bleu,
+            'total_samples': total_samples,
+            'samples_evaluated': len(f1_scores),
+            'sample_metrics': {
+                'exact_match': [1 if f == 1.0 else 0 for f in f1_scores],
+                'f1_scores': f1_scores,
+                'bleu_scores': bleu_scores
+            }
         }
-    }
-    
-    return results
+        
+        return results
+    except Exception as e:
+        logger.error(f"Error in evaluate_sqa: {str(e)}")
+        traceback.print_exc()
+        return {
+            'exact_match': 0.0,
+            'f1_score': 0.0,
+            'bleu_score': 0.0,
+            'total_samples': total_samples,
+            'samples_evaluated': 0,
+            'error': str(e)
+        }
