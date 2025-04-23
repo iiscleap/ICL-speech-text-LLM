@@ -16,9 +16,9 @@ debug_samples=0  # Add debug_samples parameter (0 = use all samples)
 randomize_swap=false  # Set to true to randomize swap configurations
 
 # Node configuration
-queue_name="med.q"      # Queue to submit job to (gpu.q, med.q, etc.)
+queue_name="long.q"      # Queue to submit job to (gpu.q, med.q, etc.)
 hostname="compute-0-9"  # Hostname to run on
-cuda_device=2         # CUDA device to use
+cuda_device=1         # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
 
@@ -48,7 +48,7 @@ peft_model_path=""
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1503_0227_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb-hvb/checkpoints/epoch_10_loss_0.0060/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1503_0227_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_swap-hvb_swap/checkpoints/epoch_10_loss_0.0061/model.pt"
-# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1503_0227_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0055/model.pt"
+peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1503_0227_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0055/model.pt"
 
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1503_0227_ft_5ex_20e8b_salmonn_speech_only_text_voxceleb-hvb/checkpoints/epoch_15_loss_0.0002/model.pt"
