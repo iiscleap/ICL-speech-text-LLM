@@ -83,7 +83,8 @@ class BaseMultiTaskDataset(Dataset):
         self.input_mode = input_mode
         self.fewshot_mode = fewshot_mode
         self.num_examples = num_examples
-        self.random_examples = random_examples
+        # self.random_examples = random_examples
+        self.random_examples = False
         self.split = split
         self.model_type = model_type.lower()
         self.run_name = run_name

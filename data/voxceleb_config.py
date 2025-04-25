@@ -43,17 +43,34 @@ Guidelines:
     }
 )
 
+# VOXCELEB_GREEK_CONFIG = DatasetConfig(
+#     name=DatasetType.VOXCELEB_GREEK,
+#     paths=VOXCELEB_CONFIG.paths,
+#     prompt_template="""You are a sentiment analysis expert. Based on the input,, respond with EXACTLY ONE WORD from these options: alpha, beta, or gamma.
+
+# Guidelines:
+# - Choose alpha if there is ANY hint of: approval, optimism, happiness, success, laughter, enjoyment, pride, or satisfaction
+# - Choose beta if there is ANY hint of: criticism, pessimism, sadness, failure, frustration, anger, disappointment, or concern
+# - Choose gamma ONLY IF the statement is purely factual with zero emotional content""",
+#     valid_labels=["alpha", "beta", "gamma"],
+#     label_mapping={"positive": "alpha", "negative": "beta", "neutral": "gamma"},
+#     audio_lookup_paths=VOXCELEB_CONFIG.audio_lookup_paths,
+#     text_key=VOXCELEB_CONFIG.text_key,
+#     completion_key=VOXCELEB_CONFIG.completion_key
+# )
+
+
 VOXCELEB_GREEK_CONFIG = DatasetConfig(
     name=DatasetType.VOXCELEB_GREEK,
     paths=VOXCELEB_CONFIG.paths,
     prompt_template="""You are a sentiment analysis expert. Based on the input,, respond with EXACTLY ONE WORD from these options: alpha, beta, or gamma.
 
 Guidelines:
-- Choose alpha if there is ANY hint of: approval, optimism, happiness, success, laughter, enjoyment, pride, or satisfaction
-- Choose beta if there is ANY hint of: criticism, pessimism, sadness, failure, frustration, anger, disappointment, or concern
-- Choose gamma ONLY IF the statement is purely factual with zero emotional content""",
-    valid_labels=["alpha", "beta", "gamma"],
-    label_mapping={"positive": "alpha", "negative": "beta", "neutral": "gamma"},
+- Choose xxx if there is ANY hint of: approval, optimism, happiness, success, laughter, enjoyment, pride, or satisfaction
+- Choose yyy if there is ANY hint of: criticism, pessimism, sadness, failure, frustration, anger, disappointment, or concern
+- Choose zzz ONLY IF the statement is purely factual with zero emotional content""",
+    valid_labels=["xxx", "yyy", "zzz"],
+    label_mapping={"positive": "xxx", "negative": "yyy", "neutral": "zzz"},
     audio_lookup_paths=VOXCELEB_CONFIG.audio_lookup_paths,
     text_key=VOXCELEB_CONFIG.text_key,
     completion_key=VOXCELEB_CONFIG.completion_key
