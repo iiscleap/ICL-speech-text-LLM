@@ -18,7 +18,7 @@ randomize_swap=false  # Set to true to randomize swap configurations
 # Node configuration
 queue_name="med.q"      # Queue to submit job to (gpu.q, med.q, etc.)
 hostname="compute-0-9"  # Hostname to run on
-cuda_device=2         # CUDA device to use
+cuda_device=1         # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
 
