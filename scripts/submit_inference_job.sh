@@ -7,7 +7,7 @@ dataset_type="meld_emotion, voxpopuli, voxceleb_greek, hvb_greek"  # Options: "v
 # dataset_type="hvb"
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
-num_examples=2
+num_examples=3
 batch_size=1
 
 debug_samples=0  # Add debug_samples parameter (0 = use all samples)
