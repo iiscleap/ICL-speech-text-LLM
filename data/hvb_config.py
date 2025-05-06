@@ -52,58 +52,114 @@ Guidelines:
     }
 )
 
+# HVB_GREEK_CONFIG = DatasetConfig(
+#     name=DatasetType.HVB_GREEK,
+#     paths=HVB_CONFIG.paths,
+#     prompt_template="""You are a dialogue analysis expert for banking conversations. Based on the statement below, identify all applicable dialogue actions from the following options:
+
+# Available dialogue actions:
+# - Foo: Shows understanding or receipt of information
+# - Bar: Expresses agreement
+# - Baz: Expresses disagreement
+# - Qux: General response to a question
+# - Quux: Expression of regret or sorry
+# - Corge: Brief verbal/textual feedback
+# - Grault: Speech repairs, repetitions, or corrections
+# - Garply: Actions that don't fit other categories
+# - Waldo: Questions to verify understanding
+# - Fred: General information-seeking questions
+# - Plugh: Requests for repetition
+# - Xyzzy: Self-directed speech
+# - Thud: Concluding statements
+# - Wibble: General statements or information
+# - Wobble: Instructions or directions
+# - Wubble: Opening statements or greetings
+# - Flob: Statements describing issues or problems
+# - Zoop: Expressions of gratitude""",
+#     valid_labels=[
+#         "foo", "bar", "baz", "qux", "quux", 
+#         "corge", "grault", "garply", "waldo", "fred",
+#         "plugh", "xyzzy", "thud", "wibble", "wobble",
+#         "wubble", "flob", "zoop"
+#     ],
+#     completion_key=HVB_CONFIG.completion_key,
+#     text_key=HVB_CONFIG.text_key,
+#     audio_lookup_paths=HVB_CONFIG.audio_lookup_paths,
+#     label_mapping={
+#         "acknowledge": "foo",
+#         "answer_agree": "bar",
+#         "answer_dis": "baz",
+#         "answer_general": "qux",
+#         "apology": "quux",
+#         "backchannel": "corge",
+#         "disfluency": "grault",
+#         "other": "garply",
+#         "question_check": "waldo",
+#         "question_general": "fred",
+#         "question_repeat": "plugh",
+#         "self": "xyzzy",
+#         "statement_close": "thud",
+#         "statement_general": "wibble",
+#         "statement_instruct": "wobble",
+#         "statement_open": "wubble",
+#         "statement_problem": "flob",
+#         "thanks": "zoop"
+#     }
+# )
+
+# New random nonsensical labels for HVB
 HVB_GREEK_CONFIG = DatasetConfig(
     name=DatasetType.HVB_GREEK,
     paths=HVB_CONFIG.paths,
     prompt_template="""You are a dialogue analysis expert for banking conversations. Based on the statement below, identify all applicable dialogue actions from the following options:
 
 Available dialogue actions:
-- Foo: Shows understanding or receipt of information
-- Bar: Expresses agreement
-- Baz: Expresses disagreement
-- Qux: General response to a question
-- Quux: Expression of regret or sorry
-- Corge: Brief verbal/textual feedback
-- Grault: Speech repairs, repetitions, or corrections
-- Garply: Actions that don't fit other categories
-- Waldo: Questions to verify understanding
-- Fred: General information-seeking questions
-- Plugh: Requests for repetition
-- Xyzzy: Self-directed speech
-- Thud: Concluding statements
-- Wibble: General statements or information
-- Wobble: Instructions or directions
-- Wubble: Opening statements or greetings
-- Flob: Statements describing issues or problems
-- Zoop: Expressions of gratitude""",
+- Zibfex: Shows understanding or receipt of information
+- Morvak: Expresses agreement
+- Penlut: Expresses disagreement
+- Yutrix: General response to a question
+- Quzdem: Expression of regret or sorry
+- Jafnol: Brief verbal/textual feedback
+- Wipcor: Speech repairs, repetitions, or corrections
+- Brezuv: Actions that don't fit other categories
+- Kolfim: Questions to verify understanding
+- Sepnid: General information-seeking questions
+- Hathog: Requests for repetition
+- Vilmep: Self-directed speech
+- Dronyx: Concluding statements
+- Goptaz: General statements or information
+- Cleybs: Instructions or directions
+- Ruxwel: Opening statements or greetings
+- Tamjid: Statements describing issues or problems
+- Loxfer: Expressions of gratitude""",
     valid_labels=[
-        "foo", "bar", "baz", "qux", "quux", 
-        "corge", "grault", "garply", "waldo", "fred",
-        "plugh", "xyzzy", "thud", "wibble", "wobble",
-        "wubble", "flob", "zoop"
+        "zibfex", "morvak", "penlut", "yutrix", "quzdem", 
+        "jafnol", "wipcor", "brezuv", "kolfim", "sepnid",
+        "hathog", "vilmep", "dronyx", "goptaz", "cleybs",
+        "ruxwel", "tamjid", "loxfer"
     ],
     completion_key=HVB_CONFIG.completion_key,
     text_key=HVB_CONFIG.text_key,
     audio_lookup_paths=HVB_CONFIG.audio_lookup_paths,
     label_mapping={
-        "acknowledge": "foo",
-        "answer_agree": "bar",
-        "answer_dis": "baz",
-        "answer_general": "qux",
-        "apology": "quux",
-        "backchannel": "corge",
-        "disfluency": "grault",
-        "other": "garply",
-        "question_check": "waldo",
-        "question_general": "fred",
-        "question_repeat": "plugh",
-        "self": "xyzzy",
-        "statement_close": "thud",
-        "statement_general": "wibble",
-        "statement_instruct": "wobble",
-        "statement_open": "wubble",
-        "statement_problem": "flob",
-        "thanks": "zoop"
+        "acknowledge": "zibfex",
+        "answer_agree": "morvak",
+        "answer_dis": "penlut",
+        "answer_general": "yutrix",
+        "apology": "quzdem",
+        "backchannel": "jafnol",
+        "disfluency": "wipcor",
+        "other": "brezuv",
+        "question_check": "kolfim",
+        "question_general": "sepnid",
+        "question_repeat": "hathog",
+        "self": "vilmep",
+        "statement_close": "dronyx",
+        "statement_general": "goptaz",
+        "statement_instruct": "cleybs",
+        "statement_open": "ruxwel",
+        "statement_problem": "tamjid",
+        "thanks": "loxfer"
     }
 )
 
