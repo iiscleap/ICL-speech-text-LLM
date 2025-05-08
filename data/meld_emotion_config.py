@@ -74,8 +74,8 @@ Guidelines:
 
 Respond with only the emotion label.""",
     valid_labels=["wiprol", "cynbax", "durfez", "kantol", "puzvit", "jogdem", "helfun"],
-    completion_key="emotion",
-    text_key="utterance",
+    completion_key=MELD_EMOTION_CONFIG.completion_key,
+    text_key=MELD_EMOTION_CONFIG.text_key,
     audio_lookup_paths=MELD_EMOTION_CONFIG.audio_lookup_paths,
     label_mapping={
         "joy": "wiprol",
