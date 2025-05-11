@@ -683,6 +683,22 @@ class CustomSALMONN(BaseModel):
         if self.batch_counter == 0:
             logging.info(f"Wrapped embeddings shape: {wrapped_embeds.shape}")
             logging.info(f"Wrapped attention mask shape: {wrapped_atts.shape}")
+            
+            # Add device information logging
+            logging.info(f"Device details:")
+            logging.info(f"Wrapped embeddings device: {wrapped_embeds.device}")
+            logging.info(f"Wrapped attention mask device: {wrapped_atts.device}")
+            logging.info(f"LLaMA model device: {next(self.llama_model.parameters()).device}")
+            logging.info(f"Model main device: {self.device}")
+            
+            # Check if tensors are contiguous
+            logging.info(f"Wrapped embeddings contiguous: {wrapped_embeds.is_contiguous()}")
+            logging.info(f"Wrapped attention mask contiguous: {wrapped_atts.is_contiguous()}")
+            
+            # Force contiguous if needed
+            if not wrapped_embeds.is_contiguous():
+                wrapped_embeds = wrapped_embeds.contiguous()
+                logging.info(f"Forced wrapped_embeds to be contiguous")
         
         gen_start_time = time.time()
         
@@ -691,7 +707,7 @@ class CustomSALMONN(BaseModel):
             outputs = self.llama_model.generate(
                 inputs_embeds=wrapped_embeds,
                 attention_mask=wrapped_atts,
-                max_new_tokens=samples.get("max_new_tokens", 10),
+                max_new_tokens=samples.get("max_new_tokens", 100),
                 num_beams=samples.get("num_beams", 1),
                 do_sample=samples.get("do_sample", False),
                 min_length=samples.get("min_length", 1),
