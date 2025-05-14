@@ -275,8 +275,6 @@ if __name__ == "__main__":
 # What is the definition of negative?
 # What is the definition of neutral?
 
-# Define positive?
-
 # Positive means having a good attitude, being optimistic, and looking for the good in situations. It is a mindset that focuses on the positive aspects of life and looks for solutions rather than dwelling on problems.
 # Negative is a term used to describe something that is not positive or constructive. It can refer to a person, situation, or attitude that is characterized by negative emotions, thoughts, or actions.
 # Neutral is a term used to describe a color or design element that is not associated with any particular emotion or feeling.

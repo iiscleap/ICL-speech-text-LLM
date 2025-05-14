@@ -42,7 +42,7 @@ class CustomSALMONN(BaseModel):
                  freeze_speech_llama_proj: bool = False,
                  lora: bool = True,
                  lora_rank: int = 8,
-                 lora_alpha: int = 32,
+                 lora_alpha: int = 16,
                  lora_dropout: float = 0.05,
                  ckpt_path: str = "/data2/neeraja/neeraja/salmonn_v1.pth",  # Default checkpoint path
                  device=None, 

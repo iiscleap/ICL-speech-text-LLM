@@ -24,7 +24,7 @@ Guidelines:
     audio_lookup_paths={
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/meld_train",
         DatasetSplit.VAL: "/data2/neeraja/neeraja/data/meld_validation",
-        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/meld_test",
+        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/melt_train",
     }
 )
 
