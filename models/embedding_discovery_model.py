@@ -198,17 +198,15 @@ class EmbeddingDiscoveryModel(CustomSALMONN):
             logging.info(f"  Decoded tokens: {token_texts}")
         
     @classmethod
-    def from_custom_salmon(cls, label_tokens=None):
+    def from_custom_salmon(cls, custom_salmon_model, label_tokens=None):
         """Create an EmbeddingDiscoveryModel from an existing CustomSALMONN model"""
-        # Create a new instance with minimal parameters
         discovery_model = cls(
+            device=custom_salmon_model.device,
+            low_resource=True,
             label_tokens=label_tokens
         )
         
-       
-        
-        # Log the tokens we'll be focusing on
-        if label_tokens:
-            logging.info(f"Created embedding discovery model focusing on tokens: {label_tokens}")
+        # Copy weights from initialized model
+        discovery_model.load_state_dict(custom_salmon_model.state_dict())
         
         return discovery_model

@@ -90,7 +90,7 @@ peft_model_path=""
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2504_0107_ft_5ex_15e8b_salmonn_speech_only_text_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0004/model.pt"
 
-peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/0605_1848_ft_5ex_15e8b_salmonn_speech_only_text_voxceleb_greek-hvb_greek_random/final_model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/0605_1848_ft_5ex_15e8b_salmonn_speech_only_text_voxceleb_greek-hvb_greek_random/final_model.pt"
 
 # Clean dataset type for file names and Python
 if [[ $dataset_type == *","* ]]; then

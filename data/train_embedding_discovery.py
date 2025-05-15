@@ -83,11 +83,11 @@ def create_model(args):
     )
     
     # Load checkpoint
-    logger.info(f"Loading checkpoint from {args.peft_model_path}")
-    checkpoint = load_checkpoint(model, args.peft_model_path)
+    # logger.info(f"Loading checkpoint from {args.peft_model_path}")
+    # checkpoint = load_checkpoint(args.peft_model_path)
 
-     # Load state dict from the custom salmon model
-    model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+    #  # Load state dict from the custom salmon model
+    # model.load_state_dict(checkpoint["model_state_dict"], strict=False)
     
     return model
 
@@ -123,6 +123,11 @@ def train(model, dataloader, args):
                 
                 # Accumulate gradients (backward pass)
                 loss.backward()
+
+                torch.nn.utils.clip_grad_norm_(
+                    filter(lambda p: p.requires_grad, model.parameters()), 
+                    max_grad_norm
+                )
                 
                 # Log progress (don't update weights yet)
                 total_loss += loss.item()
@@ -235,18 +240,35 @@ def main():
     try:
         # Create model
         model = create_model(args)
-        
-        # Create processor
-        processor = get_processor(args.model_type, model.input_processor, model.llama_tokenizer)
-        
-        # Get dataset and dataloader
+
         from data.model_processors import get_processor
         from utils.data_utils import load_dataset
         from data.dataset_factory import DatasetFactory
         from data.master_config import get_dataset_config
-        
+
         # Parse dataset types
         dataset_types = [DatasetType(dt.strip()) for dt in args.dataset_type.split("-")]
+
+
+        # Create model with specific label tokens to update
+        label_tokens = get_label_tokens_from_dataset_types(dataset_types)
+        discovery_model = EmbeddingDiscoveryModel.from_custom_salmon(model, label_tokens=label_tokens)
+        # discovery_model = EmbeddingDiscoveryModel(label_tokens=label_tokens)
+
+        logger.info(f"Loading checkpoint from {args.peft_model_path}")
+        checkpoint = load_checkpoint(args.peft_model_path)
+
+        # Load state dict from the custom salmon model
+        discovery_model.load_state_dict(checkpoint["model_state_dict"], strict=False)
+        # Print token info before training
+        discovery_model.print_token_info(label_tokens)
+
+
+        
+        # Create processor
+        processor = get_processor(args.model_type, discovery_model.input_processor, discovery_model.llama_tokenizer)
+        
+        # Get dataset and dataloader
         
         # Load datasets
         train_datasets = {}
@@ -266,7 +288,7 @@ def main():
             input_mode="speech_only",  # Use speech-only mode for training
             fewshot_mode="text",
             num_examples=0,
-            random_examples=False,
+            random_examples=True,
             model_type=args.model_type,
             run_name=args.run_name
         )
@@ -281,12 +303,7 @@ def main():
         
         logger.info(f"Created dataloader with {len(train_loader)} batches")
         
-        # Create model with specific label tokens to update
-        label_tokens = get_label_tokens_from_dataset_types(dataset_types)
-        discovery_model = EmbeddingDiscoveryModel.from_custom_salmon(model, label_tokens=label_tokens)
-
-        # Print token info before training
-        discovery_model.print_token_info(label_tokens)
+       
 
         # Train model (only label token embeddings will be updated)
         train(discovery_model, train_loader, args)
@@ -323,7 +340,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
-# CUDA_VISIBLE_DEVICES=1 python /data2/neeraja/neeraja/code/ICL/data/train_embedding_discovery.py \
+# CUDA_VISIBLE_DEVICES=2 python /data2/neeraja/neeraja/code/ICL/data/train_embedding_discovery.py \
 #     --peft_model_path /data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0055/model.pt \
 #     --dataset_type voxceleb_greek-hvb_greek 
 
