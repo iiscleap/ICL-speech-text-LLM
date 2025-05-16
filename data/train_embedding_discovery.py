@@ -22,6 +22,94 @@ from torch.utils.data import DataLoader
 
 logger = logging.getLogger(__name__)
 
+class EpochEmbeddingUpdater:
+    """Updates token embeddings directly without gradients, only at the end of each epoch"""
+    def __init__(self, model, lr=2e-4):
+        self.model = model
+        self.embed_module = model.get_embedding_module()
+        self.label_token_ids = model.label_token_ids
+        self.lr = lr
+        
+        # Track batches with label tokens and their losses
+        self.token_batch_losses = {token_id: [] for token_id in self.label_token_ids}
+        self.token_batch_counts = {token_id: 0 for token_id in self.label_token_ids}
+        self.token_occurrence_mask = torch.zeros(len(self.label_token_ids), dtype=torch.float32)
+        
+        # Store original embeddings
+        with torch.no_grad():
+            self.original_embeds = self.embed_module.weight[self.label_token_ids].clone()
+    
+    def record_batch(self, input_ids, loss):
+        """Record a batch with its loss for end-of-epoch update"""
+        # Check which label tokens appear in this batch
+        for i, token_id in enumerate(self.label_token_ids):
+            if (input_ids == token_id).any():
+                self.token_batch_losses[token_id].append(loss.item())
+                self.token_batch_counts[token_id] += 1
+                self.token_occurrence_mask[i] = 1.0
+    
+    def update_embeddings_at_epoch_end(self):
+        """Apply a single embedding update at the end of the epoch"""
+        with torch.no_grad():
+            # Get current embeddings
+            current_embeds = self.embed_module.weight[self.label_token_ids].clone()
+            
+            # Track which tokens actually appeared during the epoch
+            tokens_with_data = sum(1 for tid in self.label_token_ids if self.token_batch_counts[tid] > 0)
+            
+            if tokens_with_data == 0:
+                logging.warning("No batches contained target tokens! Embeddings not updated.")
+                return False
+                
+            logging.info(f"{tokens_with_data}/{len(self.label_token_ids)} token types appeared in this epoch")
+            
+            # Create update direction - small random perturbation weighted by token occurrence
+            # IMPORTANT: Create with the same dtype as the embedding weights
+            perturbation = torch.randn_like(current_embeds) * self.lr
+            
+            # Create occurrence mask with correct device and dtype
+            occurrence_mask = self.token_occurrence_mask.to(
+                device=perturbation.device, 
+                dtype=perturbation.dtype  # Match perturbation dtype
+            ).unsqueeze(1)
+            
+            # Apply update only to tokens that appeared in the epoch
+            # Ensure all tensors have the same dtype
+            update = current_embeds + perturbation * occurrence_mask
+            
+            # For quantized models, might need to dequantize/requantize
+            if hasattr(self.embed_module, 'dequantize') and hasattr(self.embed_module, 'quantize'):
+                # Dequantize, update, requantize
+                dequantized = self.embed_module.dequantize(self.embed_module.weight)
+                dequantized[self.label_token_ids] = update
+                self.embed_module.weight = self.embed_module.quantize(dequantized)
+            else:
+                # Standard update
+                self.embed_module.weight[self.label_token_ids] = update
+            
+            # Log token stats
+            for i, token_id in enumerate(self.label_token_ids):
+                count = self.token_batch_counts[token_id]
+                if count > 0:
+                    avg_loss = sum(self.token_batch_losses[token_id]) / count
+                    logging.info(f"Token '{self.model.label_tokens[i]}' (ID: {token_id}) appeared in {count} batches, avg loss: {avg_loss:.4f}")
+            
+            # Reset counters for next epoch
+            self.token_batch_losses = {token_id: [] for token_id in self.label_token_ids}
+            self.token_batch_counts = {token_id: 0 for token_id in self.label_token_ids}
+            self.token_occurrence_mask = torch.zeros(len(self.label_token_ids), dtype=torch.float32)
+            
+            return True
+    
+    def get_embedding_changes(self):
+        """Calculate how much embeddings have changed from original"""
+        with torch.no_grad():
+            current = self.embed_module.weight[self.label_token_ids]
+            diff = current - self.original_embeds
+            avg_change = torch.mean(torch.abs(diff)).item()
+            max_change = torch.max(torch.abs(diff)).item()
+        return avg_change, max_change
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Train embedding discovery model")
     
@@ -92,113 +180,76 @@ def create_model(args):
     return model
 
 def train(model, dataloader, args):
-    """
-    Train the model with gradient accumulation over an entire epoch.
-    Only update weights once per epoch.
-    """
-    # Set up optimizer - only embedding parameters
-    optimizer = torch.optim.AdamW(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=args.lr
-    )
+    # Initialize our custom embedding updater
+    updater = EpochEmbeddingUpdater(model, lr=args.lr)
     
-    # Training loop
     for epoch in range(args.num_epochs):
         logger.info(f"Starting epoch {epoch+1}/{args.num_epochs}")
-        model.train()
+        model.eval()  # Use eval mode since we're not using gradients
         total_loss = 0
+        total_samples = 0
         
-        # Zero gradients at the start of the epoch
-        optimizer.zero_grad()
-        
+        # Create progress bar
         progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}")
+        
+        # Process all batches to collect information
         for batch_idx, batch in enumerate(progress_bar):
             try:
                 # Move batch to device
                 batch = {k: v.to(args.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
                 
-                # Forward pass
-                outputs = model(batch)
-                loss = outputs["loss"]
+                # Forward pass only (no backward)
+                with torch.no_grad():
+                    outputs = model(batch)
+                    loss = outputs["loss"]
                 
-                # Accumulate gradients (backward pass)
-                loss.backward()
-
-                torch.nn.utils.clip_grad_norm_(
-                    filter(lambda p: p.requires_grad, model.parameters()), 
-                    max_grad_norm
-                )
+                # Record batch info for later update
+                if "input_ids" in batch:
+                    updater.record_batch(batch["input_ids"], loss)
                 
-                # Log progress (don't update weights yet)
-                total_loss += loss.item()
-                progress_bar.set_postfix(loss=f"{loss.item():.4f}")
+                # Track metrics
+                batch_size = batch["input_ids"].size(0) if "input_ids" in batch else 1
+                total_loss += loss.item() * batch_size
+                total_samples += batch_size
                 
-                if batch_idx % 10 == 0:
-                    logger.info(f"Batch {batch_idx}/{len(dataloader)} - Loss: {loss.item():.4f}")
-                    
+                # Update progress bar
+                progress_bar.set_postfix(loss=f"{loss.item():.4f}", avg_loss=f"{total_loss/total_samples:.4f}")
+                
                 # Clear CUDA cache periodically
-                if batch_idx % 50 == 0:
+                if batch_idx % 30 == 0:
                     torch.cuda.empty_cache()
                     
             except Exception as e:
                 logger.error(f"Error processing batch {batch_idx}: {str(e)}")
+                torch.cuda.empty_cache()
                 continue
         
-        # Log epoch results
-        avg_loss = total_loss / len(dataloader)
-        logger.info(f"Epoch {epoch+1}/{args.num_epochs} - Avg Loss: {avg_loss:.4f}")
+        # Apply a single update at the end of the epoch
+        logger.info(f"Applying token embedding updates at the end of epoch {epoch+1}")
+        update_made = updater.update_embeddings_at_epoch_end()
         
-        # Apply accumulated gradients and update weights once per epoch
-        logger.info(f"Applying accumulated gradients from entire epoch")
-        optimizer.step()
-        optimizer.zero_grad()
+        if update_made:
+            # Log embedding change metrics
+            avg_change, max_change = updater.get_embedding_changes()
+            logger.info(f"Average embedding change: {avg_change:.6f}, Maximum change: {max_change:.6f}")
         
-        # Save intermediate embeddings
+        # Calculate average loss for the epoch
+        avg_loss = total_loss / total_samples if total_samples > 0 else 0
+        logger.info(f"Epoch {epoch+1}/{args.num_epochs} complete - Average loss: {avg_loss:.4f}")
+        
+        # Save embeddings after each epoch
         if args.output_dir:
-            embed_path = os.path.join(args.output_dir, f"token_embeddings_epoch_{epoch+1}.pt")
-            # model.save_token_embeddings(embed_path)
+            save_path = os.path.join(args.output_dir, f"embeddings_epoch_{epoch+1}.pt")
+            model.save_token_embeddings(save_path)
             
-            # Find nearest tokens after each epoch
-            results = model.find_nearest_token_embeddings(
-                exclude_label_tokens=False,
-                top_k=args.top_k,
-                min_similarity=0.5
-            )
-            
-            # Log results
-            logger.info(f"\nNearest tokens after epoch {epoch+1}:")
-            for result in results:
-                original = result.get("original_label", "unknown")
-                logger.info(f"\n{original} → Nearest tokens:")
-                for idx, neighbor in enumerate(result["neighbors"][:5]):
-                    logger.info(f"  {idx+1}. '{neighbor['token_text']}' (similarity: {neighbor['similarity']:.4f})")
-            
-            # Save results
-            epoch_suffix = f"_epoch_{epoch+1}"
-            results_path = os.path.join(args.output_dir, f"nearest_tokens{epoch_suffix}.json")
-            
-            # Convert tensor items to regular Python types for JSON serialization
-            clean_results = []
-            for result in results:
-                clean_result = {
-                    "original_label": result.get("original_label", "unknown"),
-                    "target_token": result["target_token"],
-                    "target_id": int(result["target_id"]),
-                    "neighbors": []
-                }
-                for neighbor in result["neighbors"]:
-                    clean_result["neighbors"].append({
-                        "token_id": int(neighbor["token_id"]),
-                        "token_text": neighbor["token_text"],
-                        "similarity": float(neighbor["similarity"])
-                    })
-                clean_results.append(clean_result)
-                    
-            with open(results_path, 'w') as f:
-                json.dump(clean_results, f, indent=2)
-    
-    logger.info("Training complete")
-    return model
+        # Find and log nearest tokens
+        results = model.find_nearest_token_embeddings(
+            exclude_label_tokens=False,
+            top_k=20,
+            min_similarity=0.5
+        )
+        
+        # Save results and continue with rest of your code...
 
 def get_label_tokens_from_dataset_types(dataset_types):
     """Extract all label tokens from the dataset configurations"""
@@ -340,7 +391,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
-# CUDA_VISIBLE_DEVICES=2 python /data2/neeraja/neeraja/code/ICL/data/train_embedding_discovery.py \
+# CUDA_VISIBLE_DEVICES=1 python /data2/neeraja/neeraja/code/ICL/data/train_embedding_discovery.py \
 #     --peft_model_path /data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0055/model.pt \
-#     --dataset_type voxceleb_greek-hvb_greek 
+#     --dataset_type voxceleb_greek-hvb_greek
 

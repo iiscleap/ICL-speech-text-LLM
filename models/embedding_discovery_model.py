@@ -51,41 +51,33 @@ class EmbeddingDiscoveryModel(CustomSALMONN):
         
     def freeze_all_except_label_embeddings(self):
         """Freeze all parameters except specific label token embeddings"""
-        # Count parameters before freezing
-        total_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        
-        # Freeze all parameters first
-        for name, param in self.named_parameters():
-            param.requires_grad = False
-        
         if not self.label_token_ids:
             logging.warning("No label token IDs specified. All parameters will remain frozen.")
             return
-            
-        # Get embedding module and matrix
+
+        # First, freeze all parameters
+        for name, param in self.named_parameters():
+            param.requires_grad = False
+        
+        # Get embedding module
         embed_module = self.get_embedding_module()
         
-        # Create selective gradient hook for embedding matrix
-        def select_grad_hook(grad):
-            # Create a mask of zeros
-            mask = torch.zeros_like(grad)
-            # Set mask to 1 for label token indices
-            mask[self.label_token_ids] = 1.0
-            # Zero out gradients for non-label tokens
-            return grad * mask
+        # Create a mask for the embedding parameters (all zeros)
+        embedding_mask = torch.zeros_like(embed_module.weight)
         
-        # Register hook and make embedding matrix trainable
+        # Set mask to 1 only for the label token rows we want to update
+        embedding_mask[self.label_token_ids] = 1.0
+        
+        # Store the mask for use during training
+        self.embedding_mask = embedding_mask
+        
+        # Only make the embedding weights trainable
         embed_module.weight.requires_grad = True
-        embed_module.weight.register_hook(select_grad_hook)
-            
-        # Count parameters after freezing
-        trainable_params = sum(p.numel() for p in self.parameters() if p.requires_grad)
-        effective_params = len(self.label_token_ids) * embed_module.weight.shape[1]
         
-        logging.info(f"Froze all parameters except embeddings for label tokens: {self.label_tokens}")
-        logging.info(f"Total parameters: {total_params:,}")
+        # Log what we're doing
+        trainable_params = len(self.label_token_ids) * embed_module.weight.shape[1]
+        logging.info(f"Selectively updating {len(self.label_token_ids)} token embeddings")
         logging.info(f"Trainable parameters: {trainable_params:,}")
-        logging.info(f"Effective trainable parameters: {effective_params:,} (only label token embeddings will be updated)")
         
     def get_embedding_module(self):
         """Get the token embedding module based on model structure"""
