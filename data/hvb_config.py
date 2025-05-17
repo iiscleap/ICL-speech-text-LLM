@@ -58,24 +58,24 @@ HVB_GREEK_CONFIG = DatasetConfig(
     prompt_template="""You are a dialogue analysis expert for banking conversations. Based on the statement below, identify all applicable dialogue actions from the following options:
 
 Available dialogue actions:
-- Foo: Shows understanding or receipt of information
-- Bar: Expresses agreement
-- Baz: Expresses disagreement
-- Qux: General response to a question
-- Quux: Expression of regret or sorry
-- Corge: Brief verbal/textual feedback
-- Grault: Speech repairs, repetitions, or corrections
-- Garply: Actions that don't fit other categories
-- Waldo: Questions to verify understanding
-- Fred: General information-seeking questions
-- Plugh: Requests for repetition
-- Xyzzy: Self-directed speech
-- Thud: Concluding statements
-- Wibble: General statements or information
-- Wobble: Instructions or directions
-- Wubble: Opening statements or greetings
-- Flob: Statements describing issues or problems
-- Zoop: Expressions of gratitude""",
+- foo: Shows understanding or receipt of information
+- bar: Expresses agreement
+- baz: Expresses disagreement
+- qux: General response to a question
+- quux: Expression of regret or sorry
+- corge: Brief verbal/textual feedback
+- grault: Speech repairs, repetitions, or corrections
+- garply: Actions that don't fit other categories
+- waldo: Questions to verify understanding
+- fred: General information-seeking questions
+- plugh: Requests for repetition
+- xyzzy: Self-directed speech
+- thud: Concluding statements
+- wibble: General statements or information
+- wobble: Instructions or directions
+- wubble: Opening statements or greetings
+- flob: Statements describing issues or problems
+- zoop: Expressions of gratitude""",
     valid_labels=[
         "foo", "bar", "baz", "qux", "quux", 
         "corge", "grault", "garply", "waldo", "fred",

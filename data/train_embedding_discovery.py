@@ -22,94 +22,6 @@ from torch.utils.data import DataLoader
 
 logger = logging.getLogger(__name__)
 
-class EpochEmbeddingUpdater:
-    """Updates token embeddings directly without gradients, only at the end of each epoch"""
-    def __init__(self, model, lr=2e-4):
-        self.model = model
-        self.embed_module = model.get_embedding_module()
-        self.label_token_ids = model.label_token_ids
-        self.lr = lr
-        
-        # Track batches with label tokens and their losses
-        self.token_batch_losses = {token_id: [] for token_id in self.label_token_ids}
-        self.token_batch_counts = {token_id: 0 for token_id in self.label_token_ids}
-        self.token_occurrence_mask = torch.zeros(len(self.label_token_ids), dtype=torch.float32)
-        
-        # Store original embeddings
-        with torch.no_grad():
-            self.original_embeds = self.embed_module.weight[self.label_token_ids].clone()
-    
-    def record_batch(self, input_ids, loss):
-        """Record a batch with its loss for end-of-epoch update"""
-        # Check which label tokens appear in this batch
-        for i, token_id in enumerate(self.label_token_ids):
-            if (input_ids == token_id).any():
-                self.token_batch_losses[token_id].append(loss.item())
-                self.token_batch_counts[token_id] += 1
-                self.token_occurrence_mask[i] = 1.0
-    
-    def update_embeddings_at_epoch_end(self):
-        """Apply a single embedding update at the end of the epoch"""
-        with torch.no_grad():
-            # Get current embeddings
-            current_embeds = self.embed_module.weight[self.label_token_ids].clone()
-            
-            # Track which tokens actually appeared during the epoch
-            tokens_with_data = sum(1 for tid in self.label_token_ids if self.token_batch_counts[tid] > 0)
-            
-            if tokens_with_data == 0:
-                logging.warning("No batches contained target tokens! Embeddings not updated.")
-                return False
-                
-            logging.info(f"{tokens_with_data}/{len(self.label_token_ids)} token types appeared in this epoch")
-            
-            # Create update direction - small random perturbation weighted by token occurrence
-            # IMPORTANT: Create with the same dtype as the embedding weights
-            perturbation = torch.randn_like(current_embeds) * self.lr
-            
-            # Create occurrence mask with correct device and dtype
-            occurrence_mask = self.token_occurrence_mask.to(
-                device=perturbation.device, 
-                dtype=perturbation.dtype  # Match perturbation dtype
-            ).unsqueeze(1)
-            
-            # Apply update only to tokens that appeared in the epoch
-            # Ensure all tensors have the same dtype
-            update = current_embeds + perturbation * occurrence_mask
-            
-            # For quantized models, might need to dequantize/requantize
-            if hasattr(self.embed_module, 'dequantize') and hasattr(self.embed_module, 'quantize'):
-                # Dequantize, update, requantize
-                dequantized = self.embed_module.dequantize(self.embed_module.weight)
-                dequantized[self.label_token_ids] = update
-                self.embed_module.weight = self.embed_module.quantize(dequantized)
-            else:
-                # Standard update
-                self.embed_module.weight[self.label_token_ids] = update
-            
-            # Log token stats
-            for i, token_id in enumerate(self.label_token_ids):
-                count = self.token_batch_counts[token_id]
-                if count > 0:
-                    avg_loss = sum(self.token_batch_losses[token_id]) / count
-                    logging.info(f"Token '{self.model.label_tokens[i]}' (ID: {token_id}) appeared in {count} batches, avg loss: {avg_loss:.4f}")
-            
-            # Reset counters for next epoch
-            self.token_batch_losses = {token_id: [] for token_id in self.label_token_ids}
-            self.token_batch_counts = {token_id: 0 for token_id in self.label_token_ids}
-            self.token_occurrence_mask = torch.zeros(len(self.label_token_ids), dtype=torch.float32)
-            
-            return True
-    
-    def get_embedding_changes(self):
-        """Calculate how much embeddings have changed from original"""
-        with torch.no_grad():
-            current = self.embed_module.weight[self.label_token_ids]
-            diff = current - self.original_embeds
-            avg_change = torch.mean(torch.abs(diff)).item()
-            max_change = torch.max(torch.abs(diff)).item()
-        return avg_change, max_change
-
 def parse_args():
     parser = argparse.ArgumentParser(description="Train embedding discovery model")
     
@@ -137,6 +49,103 @@ def parse_args():
     # Target token parameters
     
     return parser.parse_args()
+
+class EpochEmbeddingUpdater:
+    """Updates all token embeddings for each label"""
+    def __init__(self, model, lr=2e-4):
+        self.model = model
+        self.embed_module = model.get_embedding_module()
+        self.label_token_ids = model.label_token_ids
+        self.label_to_token_ids = model.label_to_token_ids  # Use the new mapping
+        self.lr = lr
+        
+        # Track by original label instead of individual tokens
+        self.label_batch_losses = {label: [] for label in self.label_to_token_ids.keys()}
+        self.label_batch_counts = {label: 0 for label in self.label_to_token_ids.keys()}
+        self.label_occurrence_mask = {label: 0.0 for label in self.label_to_token_ids.keys()}
+        
+        # Store original embeddings
+        with torch.no_grad():
+            self.original_embeds = {}
+            for label, token_ids in self.label_to_token_ids.items():
+                self.original_embeds[label] = self.embed_module.weight[token_ids].clone()
+    
+    def record_batch(self, input_ids, loss):
+        """Record which labels appear in this batch"""
+        for label, token_ids in self.label_to_token_ids.items():
+            for token_id in token_ids:
+                if (input_ids == token_id).any():
+                    self.label_batch_losses[label].append(loss.item())
+                    self.label_batch_counts[label] += 1
+                    self.label_occurrence_mask[label] = 1.0
+                    break  # Once we find any token from this label, we can stop
+
+    def get_embedding_changes(self):
+        """Calculate how much embeddings have changed from original"""
+        with torch.no_grad():
+            avg_changes = []
+            max_changes = []
+            
+            # Calculate changes for each label separately
+            for label, token_ids in self.label_to_token_ids.items():
+                if label in self.original_embeds:
+                    current = self.embed_module.weight[token_ids]
+                    original = self.original_embeds[label]
+                    
+                    # Calculate absolute differences
+                    diff = torch.abs(current - original)
+                    
+                    # Track metrics for this label
+                    avg_change = torch.mean(diff).item()
+                    max_change = torch.max(diff).item()
+                    
+                    avg_changes.append(avg_change)
+                    max_changes.append(max_change)
+            
+            # Average across all labels
+            if avg_changes:
+                return sum(avg_changes) / len(avg_changes), max(max_changes)
+            else:
+                return 0.0, 0.0
+    
+    def update_embeddings_at_epoch_end(self):
+        """Update all token embeddings for each label that appeared"""
+        with torch.no_grad():
+            # Track which labels actually appeared
+            labels_with_data = sum(1 for label in self.label_to_token_ids.keys() 
+                                if self.label_batch_counts[label] > 0)
+            
+            if labels_with_data == 0:
+                logging.warning("No batches contained target labels! Embeddings not updated.")
+                return False
+                
+            logging.info(f"{labels_with_data}/{len(self.label_to_token_ids)} labels appeared in this epoch")
+            
+            # Update each label's token embeddings
+            for label, token_ids in self.label_to_token_ids.items():
+                if self.label_occurrence_mask[label] > 0:
+                    # Get current embeddings for all tokens of this label
+                    current_embeds = self.embed_module.weight[token_ids].clone()
+                    
+                    # Create perturbation (same for all tokens of this label)
+                    perturbation = torch.randn_like(current_embeds) * self.lr
+                    
+                    # Apply update to all tokens for this label
+                    self.embed_module.weight[token_ids] = current_embeds + perturbation
+                    
+                    # Log stats
+                    count = self.label_batch_counts[label]
+                    if count > 0:
+                        avg_loss = sum(self.label_batch_losses[label]) / count
+                        token_texts = [self.model.salmonn.llama_tokenizer.decode([tid]) for tid in token_ids]
+                        logging.info(f"Label '{label}' ({token_texts}) appeared in {count} batches, avg loss: {avg_loss:.4f}")
+            
+            # Reset counters for next epoch
+            self.label_batch_losses = {label: [] for label in self.label_to_token_ids.keys()}
+            self.label_batch_counts = {label: 0 for label in self.label_to_token_ids.keys()}
+            self.label_occurrence_mask = {label: 0.0 for label in self.label_to_token_ids.keys()}
+            
+            return True
 
 def setup_logging(args):
     # Create output directory if needed
@@ -237,19 +246,7 @@ def train(model, dataloader, args):
         avg_loss = total_loss / total_samples if total_samples > 0 else 0
         logger.info(f"Epoch {epoch+1}/{args.num_epochs} complete - Average loss: {avg_loss:.4f}")
         
-        # Save embeddings after each epoch
-        if args.output_dir:
-            save_path = os.path.join(args.output_dir, f"embeddings_epoch_{epoch+1}.pt")
-            model.save_token_embeddings(save_path)
-            
-        # Find and log nearest tokens
-        results = model.find_nearest_token_embeddings(
-            exclude_label_tokens=False,
-            top_k=20,
-            min_similarity=0.5
-        )
-        
-        # Save results and continue with rest of your code...
+
 
 def get_label_tokens_from_dataset_types(dataset_types):
     """Extract all label tokens from the dataset configurations"""
@@ -343,15 +340,40 @@ def main():
             model_type=args.model_type,
             run_name=args.run_name
         )
-        
-        # Create dataloader
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=args.batch_size,
-            shuffle=True,
-            collate_fn=processor.collate_batch
-        )
-        
+
+        # Replace the select approach with a custom sampler
+        total_samples = len(train_dataset)
+        logger.info(f"Original dataset size: {total_samples} samples")
+
+        # Create a custom sampler for the DataLoader
+        if total_samples > 100:
+            # Generate 100 random indices
+            random_indices = torch.randperm(total_samples)[:10].tolist()
+            
+            # Create a SubsetRandomSampler with these indices
+            from torch.utils.data import SubsetRandomSampler
+            sampler = SubsetRandomSampler(random_indices)
+            
+            logger.info(f"Sampled 100 random examples from dataset")
+            
+            # Create dataloader with sampler instead of shuffle
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=args.batch_size,
+                sampler=sampler,  # Use sampler instead of shuffle
+                collate_fn=processor.collate_batch
+            )
+        else:
+            logger.info(f"Dataset has {total_samples} samples, using all of them")
+            
+            # Create standard dataloader with shuffle
+            train_loader = DataLoader(
+                train_dataset,
+                batch_size=args.batch_size,
+                shuffle=True,
+                collate_fn=processor.collate_batch
+            )
+
         logger.info(f"Created dataloader with {len(train_loader)} batches")
         
        
@@ -361,18 +383,57 @@ def main():
 
         # After training, find nearest tokens to the updated label embeddings
         results = discovery_model.find_nearest_token_embeddings(
-            exclude_label_tokens=False,  # Don't include the original labels
+            exclude_label_tokens=False, 
             top_k=20,  # Find top 20 nearest tokens
             min_similarity=0.5  # Only include tokens with similarity > 0.5
         )
 
-        # Print results
+        # Save final results to file
+        results_path = os.path.join(args.output_dir, "nearest_tokens_final.json")
+
+        # Convert tensor elements to Python types for JSON serialization
+        clean_results = []
         for result in results:
-            original = result["original_label"]
-            print(f"\n{original} → Nearest tokens:")
-            for neighbor in result["neighbors"][:5]:  # Show top 5
-                print(f"  {neighbor['token_text']} (similarity: {neighbor['similarity']:.4f})")
-        
+            clean_result = {
+                "original_label": result["original_label"],
+                "token_results": [],
+                "combined_neighbors": []
+            }
+            
+            # Process token results
+            for token_result in result["token_results"]:
+                clean_token_result = {
+                    "token_id": int(token_result["token_id"]),
+                    "token_text": token_result["token_text"],
+                    "neighbors": []
+                }
+                
+                for neighbor in token_result["neighbors"]:
+                    clean_token_result["neighbors"].append({
+                        "token_id": int(neighbor["token_id"]),
+                        "token_text": neighbor["token_text"],
+                        "similarity": float(neighbor["similarity"])
+                    })
+                    
+                clean_result["token_results"].append(clean_token_result)
+            
+            # Process combined neighbors
+            for neighbor in result["combined_neighbors"]:
+                clean_result["combined_neighbors"].append({
+                    "token_id": int(neighbor["token_id"]),
+                    "token_text": neighbor["token_text"],
+                    "similarity": float(neighbor["similarity"])
+                })
+                
+            clean_results.append(clean_result)
+
+        # Save to JSON file
+        with open(results_path, 'w') as f:
+            json.dump(clean_results, f, indent=2)
+
+        logger.info(f"Saved final nearest token results to {results_path}")
+
+
         # Record end time and duration
         end_time = datetime.now()
         duration = end_time - start_time
@@ -391,7 +452,7 @@ if __name__ == "__main__":
     sys.exit(main())
 
 
-# CUDA_VISIBLE_DEVICES=1 python /data2/neeraja/neeraja/code/ICL/data/train_embedding_discovery.py \
+# CUDA_VISIBLE_DEVICES=2 python /data2/neeraja/neeraja/code/ICL/data/train_embedding_discovery.py \
 #     --peft_model_path /data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0055/model.pt \
 #     --dataset_type voxceleb_greek-hvb_greek
 
