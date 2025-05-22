@@ -22,7 +22,7 @@ class EmbeddingDiscoveryModel(CustomSALMONN):
             
         # Set flag for embedding discovery mode
         self.embedding_discovery_mode = True
-        self.freeze_all_except_label_embeddings()
+        # self.freeze_all_except_label_embeddings()
         logging.info("Initialized EmbeddingDiscoveryModel with frozen parameters except label embeddings")
     
     def _get_label_token_ids(self):
@@ -65,35 +65,35 @@ class EmbeddingDiscoveryModel(CustomSALMONN):
         
         return token_ids
         
-    def freeze_all_except_label_embeddings(self):
-        """Freeze all parameters except specific label token embeddings"""
-        if not self.label_token_ids:
-            logging.warning("No label token IDs specified. All parameters will remain frozen.")
-            return
+    # def freeze_all_except_label_embeddings(self):
+    #     """Freeze all parameters except specific label token embeddings"""
+    #     if not self.label_token_ids:
+    #         logging.warning("No label token IDs specified. All parameters will remain frozen.")
+    #         return
 
-        # First, freeze all parameters
-        for name, param in self.named_parameters():
-            param.requires_grad = False
+    #     # First, freeze all parameters
+    #     for name, param in self.named_parameters():
+    #         param.requires_grad = False
         
-        # Get embedding module
-        embed_module = self.get_embedding_module()
+    #     # Get embedding module
+    #     embed_module = self.get_embedding_module()
         
-        # Create a mask for the embedding parameters (all zeros)
-        embedding_mask = torch.zeros_like(embed_module.weight)
+    #     # Create a mask for the embedding parameters (all zeros)
+    #     embedding_mask = torch.zeros_like(embed_module.weight)
         
-        # Set mask to 1 only for the label token rows we want to update
-        embedding_mask[self.label_token_ids] = 1.0
+    #     # Set mask to 1 only for the label token rows we want to update
+    #     embedding_mask[self.label_token_ids] = 1.0
         
-        # Store the mask for use during training
-        self.embedding_mask = embedding_mask
+    #     # Store the mask for use during training
+    #     self.embedding_mask = embedding_mask
         
-        # Only make the embedding weights trainable
-        embed_module.weight.requires_grad = True
+    #     # Only make the embedding weights trainable
+    #     embed_module.weight.requires_grad = True
         
-        # Log what we're doing
-        trainable_params = len(self.label_token_ids) * embed_module.weight.shape[1]
-        logging.info(f"Selectively updating {len(self.label_token_ids)} token embeddings")
-        logging.info(f"Trainable parameters: {trainable_params:,}")
+    #     # Log what we're doing
+    #     trainable_params = len(self.label_token_ids) * embed_module.weight.shape[1]
+    #     logging.info(f"Selectively updating {len(self.label_token_ids)} token embeddings")
+    #     logging.info(f"Trainable parameters: {trainable_params:,}")
         
     def get_embedding_module(self):
         """Get the token embedding module based on model structure"""
@@ -119,12 +119,14 @@ class EmbeddingDiscoveryModel(CustomSALMONN):
         if not self.label_token_ids:
             return {"error": "No label token IDs available"}
             
-        # Get embedding matrix
-        embed_module = self.get_embedding_module()
-        embed_matrix = embed_module.weight
-        
-        # Normalize full embedding matrix once for efficiency
-        embed_matrix_norm = F.normalize(embed_matrix, p=2, dim=1)
+        with torch.no_grad():
+            embed_module = self.get_embedding_module()
+            original_matrix = embed_module.weight  # Original embeddings
+            transformed_matrix = self.get_transformed_embeddings()  # Transformed embeddings
+            
+            # Normalize original matrix for similarity comparison
+            original_matrix_norm = F.normalize(original_matrix, p=2, dim=1)
+    
         
         # Prepare results grouped by original label
         results = []
@@ -141,12 +143,12 @@ class EmbeddingDiscoveryModel(CustomSALMONN):
             
             # Find neighbors for each token in this label separately
             for token_idx, token_id in enumerate(token_ids):
-                # Get token embedding and normalize
-                token_embed = embed_matrix[token_id].unsqueeze(0)  # Add batch dimension
+                # Get TRANSFORMED token embedding and normalize
+                token_embed = transformed_matrix[token_id].unsqueeze(0)
                 token_embed_norm = F.normalize(token_embed, p=2, dim=1)
                 
-                # Compute cosine similarity with all vocabulary
-                similarity = torch.matmul(token_embed_norm, embed_matrix_norm.transpose(0, 1))[0]
+                # Compare with ORIGINAL vocabulary embeddings
+                similarity = torch.matmul(token_embed_norm, original_matrix_norm.transpose(0, 1))[0]
                 
                 # Exclude original tokens if requested
                 if exclude_label_tokens:
@@ -221,20 +223,7 @@ class EmbeddingDiscoveryModel(CustomSALMONN):
         
         return results
     
-    def save_token_embeddings(self, path):
-        """Save the token embeddings to a file"""
-        embed_module = self.get_embedding_module()
-        embed_matrix = embed_module.weight
-        
-        # Save all embeddings plus metadata about which were updated
-        torch.save({
-            "embeddings": embed_matrix,
-            "vocab_size": embed_matrix.shape[0],
-            "embedding_dim": embed_matrix.shape[1],
-            "label_tokens": self.label_tokens,
-            "label_token_ids": self.label_token_ids
-        }, path)
-        logging.info(f"Saved token embeddings to {path}")
+
     
     def print_token_info(self, tokens):
         """Print tokenization information for debugging"""
