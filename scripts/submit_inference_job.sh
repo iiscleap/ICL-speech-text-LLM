@@ -3,7 +3,7 @@
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
 # dataset_type="meld_emotion_greek,voxpopuli_greek"  # Options: "voxceleb", "hvb", "meld_emotion" "voxpopuli", etc., sqa, vp_nel
-dataset_type="voxceleb"  # Options: "voxceleb", "hvb", "meld_emotion" "voxpopuli", etc., sqa, vp_nel
+dataset_type="hvb"  # Options: "voxceleb", "hvb", "meld_emotion" "voxpopuli", etc., sqa, vp_nel
 # dataset_type="hvb"
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
@@ -17,7 +17,7 @@ randomize_swap=false  # Set to true to randomize swap configurations
 
 # Node configuration
 queue_name="gpu.q"      # Queue to submit job to (gpu.q, med.q, etc.)
-hostname="compute-0-9"  # Hostname to run on
+hostname="compute-0-8"  # Hostname to run on
 cuda_device=0         # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
@@ -82,7 +82,7 @@ peft_model_path=""
 
 
 
-# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1604_0129_ft_5ex_20e8b_salmonn_speech_only_text_meld_emotion_greek-voxpopuli_greek/checkpoints/epoch_15_loss_0.0029/model.pt"
+peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1604_0129_ft_5ex_20e8b_salmonn_speech_only_text_meld_emotion_greek-voxpopuli_greek/checkpoints/epoch_15_loss_0.0029/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1804_1354_ft_5ex_15e8b_salmonn_speech_only_text_meld_emotion-voxpopuli/checkpoints/epoch_4_loss_0.2972/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1604_0113_ft_5ex_20e8b_salmonn_speech_only_text_meld_emotion_swap-voxpopuli_swap/checkpoints/epoch_15_loss_0.0082/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1604_0121_ft_5ex_20e8b_salmonn_speech_only_text_meld_emotion_swap-voxpopuli_swap_nosymbol/checkpoints/epoch_15_loss_0.0078/model.pt"

@@ -6,9 +6,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import time
 from typing import Dict, List, Optional, Tuple, Union, Any
+from contextlib import nullcontext
 
 # Import PEFT for LoRA
 from peft import LoraConfig, TaskType, get_peft_model
+from transformers import WhisperFeatureExtractor
 
 # Path setup for SALMONN import
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -35,7 +37,7 @@ class MLPSalmonn(nn.Module):
         lora_alpha=16,
         lora_dropout=0.05,
         device=None,
-        low_resource=False
+        low_resource=True
     ):
         super().__init__()
         
@@ -47,8 +49,22 @@ class MLPSalmonn(nn.Module):
             "llama_path": llama_path,
             "whisper_path": whisper_path,
             "beats_path": beats_path,
-            "lora": False,  # Important: Start without LoRA
-            "low_resource": low_resource
+            "lora": True,  # Important: Start without LoRA
+            "lora_rank": lora_rank,
+            "lora_alpha": lora_alpha,
+            "lora_dropout": lora_dropout,
+            "low_resource": False,
+            "use_speech_Qformer": True,
+            "freeze_whisper": True,
+            "freeze_beats": True,
+            "freeze_speech_QFormer":True,
+            "num_speech_query_token": 1,
+            "window_level_Qformer": True,
+            "second_per_window": 0.333333,
+            "second_stride": 0.333333,
+            "speech_llama_proj_model": "",
+            "freeze_speech_llama_proj": True,
+            "ckpt":"/data2/neeraja/neeraja/salmonn_v1.pth"
         }
 
         # Initialize the SALMONN model using from_config
@@ -61,7 +77,7 @@ class MLPSalmonn(nn.Module):
         self.label_token_ids = []
         self.batch_counter = 0
         self.speech_placeholder = "<SpeechHere>"
-        self.use_lora = lora
+        self.use_lora = True
         
         # Get references to SALMONN components for easier access
         self.llama_model = self.salmonn.llama_model
@@ -86,17 +102,30 @@ class MLPSalmonn(nn.Module):
             nn.Dropout(dropout),
             nn.Linear(self.hidden_dim, self.embed_dim)
         )
+
+        # Use MUCH more conservative initialization
+        with torch.no_grad():
+            for layer in self.position_wise_mlp:
+                if isinstance(layer, nn.Linear):
+                    # Use very small initialization - start near identity
+                    nn.init.normal_(layer.weight, mean=0.0, std=0.001)  # Much smaller
+                    nn.init.zeros_(layer.bias)
+        
+        # Make the final layer even smaller to start with near-zero output
+        with torch.no_grad():
+            nn.init.normal_(self.position_wise_mlp[3].weight, mean=0.0, std=0.00001)
+
+        base_dtype = self.embed_module.weight.dtype
+        self.position_wise_mlp = self.position_wise_mlp.to(dtype=base_dtype)
+        logging.info(f"Initialized MLP with conservative initialization")
+
         self.position_wise_mlp.to(self.device)
+
+        self.input_processor = WhisperFeatureExtractor.from_pretrained(whisper_path)
         
         # Convert label tokens to token IDs
         if self.label_tokens:
-            for token in self.label_tokens:
-                token_id = self.llama_tokenizer.convert_tokens_to_ids(token)
-                if token_id != self.llama_tokenizer.unk_token_id:
-                    self.label_token_ids.append(token_id)
-                else:
-                    logging.warning(f"Label token '{token}' not found in vocabulary")
-            logging.info(f"Initialized with {len(self.label_token_ids)} label tokens")
+            self.label_token_ids = self._get_label_token_ids()
         
         # Freeze base model if requested
         if freeze_base:
@@ -110,21 +139,15 @@ class MLPSalmonn(nn.Module):
             trainable_params = sum(p.numel() for p in self.position_wise_mlp.parameters())
             logging.info(f"Model has {trainable_params:,} trainable MLP parameters")
         
-        # NOW apply LoRA if it was originally enabled
-        if self.use_lora:
-            logging.info("Applying LoRA adapters AFTER MLP setup")
-            self.peft_config = LoraConfig(
-                task_type=TaskType.CAUSAL_LM, 
-                inference_mode=False, 
-                r=lora_rank, 
-                lora_alpha=lora_alpha, 
-                lora_dropout=lora_dropout,
-            )
-            self.llama_model = get_peft_model(self.llama_model, self.peft_config)
-            self.llama_model.print_trainable_parameters()
+        # Keep original embeddings frozen for reference
+        self.original_embed_matrix = self.embed_module.weight.clone().detach()
+        self.original_embed_matrix.requires_grad = False
+        
+        # Store discovered symbol mappings
+        self.symbol_mappings = {}  # Maps original_token_id -> discovered_token_id
     
     def get_transformed_embeddings(self):
-        """Get embeddings with transformations applied for label tokens"""
+        """Get embeddings with transformations applied for label tokens - consistent with transform_text_embeddings"""
         # Start with a copy of the original embeddings
         transformed_matrix = self.embed_module.weight.clone()
         
@@ -132,10 +155,14 @@ class MLPSalmonn(nn.Module):
         device = next(self.position_wise_mlp.parameters()).device
         dtype = next(self.position_wise_mlp.parameters()).dtype
         
-        # Apply transformation to label tokens
+        # Apply transformation to label tokens using the SAME method as transform_text_embeddings
         label_embeds = self.embed_module.weight[self.label_token_ids].to(device=device, dtype=dtype)
-        transformed_embeds = self.position_wise_mlp(label_embeds)
-        transformed_embeds = label_embeds + transformed_embeds  # residual connection
+        
+        # Apply MLP to get residual component (same as transform_text_embeddings)
+        residual_values = self.position_wise_mlp(label_embeds)
+        
+        # Add residuals to original embeddings (same as transform_text_embeddings)
+        transformed_embeds = label_embeds + residual_values
         
         # Move back to original device and dtype if needed
         if (transformed_embeds.device != transformed_matrix.device or 
@@ -184,19 +211,10 @@ class MLPSalmonn(nn.Module):
         # First batch logging
         if self.batch_counter == 0:
             if speech_embeds is not None:
-                if isinstance(speech_embeds, tuple):
-                    # For SQA dataset with question and document embeddings
-                    q_embeds, d_embeds = speech_embeds
-                    logging.info("SQA Speech data detected and processed")
-                    logging.info(f"Question embeddings device: {q_embeds.device}")
-                    logging.info(f"Question embeddings range: {q_embeds.min():.3f} to {q_embeds.max():.3f}")
-                    logging.info(f"Document embeddings device: {d_embeds.device}")
-                    logging.info(f"Document embeddings range: {d_embeds.min():.3f} to {d_embeds.max():.3f}")
-                else:
-                    # Original logging for single speech embedding
-                    logging.info("Speech data detected and processed")
-                    logging.info(f"Speech embeddings device: {speech_embeds.device}")
-                    logging.info(f"Speech embeddings range: {speech_embeds.min():.3f} to {speech_embeds.max():.3f}")
+                # Original logging for single speech embedding
+                logging.info("Speech data detected and processed")
+                logging.info(f"Speech embeddings device: {speech_embeds.device}")
+                logging.info(f"Speech embeddings range: {speech_embeds.min():.3f} to {speech_embeds.max():.3f}")
             else:
                 logging.info("No speech data detected, using text-only mode")
         
@@ -228,27 +246,16 @@ class MLPSalmonn(nn.Module):
             return_attention_mask=True,
         ).to(wrapped_embeds.device)
         
-        # Important: Get transformed embeddings if in training mode
+        # Get normal embeddings first 
+        target_embeds = self.embed_module(target_tokens.input_ids)
+
+        # Apply MLP transformations to label tokens if in training mode
         if self.training and self.label_token_ids:
-            # Get transformed embeddings for all tokens
-            logging.info("Using transformed embeddings in forward pass")
-            transformed_matrix = self.get_transformed_embeddings()
-            
-            # Use these for the target embeddings
-            # This is the key step that ensures MLP gradients flow
-            if self.use_lora:
-                original_weight = self.llama_model.model.model.embed_tokens.weight
-                self.llama_model.model.model.embed_tokens.weight = transformed_matrix
-                target_embeds = self.llama_model.model.model.embed_tokens(target_tokens.input_ids)
-                self.llama_model.model.model.embed_tokens.weight = original_weight
-            else:
-                original_weight = self.llama_model.model.embed_tokens.weight
-                self.llama_model.model.embed_tokens.weight = transformed_matrix
-                target_embeds = self.llama_model.model.embed_tokens(target_tokens.input_ids)
-                self.llama_model.model.embed_tokens.weight = original_weight
-        else:
-            # Just use the original embeddings during inference
-            target_embeds = self.embed_module(target_tokens.input_ids)
+            logging.info("Applying MLP to target embeddings")
+            target_embeds = self.transform_text_embeddings(
+                target_embeds,
+                target_tokens.input_ids
+            )
         
         prompt_length = wrapped_embeds.size(1)
         
@@ -355,109 +362,49 @@ class MLPSalmonn(nn.Module):
         # Process main inputs
         speech_embeds = speech_atts = None
         if has_main_speech:
-            if is_sqa:
-                # Process question and document spectrograms
-                q_spectrograms = to_device_and_dtype(samples["question_spectrogram"])
-                d_spectrograms = to_device_and_dtype(samples["document_spectrogram"])
-                q_padding_mask = to_device_and_dtype(samples.get("question_padding_mask"))
-                d_padding_mask = to_device_and_dtype(samples.get("document_padding_mask"))
-                q_raw_wav = to_device_and_dtype(samples.get("question_raw_wav"))
-                d_raw_wav = to_device_and_dtype(samples.get("document_raw_wav"))
-                
-                # Encode question and document
-                q_embeds, q_atts = self.encode_speech(q_spectrograms, q_raw_wav, q_padding_mask)
-                d_embeds, d_atts = self.encode_speech(d_spectrograms, d_raw_wav, d_padding_mask)
-                
-                # Combine as tuple
-                speech_embeds = (q_embeds, d_embeds)
-                speech_atts = (q_atts, d_atts)
-            else:
-                # Standard speech processing
-                spectrograms = to_device_and_dtype(samples["spectrogram"])
-                padding_mask = to_device_and_dtype(samples.get("padding_mask"))
-                raw_wav = to_device_and_dtype(samples.get("raw_wav"))
-                
-                speech_embeds, speech_atts = self.encode_speech(spectrograms, raw_wav, padding_mask)
-        
+
+            # Standard speech processing
+            spectrograms = to_device_and_dtype(samples["spectrogram"])
+            padding_mask = to_device_and_dtype(samples.get("padding_mask"))
+            raw_wav = to_device_and_dtype(samples.get("raw_wav"))
+            
+            speech_embeds, speech_atts = self.encode_speech(spectrograms, raw_wav, padding_mask)
+    
         # Process examples
         example_embeds = example_atts = None
         if has_examples:
-            if is_sqa:
-                # Process SQA examples
-                example_q_specs = to_device_and_dtype(samples["example_question_spectrograms"])
-                example_d_specs = to_device_and_dtype(samples["example_document_spectrograms"])
-                example_q_padding = to_device_and_dtype(samples.get("example_question_padding_masks"))
-                example_d_padding = to_device_and_dtype(samples.get("example_document_padding_masks"))
-                example_q_raw = to_device_and_dtype(samples.get("example_question_raw_wavs"))
-                example_d_raw = to_device_and_dtype(samples.get("example_document_raw_wavs"))
+            # Standard example processing
+            example_specs = to_device_and_dtype(samples["example_spectrograms"])
+            example_padding = to_device_and_dtype(samples.get("example_padding_masks"))
+            example_raw = to_device_and_dtype(samples.get("example_raw_wavs"))
+            
+            # Initialize lists to store example embeddings
+            batch_example_embeds = []
+            batch_example_atts = []
+            
+            # Process each batch
+            for b in range(len(example_specs)):
+                example_count = len(example_specs[b])
+                batch_embeds = []
+                batch_atts = []
                 
-                # Initialize lists to store example embeddings
-                batch_example_embeds = []
-                batch_example_atts = []
-                
-                # Process each batch
-                for b in range(len(example_q_specs)):
-                    example_count = len(example_q_specs[b])
-                    batch_embeds = []
-                    batch_atts = []
+                # Process each example in this batch
+                for i in range(example_count):
+                    spec = example_specs[b][i]
                     
-                    # Process each example in this batch
-                    for i in range(example_count):
-                        q_spec = example_q_specs[b][i]
-                        d_spec = example_d_specs[b][i]
-                        
-                        # Get padding masks and raw wavs if available
-                        q_pad = example_q_padding[b][i] if example_q_padding is not None else None
-                        d_pad = example_d_padding[b][i] if example_d_padding is not None else None
-                        q_raw = example_q_raw[b][i] if example_q_raw is not None else None
-                        d_raw = example_d_raw[b][i] if example_d_raw is not None else None
-                        
-                        # Encode example speech
-                        q_embed, q_att = self.encode_speech(q_spec.unsqueeze(0), q_raw, q_pad)
-                        d_embed, d_att = self.encode_speech(d_spec.unsqueeze(0), d_raw, d_pad)
-                        
-                        # Add to batch
-                        batch_embeds.append((q_embed.squeeze(0), d_embed.squeeze(0)))
-                        batch_atts.append((q_att.squeeze(0), d_att.squeeze(0)))
+                    # Get padding mask and raw wav if available
+                    pad = example_padding[b][i] if example_padding is not None else None
+                    raw = example_raw[b][i] if example_raw is not None else None
                     
-                    batch_example_embeds.append(batch_embeds)
-                    batch_example_atts.append(batch_atts)
-                
-                example_embeds = batch_example_embeds
-                example_atts = batch_example_atts
-            else:
-                # Standard example processing
-                example_specs = to_device_and_dtype(samples["example_spectrograms"])
-                example_padding = to_device_and_dtype(samples.get("example_padding_masks"))
-                example_raw = to_device_and_dtype(samples.get("example_raw_wavs"))
-                
-                # Initialize lists to store example embeddings
-                batch_example_embeds = []
-                batch_example_atts = []
-                
-                # Process each batch
-                for b in range(len(example_specs)):
-                    example_count = len(example_specs[b])
-                    batch_embeds = []
-                    batch_atts = []
+                    # Encode example speech
+                    embed, att = self.encode_speech(spec.unsqueeze(0), raw, pad)
                     
-                    # Process each example in this batch
-                    for i in range(example_count):
-                        spec = example_specs[b][i]
-                        
-                        # Get padding mask and raw wav if available
-                        pad = example_padding[b][i] if example_padding is not None else None
-                        raw = example_raw[b][i] if example_raw is not None else None
-                        
-                        # Encode example speech
-                        embed, att = self.encode_speech(spec.unsqueeze(0), raw, pad)
-                        
-                        # Add to batch
-                        batch_embeds.append(embed.squeeze(0))
-                        batch_atts.append(att.squeeze(0))
-                    
-                    batch_example_embeds.append(batch_embeds)
-                    batch_example_atts.append(batch_atts)
+                    # Add to batch
+                    batch_embeds.append(embed.squeeze(0))
+                    batch_atts.append(att.squeeze(0))
+                
+                batch_example_embeds.append(batch_embeds)
+                batch_example_atts.append(batch_atts)
                 
                 example_embeds = batch_example_embeds
                 example_atts = batch_example_atts
@@ -485,39 +432,18 @@ class MLPSalmonn(nn.Module):
             parts = []
             suffix = prompts[b]
             if max_examples > 0 and example_embeds is not None:
-                if is_sqa:
-                    # First handle the examples with Question{i} and Document{i}
-                    for i in range(max_examples):
-                        q_marker = f"<Question{i}>"
-                        d_marker = f"<Document{i}>"
-                        
-                        if q_marker in suffix and d_marker in suffix:
-                            before_d, rest = suffix.split(d_marker, 1)
-                            middle, after_q = rest.split(q_marker, 1)
-                            parts.extend([before_d, middle])
-                            suffix = after_q
-                            
-                            if self.batch_counter == 0:
-                                logging.info(f"After processing example {i}, parts list length: {len(parts)}")
 
-                else:
-                    # Original example handling
-                    for i in range(max_examples):
-                        example_marker = f"<Example{i}>"
-                        if example_marker in suffix:
-                            before_example, after_example = suffix.split(example_marker, 1)
-                            parts.append(before_example)
-                            suffix = after_example
-                        else:
-                            parts.append("")
+                # Original example handling
+                for i in range(max_examples):
+                    example_marker = f"<Example{i}>"
+                    if example_marker in suffix:
+                        before_example, after_example = suffix.split(example_marker, 1)
+                        parts.append(before_example)
+                        suffix = after_example
+                    else:
+                        parts.append("")
 
-            # Split for main speech input if speech placeholder exists
-            if "<Question>" in suffix:
-                    before_d, rest = suffix.split("<Document>", 1)
-                    middle, after_q = rest.split("<Question>", 1)
-                    parts.extend([before_d, middle])
-                    suffix = after_q
-            elif self.speech_placeholder in suffix:
+            if self.speech_placeholder in suffix:
                 before_speech, after_speech = suffix.split(self.speech_placeholder)
                 parts.append(before_speech)
                 suffix = after_speech
@@ -546,6 +472,13 @@ class MLPSalmonn(nn.Module):
                     part_embed = self.llama_model.model.model.embed_tokens(tokens['input_ids'].squeeze(0))
                 else:
                     part_embed = self.llama_model.model.embed_tokens(tokens['input_ids'].squeeze(0))
+
+                # Transform embeddings for label tokens
+                if self.training and self.label_token_ids:
+                    part_embed = self.transform_text_embeddings(
+                        part_embed, 
+                        tokens['input_ids'].squeeze(0)
+                    )
                 part_embeds.append(part_embed)
                 
             part_atts = [tokens['attention_mask'].squeeze(0) for tokens in tokenized_parts]
@@ -553,54 +486,33 @@ class MLPSalmonn(nn.Module):
             # Combine embeddings
             combined_embeds, combined_atts = [], []
             
-            # Add text parts and examples
-            if is_sqa:
-                # Handle SQA dataset
-                for i in range(max_examples):
-                    combined_embeds.append(part_embeds[2*i])
-                    combined_atts.append(part_atts[2*i])
-                    
-                    if example_embeds is not None:
-                        if b < len(example_embeds) and i < len(example_embeds[b]):
-                            q_embed, d_embed = example_embeds[b][i]
-                            q_att, d_att = example_atts[b][i]
-                            combined_embeds.extend([d_embed, part_embeds[2*i+1], q_embed])
-                            combined_atts.extend([d_att, part_atts[2*i+1], q_att])
-                    
-                # Add final question and document embeddings
-                if embeds is not None:  # Speech mode
-                    q_embeds, d_embeds = embeds
-                    q_atts, d_atts = atts
-                    
-                    combined_embeds.extend([part_embeds[-3], d_embeds[b], part_embeds[-2], q_embeds[b], part_embeds[-1]])
-                    combined_atts.extend([part_atts[-3], d_atts[b], part_atts[-2], q_atts[b], part_atts[-1]])
-                else:
-                    combined_embeds.extend([part_embeds[-3], part_embeds[-2], part_embeds[-1]])
-                    combined_atts.extend([part_atts[-3],part_atts[-2], part_atts[-1]])
-            else:
-                for i in range(len(part_embeds) - 2):
-                    combined_embeds.append(part_embeds[i])
-                    combined_atts.append(part_atts[i])
-                    
-                    if i < max_examples and example_embeds is not None:
-                        # Add example embeddings if available for this batch and example index
-                        if b < len(example_embeds) and i < len(example_embeds[b]):
-                            combined_embeds.append(example_embeds[b][i])
-                            combined_atts.append(example_atts[b][i])
+            
+
+            for i in range(len(part_embeds) - 2):
+                combined_embeds.append(part_embeds[i])
+                combined_atts.append(part_atts[i])
                 
-                # Add final parts
-                if embeds is not None:  # Speech mode
-                    combined_embeds.extend([part_embeds[-2], embeds[b], part_embeds[-1]])
-                    combined_atts.extend([part_atts[-2], atts[b], part_atts[-1]])
-                else:  # Text-only mode
-                    # For text-only, concatenate the final parts without speech embeddings
-                    if len(part_embeds) >= 2:
-                        combined_embeds.extend([part_embeds[-2], part_embeds[-1]])
-                        combined_atts.extend([part_atts[-2], part_atts[-1]])
-                    else:
-                        # If there's only one part (e.g., no speech placeholder)
-                        combined_embeds.append(part_embeds[-1])
-                        combined_atts.append(part_atts[-1])
+                if i < max_examples and example_embeds is not None:
+                    # Add example embeddings if available for this batch and example index
+                    if b < len(example_embeds) and i < len(example_embeds[b]):
+                        combined_embeds.append(example_embeds[b][i])
+                        combined_atts.append(example_atts[b][i])
+            
+
+
+            # Add final parts
+            if embeds is not None:  # Speech mode
+                combined_embeds.extend([part_embeds[-2], embeds[b], part_embeds[-1]])
+                combined_atts.extend([part_atts[-2], atts[b], part_atts[-1]])
+            else:  # Text-only mode
+                # For text-only, concatenate the final parts without speech embeddings
+                if len(part_embeds) >= 2:
+                    combined_embeds.extend([part_embeds[-2], part_embeds[-1]])
+                    combined_atts.extend([part_atts[-2], part_atts[-1]])
+                else:
+                    # If there's only one part (e.g., no speech placeholder)
+                    combined_embeds.append(part_embeds[-1])
+                    combined_atts.append(part_atts[-1])
             
             # Concatenate all parts
             batch_embeds.append(torch.cat(combined_embeds, dim=0))
@@ -608,97 +520,513 @@ class MLPSalmonn(nn.Module):
         
         return torch.stack(batch_embeds, dim=0), torch.stack(batch_atts, dim=0)
         
-    @classmethod
-    def from_config(cls, config):
-        """Create MLPSalmonn from configuration dictionary"""
-        # Extract MLP-specific settings
-        label_tokens = config.pop("label_tokens", None)
-        hidden_dim = config.pop("hidden_dim", None)
-        dropout = config.pop("dropout", 0.1)
-        freeze_base = config.pop("freeze_base", True)
-        
-        # Save LoRA settings but disable it initially
-        use_lora = config.pop("lora", True)
-        lora_rank = config.pop("lora_rank", 8)
-        lora_alpha = config.pop("lora_alpha", 16)
-        lora_dropout = config.pop("lora_dropout", 0.05)
-        
-        # Create base SALMONN model without LoRA
-        config["lora"] = False
-        salmonn_model = SALMONN.from_config(config)
-        
-        # Create MLPSalmonn instance
-        model = cls.__new__(cls)
-        
-        # Initialize with the base model's attributes
-        for key, val in vars(salmonn_model).items():
-            setattr(model, key, val)
-        
-        # Initialize additional attributes
-        model.batch_counter = 0
-        model.speech_placeholder = "<SpeechHere>"
-        model.label_tokens = label_tokens or []
-        model.label_token_ids = []
-        model.use_lora = use_lora
-        model.lora_rank = lora_rank
-        model.lora_alpha = lora_alpha
-        model.lora_dropout = lora_dropout
-        
-        # Get embedding module and dimensions
-        if hasattr(model.llama_model, 'model'):
-            if hasattr(model.llama_model.model, 'model'):
-                model.embed_module = model.llama_model.model.model.embed_tokens
-            else:
-                model.embed_module = model.llama_model.model.embed_tokens
-        else:
-            model.embed_module = model.llama_model.embed_tokens
-        
-        model.embed_dim = model.embed_module.weight.shape[1]
-        model.hidden_dim = hidden_dim or model.embed_dim
-        
-        # Create the MLP for embedding transformation
-        model.position_wise_mlp = nn.Sequential(
-            nn.Linear(model.embed_dim, model.hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(model.hidden_dim, model.embed_dim)
+    def encode_speech(self, spectrogram, raw_wav=None, audio_padding_mask=None):
+        """
+        Encode speech inputs using the SALMONN speech encoder.
+        """
+        return self.salmonn.encode_speech(    
+            spectrogram=spectrogram,
+            raw_wav=raw_wav,
+            audio_padding_mask=audio_padding_mask
         )
+
+    
+    def _get_label_token_ids(self):
+        """Convert label tokens to token IDs and maintain token-to-label mapping"""
+        token_ids = []
+        # Create a mapping from token ID to original label
+        self.token_id_to_label = {}
+        # Create a mapping from label to all its token IDs
+        self.label_to_token_ids = {}
         
-        # Convert label tokens to token IDs
-        if model.label_tokens:
-            for token in model.label_tokens:
-                token_id = model.llama_tokenizer.convert_tokens_to_ids(token)
-                if token_id != model.llama_tokenizer.unk_token_id:
-                    model.label_token_ids.append(token_id)
+        for label in self.label_tokens:
+            if isinstance(label, int):
+                token_ids.append(label)
+                self.token_id_to_label[label] = label
+                self.label_to_token_ids[label] = [label]
+            else:
+                # Token is a string, encode it
+                tokenized = self.llama_tokenizer.encode(label, add_special_tokens=False)
+                if len(tokenized) > 0:
+                    # Add ALL token IDs from tokenization
+                    for token_id in tokenized:
+                        token_ids.append(token_id)
+                        self.token_id_to_label[token_id] = label
+                    
+                    self.label_to_token_ids[label] = tokenized
+                    logging.info(f"Label '{label}' tokenized to {len(tokenized)} tokens: {tokenized}")
+                    token_texts = [self.llama_tokenizer.decode([tid]) for tid in tokenized]
+                    logging.info(f"  Decoded tokens: {token_texts}")
                 else:
-                    logging.warning(f"Label token '{token}' not found in vocabulary")
-            logging.info(f"Initialized with {len(model.label_token_ids)} label tokens")
+                    logging.warning(f"Could not tokenize '{label}'")
         
-        # Move MLP to appropriate device
-        device = next(model.parameters()).device
-        model.position_wise_mlp.to(device)
+        if token_ids:
+            logging.info(f"Label token IDs: {token_ids}")
+            for token_id in token_ids:
+                token_text = self.llama_tokenizer.decode([token_id])
+                original_label = self.token_id_to_label.get(token_id, "unknown")
+                logging.info(f"Token ID {token_id} ('{token_text}') belongs to label '{original_label}'")
+        else:
+            logging.warning("No valid label tokens provided")
         
-        # Freeze base model if requested
-        if freeze_base:
-            for name, param in model.named_parameters():
-                if not name.startswith('position_wise_mlp'):
-                    param.requires_grad = False
+        return token_ids
+
+
+
+
+    def print_token_info(self, tokens):
+        """Print tokenization information for debugging"""
+        tokenizer = self.llama_tokenizer
+        
+        for token in tokens:
+            token_ids = tokenizer.encode(token, add_special_tokens=False)
+            token_texts = [tokenizer.decode([tid]) for tid in token_ids]
             
-            # Count trainable parameters
-            trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-            logging.info(f"Model has {trainable_params:,} trainable MLP parameters")
+            logging.info(f"Token '{token}':")
+            logging.info(f"  Token IDs: {token_ids}")
+            logging.info(f"  Decoded as: {token_texts}")
+
+    def transform_text_embeddings(self, embeddings, token_ids):
+        """Apply MLP transformation to specific tokens in embeddings - with robust safety checks"""
+        if not self.training or not self.label_token_ids:
+            return embeddings
         
-        # Apply LoRA if needed
-        if model.use_lora:
-            logging.info("Applying LoRA adapters AFTER MLP setup")
-            model.peft_config = LoraConfig(
-                task_type=TaskType.CAUSAL_LM, 
-                inference_mode=False, 
-                r=model.lora_rank, 
-                lora_alpha=model.lora_alpha, 
-                lora_dropout=model.lora_dropout,
-            )
-            model.llama_model = get_peft_model(model.llama_model, model.peft_config)
-            model.llama_model.print_trainable_parameters()
+        # Create a mask for tokens that need transformation
+        is_label_token = torch.zeros_like(token_ids, dtype=torch.bool)
+        for token_id in self.label_token_ids:
+            is_label_token = is_label_token | (token_ids == token_id)
         
-        return model
+        # If we have no tokens to transform, return original
+        if not is_label_token.any():
+            return embeddings
+        
+        # Get positions where we need to apply MLP
+        nonzero_result = is_label_token.nonzero(as_tuple=True)
+        
+        if isinstance(nonzero_result, tuple) and len(nonzero_result) == 2:
+            batch_indices, token_positions = nonzero_result
+        elif isinstance(nonzero_result, tuple) and len(nonzero_result) == 1:
+            token_positions = nonzero_result[0]
+            batch_indices = torch.zeros_like(token_positions)
+        else:
+            logging.error(f"Unexpected nonzero result: {type(nonzero_result)}")
+            return embeddings
+        
+        # Extract embeddings at those positions
+        if len(embeddings.shape) == 2:  # 1D case
+            to_transform = embeddings[token_positions]
+        else:  # 2D case
+            to_transform = embeddings[batch_indices, token_positions]
+        
+        # Check input embeddings for NaN/Inf
+        if torch.isnan(to_transform).any() or torch.isinf(to_transform).any():
+            logging.error("NaN/Inf detected in input embeddings to MLP!")
+            return embeddings
+        
+        # Use safe MLP forward pass
+        residual_values = self.safe_mlp_forward(to_transform)
+        
+        # If safe_mlp_forward returned original embeddings, it means MLP failed
+        if torch.equal(residual_values, to_transform):
+            logging.warning("MLP forward failed, using original embeddings")
+            return embeddings
+        
+        # Scale down the residual to prevent instability
+        residual_values = residual_values * 0.001  # Very small scale
+        
+        # Create residual mask
+        if len(embeddings.shape) == 2:  # 1D case
+            residual_mask = torch.zeros_like(embeddings)
+            residual_mask[token_positions] = residual_values
+        else:  # 2D case
+            residual_mask = torch.zeros_like(embeddings)
+            residual_mask[batch_indices, token_positions] = residual_values
+        
+        # Add residuals to create new tensor
+        transformed_embeddings = embeddings + residual_mask
+        
+        # Final safety check
+        if torch.isnan(transformed_embeddings).any() or torch.isinf(transformed_embeddings).any():
+            logging.error("NaN/Inf detected in final transformed embeddings!")
+            return embeddings
+        
+        logging.info(f"Applied MLP to {is_label_token.sum().item()} label tokens")
+        return transformed_embeddings
+
+    def maybe_autocast(self):
+        """Context manager for autocast mixed precision where appropriate"""
+        # Check if we're on CUDA and should use autocast
+        if self.device != "cpu" and hasattr(torch.cuda, 'amp') and hasattr(torch.cuda.amp, 'autocast'):
+            return torch.cuda.amp.autocast(enabled=True)
+        else:
+            # Return a dummy context manager that does nothing
+            return nullcontext()
+
+    def find_symbol_mappings(self):
+        """Find which original vocabulary tokens are most similar to transformed symbols"""
+        if not self.label_token_ids:
+            return {}
+        
+        with torch.no_grad():
+            # Get device and dtype from MLP
+            device = next(self.position_wise_mlp.parameters()).device
+            dtype = next(self.position_wise_mlp.parameters()).dtype
+            
+            # Use the SAME transformation method as transform_text_embeddings
+            mappings = {}
+            
+            print("\n=== Symbol Discovery After Epoch ===")
+            
+            # Normalize original matrix for similarity search - ensure float32 for CPU ops
+            original_norm = F.normalize(self.original_embed_matrix.float(), p=2, dim=1)
+            
+            # Process each label
+            for label, token_ids in self.label_to_token_ids.items():
+                print(f"\nLabel: '{label}'")
+                label_mappings = []
+                
+                for token_idx, token_id in enumerate(token_ids):
+                    # Get original embedding for this token
+                    original_embed = self.embed_module.weight[token_id].unsqueeze(0).to(device=device, dtype=dtype)
+                    
+                    # Apply MLP transformation (same as transform_text_embeddings)
+                    residual_values = self.safe_mlp_forward(original_embed)
+                    
+                    # Check if MLP worked
+                    if torch.equal(residual_values, original_embed):
+                        print(f"  '{self.llama_tokenizer.decode([token_id])}' (ID: {token_id}) -> MLP failed, using original")
+                        mappings[token_id] = token_id
+                        label_mappings.append(token_id)
+                        continue
+                    
+                    # Scale residual (same as transform_text_embeddings)
+                    residual_values = residual_values * 0.1
+                    
+                    # Add residual to original embedding
+                    transformed_embed = original_embed + residual_values
+                    
+                    # Check for NaN/Inf
+                    if torch.isnan(transformed_embed).any() or torch.isinf(transformed_embed).any():
+                        print(f"  '{self.llama_tokenizer.decode([token_id])}' (ID: {token_id}) -> NaN/Inf detected, using original")
+                        mappings[token_id] = token_id
+                        label_mappings.append(token_id)
+                        continue
+                    
+                    # Normalize transformed embedding - convert to float32 for CPU operations
+                    transformed_norm = F.normalize(transformed_embed.float(), p=2, dim=1)
+                    
+                    # Move to CPU for similarity computation
+                    transformed_norm_cpu = transformed_norm.cpu()
+                    original_norm_cpu = original_norm.cpu()
+                    
+                    try:
+                        # Find most similar token in original vocabulary
+                        similarity = torch.matmul(transformed_norm_cpu, original_norm_cpu.transpose(0, 1))[0]
+                        
+                        # Exclude the original token itself
+                        similarity[token_id] = -1.0
+                        
+                        # Get best match
+                        best_match_id = torch.argmax(similarity).item()
+                        best_similarity = similarity[best_match_id].item()
+                        
+                        # Check if similarity is valid
+                        if torch.isnan(torch.tensor(best_similarity)) or torch.isinf(torch.tensor(best_similarity)):
+                            print(f"  '{self.llama_tokenizer.decode([token_id])}' (ID: {token_id}) -> Invalid similarity, using original")
+                            mappings[token_id] = token_id
+                            label_mappings.append(token_id)
+                            continue
+                        
+                        # Store mapping
+                        mappings[token_id] = best_match_id
+                        label_mappings.append(best_match_id)
+                        
+                        # Print the discovery
+                        original_text = self.llama_tokenizer.decode([token_id])
+                        discovered_text = self.llama_tokenizer.decode([best_match_id])
+                        print(f"  '{original_text}' (ID: {token_id}) -> '{discovered_text}' (ID: {best_match_id}) [similarity: {best_similarity:.4f}]")
+                    
+                    except Exception as e:
+                        print(f"  '{self.llama_tokenizer.decode([token_id])}' (ID: {token_id}) -> Error in similarity computation: {e}")
+                        mappings[token_id] = token_id
+                        label_mappings.append(token_id)
+                        continue
+                
+                # Show combined mapping for multi-token labels
+                if len(label_mappings) > 1:
+                    combined_original = "".join([self.llama_tokenizer.decode([tid]) for tid in token_ids])
+                    combined_discovered = "".join([self.llama_tokenizer.decode([tid]) for tid in label_mappings])
+                    print(f"  Combined: '{combined_original}' -> '{combined_discovered}'")
+            
+            # Update stored mappings
+            self.symbol_mappings = mappings
+            
+            return mappings
+
+    def get_symbol_replacement_dict(self):
+        """Get a dictionary for replacing symbols during inference"""
+        if not self.symbol_mappings:
+            return {}
+        
+        replacement_dict = {}
+        
+        for label, token_ids in self.label_to_token_ids.items():
+            # Get the discovered tokens for this label
+            discovered_ids = [self.symbol_mappings[tid] for tid in token_ids if tid in self.symbol_mappings]
+            
+            if discovered_ids:
+                # Create text representations
+                original_text = "".join([self.llama_tokenizer.decode([tid]) for tid in token_ids])
+                discovered_text = "".join([self.llama_tokenizer.decode([tid]) for tid in discovered_ids])
+                
+                replacement_dict[original_text] = discovered_text
+        
+        return replacement_dict
+
+    def prepare_inference_text(self, text):
+        """Replace symbols in text for inference using discovered mappings"""
+        if not self.symbol_mappings:
+            return text
+        
+        replacement_dict = self.get_symbol_replacement_dict()
+        
+        # Replace symbols in the text
+        for original, discovered in replacement_dict.items():
+            text = text.replace(original, discovered)
+        
+        return text
+
+    def print_symbol_mappings(self):
+        """Print current symbol mappings in a readable format"""
+        if not self.symbol_mappings:
+            print("No symbol mappings discovered yet.")
+            return
+        
+        print("\n=== Current Symbol Mappings ===")
+        replacement_dict = self.get_symbol_replacement_dict()
+        
+        for original, discovered in replacement_dict.items():
+            print(f"'{original}' -> '{discovered}'")
+        
+        print("\nFor inference, replace these symbols in your prompts:")
+        print("Example usage:")
+        for original, discovered in replacement_dict.items():
+            print(f"  text = text.replace('{original}', '{discovered}')")
+
+    def check_mlp_health(self):
+        """Check if MLP weights are healthy (no NaN/Inf) with detailed diagnostics"""
+        for i, layer in enumerate(self.position_wise_mlp):
+            if isinstance(layer, nn.Linear):
+                # Check weights
+                if torch.isnan(layer.weight).any():
+                    nan_count = torch.isnan(layer.weight).sum().item()
+                    return False, f"NaN in layer {i} weights ({nan_count}/{layer.weight.numel()} values)"
+                if torch.isinf(layer.weight).any():
+                    inf_count = torch.isinf(layer.weight).sum().item()
+                    return False, f"Inf in layer {i} weights ({inf_count}/{layer.weight.numel()} values)"
+                
+                # Check weight magnitudes
+                weight_max = layer.weight.abs().max().item()
+                weight_mean = layer.weight.abs().mean().item()
+                if weight_max > 10.0:  # Suspiciously large weights
+                    return False, f"Layer {i} weights too large (max: {weight_max:.6f}, mean: {weight_mean:.6f})"
+                
+                # Check bias
+                if torch.isnan(layer.bias).any():
+                    return False, f"NaN in layer {i} bias"
+                if torch.isinf(layer.bias).any():
+                    return False, f"Inf in layer {i} bias"
+                    
+                bias_max = layer.bias.abs().max().item()
+                if bias_max > 10.0:
+                    return False, f"Layer {i} bias too large (max: {bias_max:.6f})"
+        
+        return True, "MLP weights are healthy"
+
+    def reset_mlp_weights(self):
+        """Reset MLP weights to a healthy state"""
+        logging.warning("Resetting MLP weights due to corruption...")
+        
+        # Get the correct dtype from the embedding module
+        target_dtype = self.embed_module.weight.dtype
+        
+        with torch.no_grad():
+            # Reset first layer with VERY conservative initialization
+            nn.init.normal_(self.position_wise_mlp[0].weight, mean=0.0, std=0.001)  # Reduced from 0.01
+            nn.init.zeros_(self.position_wise_mlp[0].bias)
+            
+            # Reset final layer with EXTREMELY small initialization (near-identity)
+            nn.init.normal_(self.position_wise_mlp[3].weight, mean=0.0, std=0.00001)  # Reduced from 0.0001
+            nn.init.zeros_(self.position_wise_mlp[3].bias)
+            
+            # Ensure correct dtype
+            self.position_wise_mlp[0].weight.data = self.position_wise_mlp[0].weight.data.to(dtype=target_dtype)
+            self.position_wise_mlp[0].bias.data = self.position_wise_mlp[0].bias.data.to(dtype=target_dtype)
+            self.position_wise_mlp[3].weight.data = self.position_wise_mlp[3].weight.data.to(dtype=target_dtype)
+            self.position_wise_mlp[3].bias.data = self.position_wise_mlp[3].bias.data.to(dtype=target_dtype)
+        
+        logging.info(f"MLP weights reset successfully with dtype {target_dtype}")
+
+    def safe_mlp_forward(self, embeddings):
+        """Safely apply MLP with health checks"""
+        # Check MLP health before forward pass
+        is_healthy, message = self.check_mlp_health()
+        if not is_healthy:
+            logging.error(f"MLP unhealthy: {message}")
+            self.reset_mlp_weights()
+            return embeddings  # Return original embeddings if MLP is corrupted
+        
+        # Ensure input is the right dtype
+        target_dtype = next(self.position_wise_mlp.parameters()).dtype
+        if embeddings.dtype != target_dtype:
+            embeddings = embeddings.to(dtype=target_dtype)
+        
+        # Apply MLP
+        try:
+            output = self.position_wise_mlp(embeddings)
+            
+            # Check output for NaN/Inf
+            if torch.isnan(output).any() or torch.isinf(output).any():
+                logging.error("NaN/Inf detected in MLP output")
+                self.reset_mlp_weights()
+                return embeddings
+            
+            return output
+        except Exception as e:
+            logging.error(f"Error in MLP forward pass: {e}")
+            self.reset_mlp_weights()
+            return embeddings
+
+    def debug_mlp_forward(self, embeddings):
+        """Debug version of MLP forward to see where corruption happens"""
+        logging.info(f"=== MLP Forward Debug ===")
+        logging.info(f"Input shape: {embeddings.shape}")
+        logging.info(f"Input stats: min={embeddings.min():.6f}, max={embeddings.max():.6f}, mean={embeddings.mean():.6f}")
+        
+        x = embeddings
+        for i, layer in enumerate(self.position_wise_mlp):
+            if isinstance(layer, nn.Linear):
+                logging.info(f"Layer {i} ({type(layer).__name__}):")
+                logging.info(f"  Weight stats: min={layer.weight.min():.6f}, max={layer.weight.max():.6f}, mean={layer.weight.mean():.6f}")
+                logging.info(f"  Bias stats: min={layer.bias.min():.6f}, max={layer.bias.max():.6f}, mean={layer.bias.mean():.6f}")
+            
+            x_before = x.clone()
+            x = layer(x)
+            
+            logging.info(f"  After layer {i}: min={x.min():.6f}, max={x.max():.6f}, mean={x.mean():.6f}")
+            
+            if torch.isnan(x).any():
+                logging.error(f"  NaN detected after layer {i}!")
+                logging.info(f"  Input to this layer: min={x_before.min():.6f}, max={x_before.max():.6f}")
+                break
+            if torch.isinf(x).any():
+                logging.error(f"  Inf detected after layer {i}!")
+                break
+                
+        return x
+
+    def freeze_mlp_weights(self):
+        """Freeze MLP weights for LoRA training"""
+        for param in self.position_wise_mlp.parameters():
+            param.requires_grad = False
+        logger.info("Frozen MLP weights")
+
+    def unfreeze_mlp_weights(self):
+        """Unfreeze MLP weights for MLP training"""
+        for param in self.position_wise_mlp.parameters():
+            param.requires_grad = True
+        logger.info("Unfrozen MLP weights")
+
+    def freeze_lora_weights(self):
+        """Freeze LoRA weights AND QFormer for MLP training"""
+        frozen_count = 0
+        
+        # Freeze LoRA weights
+        for name, param in self.named_parameters():
+            if 'lora' in name.lower():
+                param.requires_grad = False
+                frozen_count += 1
+        
+        # Freeze QFormer components (speech_Qformer and speech_query_tokens)
+        if hasattr(self.salmonn, 'speech_Qformer'):
+            for name, param in self.salmonn.speech_Qformer.named_parameters():
+                param.requires_grad = False
+                frozen_count += 1
+        
+        if hasattr(self.salmonn, 'speech_query_tokens'):
+            self.salmonn.speech_query_tokens.requires_grad = False
+            frozen_count += 1
+        
+        # Freeze speech_llama_proj if it should be trainable during LoRA
+        if hasattr(self.salmonn, 'speech_llama_proj'):
+            for name, param in self.salmonn.speech_llama_proj.named_parameters():
+                param.requires_grad = False
+                frozen_count += 1
+        
+        logger.info(f"Frozen LoRA and QFormer weights ({frozen_count} parameters)")
+
+    def unfreeze_lora_weights(self):
+        """Unfreeze LoRA weights AND QFormer for LoRA training"""
+        unfrozen_count = 0
+        
+        # Unfreeze LoRA weights
+        for name, param in self.named_parameters():
+            if 'lora' in name.lower():
+                param.requires_grad = True
+                unfrozen_count += 1
+        
+        # Unfreeze QFormer components for training (since freeze_speech_QFormer=False in your config)
+        if hasattr(self.salmonn, 'speech_Qformer'):
+            for name, param in self.salmonn.speech_Qformer.named_parameters():
+                param.requires_grad = True
+                unfrozen_count += 1
+        
+        if hasattr(self.salmonn, 'speech_query_tokens'):
+            self.salmonn.speech_query_tokens.requires_grad = True
+            unfrozen_count += 1
+        
+        # Unfreeze speech_llama_proj if it should be trainable during LoRA
+        # Check your SALMONN config - if freeze_speech_llama_proj=False, then unfreeze it
+        if hasattr(self.salmonn, 'speech_llama_proj'):
+            for name, param in self.salmonn.speech_llama_proj.named_parameters():
+                param.requires_grad = True  # Set to True if freeze_speech_llama_proj=False
+                unfrozen_count += 1
+        
+        logger.info(f"Unfrozen LoRA and QFormer weights ({unfrozen_count} parameters)")
+
+    def get_trainable_parameters(self):
+        """Get currently trainable parameters with detailed breakdown"""
+        lora_params = []
+        mlp_params = []
+        qformer_params = []
+        projection_params = []
+        other_params = []
+        
+        frozen_params = []
+        
+        for name, param in self.named_parameters():
+            if param.requires_grad:
+                if 'lora' in name.lower():
+                    lora_params.append(name)
+                elif 'position_wise_mlp' in name:
+                    mlp_params.append(name)
+                elif 'speech_qformer' in name.lower() or 'speech_query_tokens' in name.lower():
+                    qformer_params.append(name)
+                elif 'speech_llama_proj' in name.lower():
+                    projection_params.append(name)
+                else:
+                    other_params.append(name)
+            else:
+                frozen_params.append(name)
+        
+        # Log breakdown
+        logger.info(f"Trainable parameter breakdown:")
+        logger.info(f"  LoRA parameters: {len(lora_params)}")
+        logger.info(f"  MLP parameters: {len(mlp_params)}")
+        logger.info(f"  QFormer parameters: {len(qformer_params)}")
+        logger.info(f"  Projection parameters: {len(projection_params)}")
+        logger.info(f"  Other parameters: {len(other_params)}")
+        logger.info(f"  Frozen parameters: {len(frozen_params)}")
+        
+        trainable = lora_params + mlp_params + qformer_params + projection_params + other_params
+        return trainable, frozen_params

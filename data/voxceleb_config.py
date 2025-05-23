@@ -27,6 +27,7 @@ VOXCELEB_CONFIG = DatasetConfig(
     paths={
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_train_20fewshots",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_test_20fewshots",
+        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_validation_5fewshots_new",
     },
     prompt_template="""You are a sentiment analysis expert. Based on the input, respond with EXACTLY ONE WORD from these options: positive, negative, or neutral.
 
@@ -40,6 +41,7 @@ Guidelines:
     audio_lookup_paths={
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_train_audio_lookup",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_test_audio_lookup",
+        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_validation_audio_lookup_new",
     }
 )
 

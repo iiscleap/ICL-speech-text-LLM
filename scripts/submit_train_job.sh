@@ -2,7 +2,7 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxpopuli_greek, meld_emotion_greek"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
+dataset_type="voxpopuli, meld_emotion"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
 # dataset_type="voxceleb_greek, hvb_greek"
 # dataset_type="meld_emotion,voxpopuli"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
@@ -73,7 +73,7 @@ effective_batch_size=$((batch_size * gradient_accumulation_steps))
 CURRENT_DATETIME=$(date +"%d%m_%H%M")
 
 # Generate a descriptive run name with date and time at the start
-RUN_NAME="${CURRENT_DATETIME}_ft_${num_examples}ex_${num_epochs}e${effective_batch_size}b_${model_type}_${input_mode}_${fewshot_mode}_${CLEAN_DATASET_TYPE}_random"
+RUN_NAME="${CURRENT_DATETIME}_ft_${num_examples}ex_${num_epochs}e${effective_batch_size}b_${model_type}_${input_mode}_${fewshot_mode}_${CLEAN_DATASET_TYPE}"
 
 # Set script path
 SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/train/train.py"
@@ -114,7 +114,7 @@ qsub -q gpu.q -V -cwd \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=2,\
+    -v CUDA_VISIBLE_DEVICES=0,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

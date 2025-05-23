@@ -9,29 +9,29 @@ VOXPOPULI_CONFIG = DatasetConfig(
     },
     prompt_template="""You are an Entity Type Classification system. For the given input, identify which of the following entity types are present:
 
-- LAW: Laws, regulations, directives, and legal frameworks
-- NORP: Nationalities, religious, or political groups
-- ORG: Companies, agencies, institutions
-- PERSON: People, including fictional characters
-- PLACE: Countries, cities, locations
-- QUANT: Numbers, quantities, percentages
-- WHEN: Dates, times, durations, periods
+- law: Laws, regulations, directives, and legal frameworks
+- norp: Nationalities, religious, or political groups
+- org: Companies, agencies, institutions
+- person: People, including fictional characters
+- place: Countries, cities, locations
+- quant: Numbers, quantities, percentages
+- when: Dates, times, durations, periods
 
 Guidelines:
-1. Return ONLY the entity type if present (e.g., 'PLACE', 'PERSON')
-2. Return 'None' if no entity types are found
+1. Return ONLY the entity type if present (e.g., 'place', 'person')
+2. Return 'none' if no entity types are found
 3. Be precise in identifying entity types""",
-    valid_labels=["LAW", "NORP", "ORG", "PERSON", "PLACE", "QUANT", "WHEN"],
+    valid_labels=["law", "norp", "org", "person", "place", "quant", "when"],
     completion_key="normalized_combined_ner",
     text_key="normalized_text",
-audio_lookup_paths={
-        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_audio_lookup",
-        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_test_audio_lookup",
+# audio_lookup_paths={
+#         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_audio_lookup",
+#         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_audio_lookup",
+#     }
+    audio_lookup_paths={
+        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
+        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
     }
-    # audio_lookup_paths={
-    #     DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
-    #     DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
-    # }
 )
 
 # VOXPOPULI_GREEK_CONFIG = DatasetConfig(

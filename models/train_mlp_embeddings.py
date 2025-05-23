@@ -10,8 +10,7 @@ from tqdm import tqdm
 # Add parent directory to path for imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from models.mlp_embedding_model import MLPEmbeddingModel
-from models.custom_salmon import CustomSALMONN
+from models.mlp_salmonn import MLPSalmonn
 from utils.data_utils import load_dataset
 from data.dataset_factory import DatasetFactory
 from data.master_config import DatasetType
@@ -29,14 +28,14 @@ def parse_args():
     parser.add_argument("--peft_model_path", type=str, required=True, help="Path to pretrained model")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for training")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate for MLP training")
-    parser.add_argument("--num_epochs", type=int, default=1, help="Number of epochs to train")
-    parser.add_argument("--hidden_dim", type=int, default=32, help="Hidden dimension for MLP (smaller = fewer parameters)")
+    parser.add_argument("--num_epochs", type=int, default=3, help="Number of epochs to train")
+    parser.add_argument("--hidden_dim", type=int, default=8, help="Hidden dimension for MLP (smaller = fewer parameters)")
     parser.add_argument("--dropout", type=float, default=0.1, help="Dropout for MLP")
     
     # Dataset parameters
     parser.add_argument("--dataset_type", type=str, default="voxceleb_greek-hvb_greek", 
                       help="Dataset type(s) to use, hyphen-separated for multi-dataset")
-    parser.add_argument("--max_samples", type=int, default=10, 
+    parser.add_argument("--max_samples", type=int, default=16, 
                       help="Maximum number of samples to use (0 = use all samples)")
     parser.add_argument("--debug_samples", type=int, default=0, 
                       help="Number of samples to use for debugging (0 = use all samples)")
@@ -93,118 +92,294 @@ def get_label_tokens_from_dataset_types(dataset_types):
     
     return unique_label_tokens
 
+
 def train(model, dataloader, args):
-    """Train MLP embedding transformations using backpropagation"""
-    # Set up optimizer for MLP parameters
-    optimizer = torch.optim.AdamW(
+    """Train MLP embedding transformations using backpropagation with gradient accumulation"""
+    optimizer = torch.optim.SGD(
         filter(lambda p: p.requires_grad, model.parameters()),
-        lr=args.lr
+        lr=args.lr,
+        momentum=0.0,
+        weight_decay=0.0
     )
     
-    # Training loop
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min', 
+        factor=0.5, 
+        patience=3,
+        verbose=True
+    )
+
+
+    # Gradient accumulation settings
+    accumulation_steps = 8
+    effective_batch_size = args.batch_size * accumulation_steps
+    
+    logger.info(f"Using gradient accumulation: {accumulation_steps} steps")
+    logger.info(f"Effective batch size: {effective_batch_size}")
+    
     for epoch in range(args.num_epochs):
-        logger.info(f"Starting epoch {epoch+1}/{args.num_epochs}")
         model.train()
+        
+        # Reset tracking variables at start of epoch
         total_loss = 0
         total_samples = 0
-        
-
-        optimizer.zero_grad()
-        # Process batches
+        valid_update_steps = 0  # Track actual optimizer steps
+        accumulated_loss = 0
         progress_bar = tqdm(dataloader, desc=f"Epoch {epoch+1}")
+        consecutive_failures = 0
+        
         for batch_idx, batch in enumerate(progress_bar):
             try:
-                # Move batch to device
                 batch = {k: v.to(args.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+                
+                # Simple health check (no verbose logging)
+                is_healthy, _ = model.check_mlp_health()
+                if not is_healthy:
+                    model.reset_mlp_weights()
+                    optimizer.zero_grad()
+                    accumulated_loss = 0
+                    consecutive_failures += 1
+                    
+                    if consecutive_failures > 5:
+                        logger.error("Too many consecutive MLP failures, stopping training")
+                        break
+                    continue
                 
                 # Forward pass
                 outputs = model(batch)
                 loss = outputs["loss"]
+                loss = loss / accumulation_steps
                 
-                # Backward pass
+                # Check for NaN loss
+                if torch.isnan(loss) or torch.isinf(loss):
+                    consecutive_failures += 1
+                    continue
+                
+                consecutive_failures = 0
                 loss.backward()
+                accumulated_loss += loss.item()
                 
-                
-                # Track metrics
-                batch_size = batch["input_ids"].size(0) if "input_ids" in batch else 1
-                total_loss += loss.item() * batch_size
-                total_samples += batch_size
-                
-                # Update progress bar
-                progress_bar.set_postfix(loss=f"{loss.item():.4f}", avg_loss=f"{total_loss/total_samples:.4f}")
-                
+                # Only update weights every accumulation_steps
+                if (batch_idx + 1) % accumulation_steps == 0:
+                    # Quick health check without verbose logging
+                    nan_grads = False
+                    max_grad_norm = 0.0
                     
+                    for name, param in model.named_parameters():
+                        if param.grad is not None:
+                            grad_norm = param.grad.norm().item()
+                            max_grad_norm = max(max_grad_norm, grad_norm)
+                            
+                            if torch.isnan(param.grad).any() or torch.isinf(param.grad).any():
+                                logger.warning(f"NaN/Inf gradient detected in {name}")
+                                nan_grads = True
+                                break
+                    
+                    if nan_grads or max_grad_norm > 10.0:
+                        logger.warning(f"Skipping update step due to problematic gradients (max norm: {max_grad_norm:.6f})")
+                        optimizer.zero_grad()
+                        accumulated_loss = 0
+                        model.reset_mlp_weights()
+                        continue
+                    
+                    # Simple health check
+                    is_healthy_before_opt, _ = model.check_mlp_health()
+                    if not is_healthy_before_opt:
+                        logger.warning("MLP unhealthy before optimizer step, resetting")
+                        model.reset_mlp_weights()
+                        optimizer.zero_grad()
+                        accumulated_loss = 0
+                        continue
+                    
+                    # Clip gradients
+                    torch.nn.utils.clip_grad_norm_(
+                        filter(lambda p: p.requires_grad, model.parameters()), 
+                        max_norm=1.0
+                    )
+                    
+                    # Update weights
+                    optimizer.step()
+                    
+                    # Quick health check after update
+                    is_healthy_after_opt, _ = model.check_mlp_health()
+                    if not is_healthy_after_opt:
+                        logger.warning("MLP corrupted after optimizer step, resetting")
+                        model.reset_mlp_weights()
+                        optimizer.zero_grad()
+                        accumulated_loss = 0
+                        continue
+                    
+                    optimizer.zero_grad()
+                    
+                    # Update tracking - THIS IS THE KEY FIX
+                    valid_update_steps += 1  # Count this as a valid update step
+                    avg_loss = accumulated_loss / accumulation_steps
+                    total_loss += accumulated_loss  # Add to total
+                    total_samples += accumulation_steps  # Count samples
+                    accumulated_loss = 0
+                    
+                    # Log progress
+                    logger.info(f"Step {valid_update_steps}: loss={avg_loss:.6f}, max_grad_norm={max_grad_norm:.6f}")
+                
             except Exception as e:
                 logger.error(f"Error processing batch {batch_idx}: {str(e)}")
                 torch.cuda.empty_cache()
+                # Reset everything on error
+                optimizer.zero_grad()
+                accumulated_loss = 0
+                model.reset_mlp_weights()
+                consecutive_failures += 1
+                
+                if consecutive_failures > 5:
+                    logger.error("Too many consecutive failures, stopping training")
+                    break
                 continue
 
-        # Clip gradients
-        torch.nn.utils.clip_grad_norm_(
-            filter(lambda p: p.requires_grad, model.parameters()), 
-            max_norm=1.0
+        # Handle remaining gradients if the last batch doesn't align with accumulation_steps
+        if accumulated_loss > 0:
+            # Check for NaN gradients
+            nan_grads = False
+            for name, param in model.named_parameters():
+                if param.grad is not None and (torch.isnan(param.grad).any() or torch.isinf(param.grad).any()):
+                    logger.warning(f"NaN/Inf gradient detected in {name} (final step)")
+                    nan_grads = True
+                    break
+            
+            if not nan_grads:
+                # Clip gradients
+                torch.nn.utils.clip_grad_norm_(
+                    filter(lambda p: p.requires_grad, model.parameters()), 
+                    max_norm=1.0
                 )
-        optimizer.step()   
+                
+                # Update weights
+                optimizer.step()
+                valid_update_steps += 1
+                
+                # Track final metrics
+                total_loss += accumulated_loss * accumulation_steps * args.batch_size
+                total_samples += args.batch_size * ((batch_idx + 1) % accumulation_steps)
+            
+            optimizer.zero_grad()
 
-        # Calculate average loss for the epoch
-        avg_loss = total_loss / total_samples if total_samples > 0 else 0
-        logger.info(f"Epoch {epoch+1}/{args.num_epochs} complete - Average loss: {avg_loss:.4f}")
-        
-
-        # Find and save nearest tokens
-        results = model.find_nearest_token_embeddings(
-            exclude_label_tokens=False,
-            top_k=20,
-            min_similarity=0.5
-        )
-        
-        # Save results to JSON
-        results_path = os.path.join(args.output_dir, f"nearest_tokens_epoch_{epoch+1}.json")
-        save_results_to_json(results, results_path)
+        # Calculate average loss for the epoch - FIX THE CONDITION
+        if valid_update_steps > 0:  # Change from valid_batches to valid_update_steps
+            avg_loss = total_loss / total_samples
+            logger.info(f"Epoch {epoch+1}/{args.num_epochs} complete - Average loss: {avg_loss:.4f} ({valid_update_steps} update steps)")
+            
+            # === SYMBOL MAPPING DISCOVERY AND SAVING ===
+            logger.info("=== Symbol Discovery After Epoch ===")
+            
+            try:
+                # Find symbol mappings (returns token_id -> token_id mappings)
+                raw_mappings = model.find_symbol_mappings()
+                
+                # Get label mappings (full labels like 'alpha' -> 'Alpha', 'flob' -> 'FLOB')
+                label_mappings = model.get_label_mappings() if hasattr(model, 'get_label_mappings') else {}
+                
+                # Convert raw token mappings to human-readable text
+                token_mappings = {}
+                if raw_mappings:
+                    tokenizer = model.llama_tokenizer
+                    
+                    logger.info(f"Found {len(raw_mappings)} token mappings:")
+                    for source_token_id, target_token_id in raw_mappings.items():
+                        # Convert token IDs to text
+                        source_text = tokenizer.decode([int(source_token_id)], skip_special_tokens=False).strip()
+                        target_text = tokenizer.decode([int(target_token_id)], skip_special_tokens=False).strip()
+                        
+                        # Only save meaningful mappings (not empty or identical)
+                        if source_text and target_text and source_text != target_text:
+                            token_mappings[source_text] = target_text
+                            logger.info(f"  '{source_text}' -> '{target_text}'")
+                
+                # Extract label mappings from the logs if model doesn't have get_label_mappings method
+                if not label_mappings:
+                    # Parse the combined mappings from model's discovery process
+                    # This is a fallback - ideally the model should provide get_label_mappings()
+                    logger.info("Attempting to extract label mappings from recent discovery...")
+                    
+                    # For now, create some example mappings based on the patterns we see
+                    # You might need to implement get_label_mappings() in the model
+                    potential_labels = ['alpha', 'beta', 'gamma', 'delta', 'fred', 'plugh', 'xyzzy', 'thud', 'wibble', 'wobble', 'wubble', 'flob', 'zoop']
+                    
+                    for label in potential_labels:
+                        # Try to reconstruct the combined mapping
+                        # This is approximate - better to get it directly from the model
+                        combined_result = ""
+                        for token in tokenizer.encode(label, add_special_tokens=False):
+                            token_text = tokenizer.decode([token], skip_special_tokens=False).strip()
+                            if token_text in token_mappings:
+                                combined_result += token_mappings[token_text]
+                            else:
+                                combined_result += token_text
+                        
+                        if combined_result and combined_result != label:
+                            label_mappings[label] = combined_result
+                
+                # Load existing combined file
+                combined_file = os.path.join(args.output_dir, "symbol_discovery_results.json")
+                all_results = {}
+                
+                if os.path.exists(combined_file):
+                    try:
+                        with open(combined_file, 'r', encoding='utf-8') as f:
+                            all_results = json.load(f)
+                    except:
+                        all_results = {}
+                
+                # Add current epoch results with both token and label mappings
+                epoch_key = f"epoch_{epoch+1}"
+                all_results[epoch_key] = {
+                    "loss": avg_loss,
+                    "token_mappings": token_mappings,  # Individual tokens: "alpha" -> "Alpha"
+                    "label_mappings": label_mappings,  # Full labels: "wobble" -> "stubbles"
+                    "num_token_mappings": len(token_mappings),
+                    "num_label_mappings": len(label_mappings),
+                    "timestamp": datetime.now().isoformat(),
+                    "update_steps": valid_update_steps
+                }
+                
+                # Save combined results
+                with open(combined_file, 'w', encoding='utf-8') as f:
+                    json.dump(all_results, f, indent=2, ensure_ascii=False)
+                
+                logger.info(f"✓ Saved epoch {epoch+1} results to: {combined_file}")
+                
+                # Print current epoch results
+                logger.info("=== Current Epoch Results ===")
+                logger.info(f"Epoch {epoch+1}: Loss = {avg_loss:.4f}, Steps = {valid_update_steps}")
+                
+                if token_mappings:
+                    logger.info(f"Found {len(token_mappings)} token mappings:")
+                    for token, mapped in token_mappings.items():
+                        logger.info(f"  Token: '{token}' -> '{mapped}'")
+                
+                if label_mappings:
+                    logger.info(f"Found {len(label_mappings)} label mappings:")
+                    for label, mapped in label_mappings.items():
+                        logger.info(f"  Label: '{label}' -> '{mapped}'")
+                
+                if not token_mappings and not label_mappings:
+                    logger.info("  No symbol mappings discovered this epoch")
+                
+            except Exception as e:
+                logger.error(f"❌ Error during symbol mapping discovery: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+            
+            logger.info("=== End Symbol Discovery ===")
+            
+        else:
+            logger.error("No valid update steps in this epoch!")
+            continue
+            
+        # Step the scheduler
+        scheduler.step(avg_loss)
     
     return model
 
-def save_results_to_json(results, path):
-    """Save token results to JSON file"""
-    clean_results = []
-    for result in results:
-        clean_result = {
-            "original_label": result["original_label"],
-            "token_results": [],
-            "combined_neighbors": []
-        }
-        
-        # Process token results
-        for token_result in result["token_results"]:
-            clean_token_result = {
-                "token_id": int(token_result["token_id"]),
-                "token_text": token_result["token_text"],
-                "neighbors": []
-            }
-            
-            for neighbor in token_result["neighbors"]:
-                clean_token_result["neighbors"].append({
-                    "token_id": int(neighbor["token_id"]),
-                    "token_text": neighbor["token_text"],
-                    "similarity": float(neighbor["similarity"])
-                })
-                
-            clean_result["token_results"].append(clean_token_result)
-        
-        # Process combined neighbors
-        for neighbor in result["combined_neighbors"]:
-            clean_result["combined_neighbors"].append({
-                "token_id": int(neighbor["token_id"]),
-                "token_text": neighbor["token_text"],
-                "similarity": float(neighbor["similarity"])
-            })
-            
-        clean_results.append(clean_result)
-
-    with open(path, 'w') as f:
-        json.dump(clean_results, f, indent=2)
-    
-    logger.info(f"Saved nearest token results to {path}")
 
 def main():
     # Parse arguments and setup
@@ -217,7 +392,6 @@ def main():
     try:
         # Create base model
         logger.info(f"Creating base model of type {args.model_type}")
-        base_model = CustomSALMONN(device=args.device, low_resource=True)
         
         # Parse dataset types
         dataset_types = [DatasetType(dt.strip()) for dt in args.dataset_type.split("-")]
@@ -225,13 +399,24 @@ def main():
         # Get label tokens
         label_tokens = get_label_tokens_from_dataset_types(dataset_types)
         
-        # Create MLP embedding model
-        mlp_model = MLPEmbeddingModel.from_custom_salmon(
-            base_model,
+
+        logger.info(f"Creating MLPSalmonn model with label tokens: {label_tokens}")
+        mlp_model = MLPSalmonn(
+            llama_path="lmsys/vicuna-13b-v1.1",
+            whisper_path="openai/whisper-large-v2",
+            beats_path="/data2/neeraja/neeraja/BEATs_iter3_plus_AS2M_finetuned_on_AS2M_cpt2.pt",
             label_tokens=label_tokens,
             hidden_dim=args.hidden_dim,
-            dropout=args.dropout
+            freeze_base=True,
+            lora=True,
+            lora_rank=8,  # Use same value as your pretrained model
+            lora_alpha=16,
+            lora_dropout=0.05,
+            device=args.device,
+            low_resource=True
         )
+
+
         
         # Load pretrained weights
         logger.info(f"Loading checkpoint from {args.peft_model_path}")
@@ -262,7 +447,7 @@ def main():
             is_training=True,
             input_mode="speech_only",
             fewshot_mode="text",
-            num_examples=0,
+            num_examples=5,
             random_examples=True,
             model_type=args.model_type,
             run_name=args.run_name
@@ -318,5 +503,5 @@ if __name__ == "__main__":
 
 
 # CUDA_VISIBLE_DEVICES=0 python /data2/neeraja/neeraja/code/ICL/models/train_mlp_embeddings.py \
-#     --peft_model_path /data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0055/model.pt \
-#     --dataset_type voxceleb_greek
+#     --peft_model_path /data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_1_loss_0.3191/model.pt \
+#     --dataset_type voxceleb_greek-hvb_greek

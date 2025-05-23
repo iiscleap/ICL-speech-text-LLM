@@ -163,7 +163,7 @@ class FewShotGenerator:
         source_labels = source_dataset[label_column]
         
         # Get index fields based on dataset type
-        if 'normalized_text' in source_dataset:  # VoxPopuli
+        if 'normalized_combined_ner' in source_dataset:  # VoxPopuli
             source_indices = source_dataset['id']
             index_type = 'voxpopuli'
         elif 'issue_id' in source_dataset:  # HVB
@@ -239,7 +239,7 @@ def create_audio_lookup_dataset(datasets, subset, source_splits=["train", "valid
 
 def main():
     # Choose dataset configuration
-    DATASET_CONFIG = "voxpopuli"  # Options: "voxpopuli", "voxceleb", "hvb"
+    DATASET_CONFIG = "hvb"  # Options: "voxpopuli", "voxceleb", "hvb"
     
     if DATASET_CONFIG == "voxpopuli":
         text_column = 'normalized_text'
@@ -258,10 +258,10 @@ def main():
         subset = "hvb"
 
     # source_split = ["train"]
-    source_split = ["train","validation"]
-    target_split = "train"
-    top_k = 1
-    gpu_id = 1
+    source_split = ["validation"]
+    target_split = "validation"
+    top_k = 5
+    gpu_id = 0
 
     # Initialize few-shot generator
     generator = FewShotGenerator(gpu_id=gpu_id)
@@ -323,14 +323,22 @@ def main():
     print(data_with_fewshots['few_shot_examples'][0])
     
     # Save the augmented test dataset
-    data_with_fewshots.save_to_disk(f"/data2/neeraja/neeraja/data/{dataset_name}_{subset}_{target_split}_{top_k}fewshots")
-    print(f"Dataset saved successfully to /data2/neeraja/neeraja/data/{dataset_name}_{subset}_{target_split}_{top_k}fewshots")
+    data_with_fewshots.save_to_disk(f"/data2/neeraja/neeraja/data/{dataset_name}_{subset}_{target_split}_{top_k}fewshots_new")
+    print(f"Dataset saved successfully to /data2/neeraja/neeraja/data/{dataset_name}_{subset}_{target_split}_{top_k}fewshots_new")
 
     # Create and save audio lookup dataset
     audio_lookup = create_audio_lookup_dataset(datasets, subset, source_splits=source_split)
-    save_path = f"/data2/neeraja/neeraja/data/{dataset_name}_{subset}_{target_split}_audio_lookup"
+    save_path = f"/data2/neeraja/neeraja/data/{dataset_name}_{subset}_{target_split}_audio_lookup_new"
     Dataset.from_dict(audio_lookup).save_to_disk(save_path)
     print(f"Audio lookup dataset saved to {save_path}")
 
 if __name__ == "__main__":
     main()
+
+
+    # /data2/neeraja/neeraja/data/asapp/slue_voxceleb_validation_5fewshots_new
+    # /data2/neeraja/neeraja/data/asapp/slue_voxceleb_validation_audio_lookup_new
+    # /data2/neeraja/neeraja/data/asapp/slue_voxceleb_test_audio_lookup_new
+    # /data2/neeraja/neeraja/data/asapp/slue_voxceleb_test_5fewshots_new
+    # /data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_validation_5fewshots_new
+    # /data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_validation_audio_lookup_new

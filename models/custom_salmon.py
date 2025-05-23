@@ -81,7 +81,8 @@ class CustomSALMONN(BaseModel):
             "lora_rank": lora_rank,
             "lora_alpha": lora_alpha,
             "lora_dropout": lora_dropout,
-            "low_resource": low_resource
+            "low_resource": low_resource,
+            "ckpt":ckpt_path
         }
 
         # Add logging for LoRA configuration

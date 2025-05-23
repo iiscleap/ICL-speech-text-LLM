@@ -8,6 +8,7 @@ HVB_CONFIG = DatasetConfig(
     paths={
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_train_20fewshots",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_test_20fewshots",
+        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_validation_5fewshots_new",
     },
     prompt_template="""You are a dialogue analysis expert for banking conversations. Based on the statement below, identify all applicable dialogue actions from the following options:
 
@@ -49,6 +50,7 @@ Guidelines:
     audio_lookup_paths={
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_train_audio_lookup",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_test_audio_lookup",
+        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_validation_audio_lookup_new",
     }
 )
 

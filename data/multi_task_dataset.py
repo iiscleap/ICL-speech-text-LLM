@@ -112,7 +112,7 @@ class BaseMultiTaskDataset(Dataset):
                 DatasetType.MELD_EMOTION,
                 DatasetType.MELD_GREEK,
                 DatasetType.MELD_EMOTION_GREEK,
-                # DatasetType.VOXPOPULI,
+                DatasetType.VOXPOPULI,
                 DatasetType.VOXPOPULI_GREEK,
                 DatasetType.VOXPOPULI_SWAP,
                 DatasetType.MELD_EMOTION_SWAP
@@ -354,7 +354,7 @@ class BaseMultiTaskDataset(Dataset):
         self.dataset_type == DatasetType.MELD_EMOTION or
         self.dataset_type == DatasetType.MELD_GREEK or
         self.dataset_type == DatasetType.MELD_EMOTION_GREEK or 
-        # self.dataset_type == DatasetType.VOXPOPULI or
+        self.dataset_type == DatasetType.VOXPOPULI or
         self.dataset_type == DatasetType.VOXPOPULI_GREEK or
         self.dataset_type == DatasetType.VOXPOPULI_SWAP or
         self.dataset_type == DatasetType.MELD_EMOTION_SWAP) and self.audio_lookup is not None and self.num_examples > 0:
