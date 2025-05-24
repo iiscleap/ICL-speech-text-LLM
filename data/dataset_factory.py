@@ -26,7 +26,7 @@ class DatasetFactory:
         model_type: str = "salmonn",
         run_name: str = "",
         randomize_swap: bool = False,
-        balance_datasets: bool = True,
+        balance_datasets: bool = False,
         interleave: bool = True
     ):
         """

@@ -63,7 +63,7 @@ def parse_args():
     parser.add_argument("--bf16", action="store_true", help="Use bfloat16 mixed precision training (better for newer GPUs)")
     parser.add_argument("--early_stopping_patience", type=int, default=3, 
                         help="Number of evaluations with no improvement after which training will be stopped")
-    parser.add_argument("--val_split", type=str, default="test", 
+    parser.add_argument("--val_split", type=str, default="validation", 
                         choices=["val", "test"],
                         help="Dataset split to use for validation")
     parser.add_argument("--weight_decay", type=float, default=0.01, help="Weight decay for AdamW")

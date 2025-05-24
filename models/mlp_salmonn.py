@@ -46,26 +46,26 @@ class MLPSalmonn(nn.Module):
         
         # Configure SALMONN without LoRA first
         salmonn_config = {
-            "llama_path": llama_path,
-            "whisper_path": whisper_path,
-            "beats_path": beats_path,
-            "lora": True,  # Important: Start without LoRA
-            "lora_rank": lora_rank,
-            "lora_alpha": lora_alpha,
-            "lora_dropout": lora_dropout,
-            "low_resource": False,
-            "use_speech_Qformer": True,
-            "freeze_whisper": True,
-            "freeze_beats": True,
-            "freeze_speech_QFormer":True,
-            "num_speech_query_token": 1,
-            "window_level_Qformer": True,
-            "second_per_window": 0.333333,
-            "second_stride": 0.333333,
-            "speech_llama_proj_model": "",
-            "freeze_speech_llama_proj": True,
-            "ckpt":"/data2/neeraja/neeraja/salmonn_v1.pth"
-        }
+        "llama_path": llama_path,
+        "whisper_path": whisper_path,
+        "beats_path": beats_path,
+        "lora": True,
+        "lora_rank": lora_rank,
+        "lora_alpha": lora_alpha,
+        "lora_dropout": lora_dropout,
+        "low_resource": False,
+        "use_speech_Qformer": True,
+        "freeze_whisper": True,
+        "freeze_beats": True,
+        "freeze_speech_QFormer": False,  # <-- Set to False to make QFormer trainable
+        "num_speech_query_token": 1,
+        "window_level_Qformer": True,
+        "second_per_window": 0.333333,
+        "second_stride": 0.333333,
+        "speech_llama_proj_model": "",
+        "freeze_speech_llama_proj": False,  # <-- Set to False if you want to train the projection layer
+        "ckpt": "/data2/neeraja/neeraja/salmonn_v1.pth"
+    }
 
         # Initialize the SALMONN model using from_config
         logging.info("Loading base SALMONN model without LoRA...")
@@ -203,10 +203,6 @@ class MLPSalmonn(nn.Module):
         # Process speech embeddings
         speech_embeds, speech_atts, example_embeds, example_atts = self.get_speech_embeddings(samples)
         
-        if hasattr(self, 'batch_counter'):
-            self.batch_counter += 1
-        else:
-            self.batch_counter = 0
         
         # First batch logging
         if self.batch_counter == 0:
@@ -251,7 +247,7 @@ class MLPSalmonn(nn.Module):
 
         # Apply MLP transformations to label tokens if in training mode
         if self.training and self.label_token_ids:
-            logging.info("Applying MLP to target embeddings")
+            # logging.info("Applying MLP to target embeddings")
             target_embeds = self.transform_text_embeddings(
                 target_embeds,
                 target_tokens.input_ids
@@ -281,7 +277,9 @@ class MLPSalmonn(nn.Module):
                 return_dict=True
             )
         
-        logging.info(f"Forward pass took {time.time() - start_time:.2f} seconds")
+        # logging.info(f"Forward pass took {time.time() - start_time:.2f} seconds")
+
+        self.batch_counter += 1
         return {"loss": outputs.loss, "logits": outputs.logits, "labels": labels}
     
     def get_speech_embeddings(self, samples):
@@ -650,7 +648,7 @@ class MLPSalmonn(nn.Module):
             logging.error("NaN/Inf detected in final transformed embeddings!")
             return embeddings
         
-        logging.info(f"Applied MLP to {is_label_token.sum().item()} label tokens")
+        # logging.info(f"Applied MLP to {is_label_token.sum().item()} label tokens")
         return transformed_embeddings
 
     def maybe_autocast(self):
@@ -929,13 +927,13 @@ class MLPSalmonn(nn.Module):
         """Freeze MLP weights for LoRA training"""
         for param in self.position_wise_mlp.parameters():
             param.requires_grad = False
-        logger.info("Frozen MLP weights")
+        logging.info("Frozen MLP weights")
 
     def unfreeze_mlp_weights(self):
         """Unfreeze MLP weights for MLP training"""
         for param in self.position_wise_mlp.parameters():
             param.requires_grad = True
-        logger.info("Unfrozen MLP weights")
+        logging.info("Unfrozen MLP weights")
 
     def freeze_lora_weights(self):
         """Freeze LoRA weights AND QFormer for MLP training"""
@@ -963,7 +961,7 @@ class MLPSalmonn(nn.Module):
                 param.requires_grad = False
                 frozen_count += 1
         
-        logger.info(f"Frozen LoRA and QFormer weights ({frozen_count} parameters)")
+        logging.info(f"Frozen LoRA and QFormer weights ({frozen_count} parameters)")
 
     def unfreeze_lora_weights(self):
         """Unfreeze LoRA weights AND QFormer for LoRA training"""
@@ -992,7 +990,7 @@ class MLPSalmonn(nn.Module):
                 param.requires_grad = True  # Set to True if freeze_speech_llama_proj=False
                 unfrozen_count += 1
         
-        logger.info(f"Unfrozen LoRA and QFormer weights ({unfrozen_count} parameters)")
+        logging.info(f"Unfrozen LoRA and QFormer weights ({unfrozen_count} parameters)")
 
     def get_trainable_parameters(self):
         """Get currently trainable parameters with detailed breakdown"""
@@ -1020,13 +1018,13 @@ class MLPSalmonn(nn.Module):
                 frozen_params.append(name)
         
         # Log breakdown
-        logger.info(f"Trainable parameter breakdown:")
-        logger.info(f"  LoRA parameters: {len(lora_params)}")
-        logger.info(f"  MLP parameters: {len(mlp_params)}")
-        logger.info(f"  QFormer parameters: {len(qformer_params)}")
-        logger.info(f"  Projection parameters: {len(projection_params)}")
-        logger.info(f"  Other parameters: {len(other_params)}")
-        logger.info(f"  Frozen parameters: {len(frozen_params)}")
+        logging.info(f"Trainable parameter breakdown:")
+        logging.info(f"  LoRA parameters: {len(lora_params)}")
+        logging.info(f"  MLP parameters: {len(mlp_params)}")
+        logging.info(f"  QFormer parameters: {len(qformer_params)}")
+        logging.info(f"  Projection parameters: {len(projection_params)}")
+        logging.info(f"  Other parameters: {len(other_params)}")
+        logging.info(f"  Frozen parameters: {len(frozen_params)}")
         
         trainable = lora_params + mlp_params + qformer_params + projection_params + other_params
         return trainable, frozen_params
