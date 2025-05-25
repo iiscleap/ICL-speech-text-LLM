@@ -5,6 +5,7 @@ VOXPOPULI_CONFIG = DatasetConfig(
     name=DatasetType.VOXPOPULI,
     paths={
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
+        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_test_20fewshots",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_test_20fewshots",
     },
     prompt_template="""You are an Entity Type Classification system. For the given input, identify which of the following entity types are present:
@@ -30,7 +31,40 @@ Guidelines:
 #     }
     audio_lookup_paths={
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
+        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
+    }
+)
+
+VOXPOPULI_GREEK_CONFIG = DatasetConfig(
+    name=DatasetType.VOXPOPULI_GREEK,
+    paths=VOXPOPULI_CONFIG.paths,
+    prompt_template="""You are an Entity Type Classification system. For the given input, identify which of the following entity types are present:
+
+- Zeta1: Laws, regulations, directives, and legal frameworks
+- Zeta2: Nationalities, religious, or political groups
+- Zeta3: Companies, agencies, institutions
+- Zeta4: People, including fictional characters
+- Zeta5: Countries, cities, locations
+- Zeta6: Numbers, quantities, percentages
+- Zeta7: Dates, times, durations, periods
+
+Guidelines:
+1. Return ONLY the entity type if present (e.g., 'Zeta5', 'Zeta4')
+2. Return 'None' if no entity types are found
+3. Be precise in identifying entity types""",
+    valid_labels=["zeta1", "zeta2", "zeta3", "zeta4", "zeta5", "zeta6", "zeta7"],
+    completion_key="normalized_combined_ner",
+    text_key="normalized_text",
+    audio_lookup_paths=VOXPOPULI_CONFIG.audio_lookup_paths,
+    label_mapping={
+        "law": "zeta1",
+        "norp": "zeta2",
+        "org": "zeta3",
+        "person": "zeta4",
+        "place": "zeta5",
+        "quant": "zeta6",
+        "when": "zeta7"
     }
 )
 
@@ -39,64 +73,32 @@ Guidelines:
 #     paths=VOXPOPULI_CONFIG.paths,
 #     prompt_template="""You are an Entity Type Classification system. For the given input, identify which of the following entity types are present:
 
-# - Zeta1: Laws, regulations, directives, and legal frameworks
-# - Zeta2: Nationalities, religious, or political groups
-# - Zeta3: Companies, agencies, institutions
-# - Zeta4: People, including fictional characters
-# - Zeta5: Countries, cities, locations
-# - Zeta6: Numbers, quantities, percentages
-# - Zeta7: Dates, times, durations, periods
+# - Jukbam: Laws, regulations, directives, and legal frameworks
+# - Nexpil: Nationalities, religious, or political groups
+# - Vorzat: Companies, agencies, institutions
+# - Fimtug: People, including fictional characters
+# - Qelzod: Countries, cities, locations
+# - Wacryl: Numbers, quantities, percentages
+# - Xespuj: Dates, times, durations, periods
 
 # Guidelines:
-# 1. Return ONLY the entity type if present (e.g., 'Zeta5', 'Zeta4')
+# 1. Return ONLY the entity type if present (e.g., 'Qelzod', 'Fimtug')
 # 2. Return 'None' if no entity types are found
 # 3. Be precise in identifying entity types""",
-#     valid_labels=["zeta1", "zeta2", "zeta3", "zeta4", "zeta5", "zeta6", "zeta7"],
+#     valid_labels=["jukbam", "nexpil", "vorzat", "fimtug", "qelzod", "wacryl", "xespuj"],
 #     completion_key="normalized_combined_ner",
 #     text_key="normalized_text",
 #     audio_lookup_paths=VOXPOPULI_CONFIG.audio_lookup_paths,
 #     label_mapping={
-#         "law": "zeta1",
-#         "norp": "zeta2",
-#         "org": "zeta3",
-#         "person": "zeta4",
-#         "place": "zeta5",
-#         "quant": "zeta6",
-#         "when": "zeta7"
+#         "law": "jukbam",
+#         "norp": "nexpil",
+#         "org": "vorzat",
+#         "person": "fimtug",
+#         "place": "qelzod",
+#         "quant": "wacryl",
+#         "when": "xespuj"
 #     }
 # )
-
-VOXPOPULI_GREEK_CONFIG = DatasetConfig(
-    name=DatasetType.VOXPOPULI_GREEK,
-    paths=VOXPOPULI_CONFIG.paths,
-    prompt_template="""You are an Entity Type Classification system. For the given input, identify which of the following entity types are present:
-
-- Jukbam: Laws, regulations, directives, and legal frameworks
-- Nexpil: Nationalities, religious, or political groups
-- Vorzat: Companies, agencies, institutions
-- Fimtug: People, including fictional characters
-- Qelzod: Countries, cities, locations
-- Wacryl: Numbers, quantities, percentages
-- Xespuj: Dates, times, durations, periods
-
-Guidelines:
-1. Return ONLY the entity type if present (e.g., 'Qelzod', 'Fimtug')
-2. Return 'None' if no entity types are found
-3. Be precise in identifying entity types""",
-    valid_labels=["jukbam", "nexpil", "vorzat", "fimtug", "qelzod", "wacryl", "xespuj"],
-    completion_key="normalized_combined_ner",
-    text_key="normalized_text",
-    audio_lookup_paths=VOXPOPULI_CONFIG.audio_lookup_paths,
-    label_mapping={
-        "law": "jukbam",
-        "norp": "nexpil",
-        "org": "vorzat",
-        "person": "fimtug",
-        "place": "qelzod",
-        "quant": "wacryl",
-        "when": "xespuj"
-    }
-)
 
 
 # Define descriptions for VoxPopuli entity types

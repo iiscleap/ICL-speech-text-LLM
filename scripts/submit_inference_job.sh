@@ -3,21 +3,21 @@
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
 # dataset_type="meld_emotion_greek,voxpopuli_greek"  # Options: "voxceleb", "hvb", "meld_emotion" "voxpopuli", etc., sqa, vp_nel
-dataset_type="hvb"  # Options: "voxceleb", "hvb", "meld_emotion" "voxpopuli", etc., sqa, vp_nel
-# dataset_type="hvb"
+dataset_type="hvb_greek,voxceleb_greek, meld_emotion,voxpopuli"  # Options: "voxceleb", "hvb", "meld_emotion" "voxpopuli", etc., sqa, vp_nel
+# dataset_type="hvb_greek"
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
-num_examples=3
+num_examples=2
 batch_size=1
 
-debug_samples=10  # Add debug_samples parameter (0 = use all samples)
+debug_samples=0  # Add debug_samples parameter (0 = use all samples)
 
 # Add near the top with other configuration options
 randomize_swap=false  # Set to true to randomize swap configurations
 
 # Node configuration
 queue_name="gpu.q"      # Queue to submit job to (gpu.q, med.q, etc.)
-hostname="compute-0-8"  # Hostname to run on
+hostname="compute-0-7"  # Hostname to run on
 cuda_device=0         # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
@@ -82,7 +82,7 @@ peft_model_path=""
 
 
 
-peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1604_0129_ft_5ex_20e8b_salmonn_speech_only_text_meld_emotion_greek-voxpopuli_greek/checkpoints/epoch_15_loss_0.0029/model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1604_0129_ft_5ex_20e8b_salmonn_speech_only_text_meld_emotion_greek-voxpopuli_greek/checkpoints/epoch_15_loss_0.0029/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1804_1354_ft_5ex_15e8b_salmonn_speech_only_text_meld_emotion-voxpopuli/checkpoints/epoch_4_loss_0.2972/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1604_0113_ft_5ex_20e8b_salmonn_speech_only_text_meld_emotion_swap-voxpopuli_swap/checkpoints/epoch_15_loss_0.0082/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1604_0121_ft_5ex_20e8b_salmonn_speech_only_text_meld_emotion_swap-voxpopuli_swap_nosymbol/checkpoints/epoch_15_loss_0.0078/model.pt"
@@ -91,6 +91,20 @@ peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/1604_01
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2504_0107_ft_5ex_15e8b_salmonn_speech_only_text_voxceleb_greek-hvb_greek/checkpoints/epoch_10_loss_0.0004/model.pt"
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/0605_1848_ft_5ex_15e8b_salmonn_speech_only_text_voxceleb_greek-hvb_greek_random/final_model.pt"
+
+
+
+
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2305_1201_ft_5ex_15e8b_salmonn_speech_only_text_voxpopuli-meld_emotion/checkpoints/epoch_10_loss_0.0132/model.pt"
+
+
+
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2305_0334_ft_5ex_15e8b_salmonn_speech_only_text_hvb-voxceleb/checkpoints/epoch_10_loss_0.0005/model.pt"
+
+
+peft_model_path="/data2/neeraja/neeraja/results/model_ICL/unified_training/2405_0313_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/2405_0313_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/cycle_2_lora_epoch_2/model.pt"
+
+
 
 # Clean dataset type for file names and Python
 if [[ $dataset_type == *","* ]]; then

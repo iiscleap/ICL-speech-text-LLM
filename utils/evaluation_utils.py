@@ -96,25 +96,6 @@ def evaluate_predictions(predictions: List[Dict[str, Any]], dataset_type: Datase
             logger.warning(f"Unsupported dataset type for evaluation: {dataset_type}")
             return {"accuracy": 0.0}
         
-        # Add error analysis
-        # error_analysis = analyze_errors(true_labels, pred_labels, dataset_type)
-        # metrics["error_analysis"] = error_analysis
-        
-        # # Log error analysis summary
-        # logger.info("\nError Analysis Summary:")
-        # logger.info(f"Total errors: {error_analysis.get('num_errors', 0)}")
-        # logger.info(f"Error rate: {error_analysis.get('error_rate', 0):.4f}")
-        
-        # if 'common_confusions' in error_analysis:
-        #     logger.info("\nMost common confusions:")
-        #     for confusion, count in error_analysis['common_confusions'].items():
-        #         logger.info(f"  {confusion}: {count}")
-        
-        # if 'common_missing_labels' in error_analysis:
-        #     logger.info("\nMost common missing labels:")
-        #     for label, count in error_analysis['common_missing_labels'].items():
-        #         logger.info(f"  {label}: {count}")
-        
         return metrics
     
     except Exception as e:
@@ -488,6 +469,7 @@ def evaluate_vp_nel(df: pd.DataFrame, valid_classes: List[str]) -> Dict:
 def clean_prediction(prediction: str, dataset_type: DatasetType = None) -> str:
     """
     Clean prediction based on dataset type and expected format.
+    Uses config-driven approach instead of hardcoded labels.
     """
     # First remove basic escape characters and normalize whitespace
     cleaned = prediction.replace('\\', '')
@@ -501,58 +483,85 @@ def clean_prediction(prediction: str, dataset_type: DatasetType = None) -> str:
     cleaned = re.sub(r',\s*$', '', cleaned)   # Remove trailing comma
     cleaned = re.sub(r'^\s*,', '', cleaned)   # Remove leading comma
     
-    # For VoxCeleb and VoxCeleb Greek predictions, take only the first word
+    # Get valid labels from config for any dataset type
+    valid_labels = None
+    try:
+        if dataset_type:
+            config = get_dataset_config(dataset_type)
+            
+            if config and hasattr(config, 'valid_labels') and config.valid_labels:
+                valid_labels = set([label.lower() for label in config.valid_labels])
+    except Exception as e:
+        logger.warning(f"Error getting config for {dataset_type}: {e}")
+        valid_labels = None
+    
+    # Dataset-specific processing based on expected format
     if dataset_type in [
-            DatasetType.VOXCELEB, 
-            DatasetType.VOXCELEB_GREEK, 
-            DatasetType.MELD, 
-            DatasetType.MELD_GREEK,
-            DatasetType.MELD_EMOTION,
-            DatasetType.MELD_EMOTION_GREEK
-        ]:
-        # Split by any non-word character and take first non-empty word
+        DatasetType.VOXCELEB, 
+        DatasetType.VOXCELEB_GREEK, 
+        DatasetType.MELD_EMOTION,
+        DatasetType.MELD_EMOTION_GREEK
+    ]:
+        # Single-label classification: take first valid word
         words = re.split(r'[^a-zA-Z]', cleaned)
         words = [w.strip().lower() for w in words]
         words = [w for w in words if w]  # Remove empty strings
         
-        if words:
+        if valid_labels and words:
+            # Return first valid label found
+            for word in words:
+                if word in valid_labels:
+                    return word
+            # If no valid label found, return first word as fallback
+            return words[0]
+        elif words:
             return words[0]
         return cleaned.lower()
     
-    
-    # For HVB and HVB_GREEK predictions, keep all valid labels
-    elif dataset_type in [DatasetType.HVB, DatasetType.HVB_GREEK]:
-        # Get valid labels based on dataset type
-        if dataset_type == DatasetType.HVB:
-            valid_labels = set([
-                "acknowledge", "answer_agree", "answer_dis", "answer_general",
-                "apology", "backchannel", "disfluency", "other",
-                "question_check", "question_general", "question_repeat",
-                "self", "statement_close", "statement_general",
-                "statement_instruct", "statement_open", "statement_problem",
-                "thanks"
-            ])
-        else:  # HVB_GREEK
-            valid_labels = set([
-                "foo", "bar", "baz", "qux", "quux", 
-                "corge", "grault", "garply", "waldo", "fred",
-                "plugh", "xyzzy", "thud", "wibble", "wobble",
-                "wubble", "flob", "zoop"
-            ])
-        
+    elif dataset_type in [
+        DatasetType.HVB, 
+        DatasetType.HVB_GREEK
+    ]:
+        # Multi-label classification: keep all valid labels
         labels = [l.strip().lower() for l in cleaned.split(',')]
         # Filter out empty strings and partial/incomplete labels
-        labels = [l for l in labels if l and '(' not in l]
+        labels = [l for l in labels if l and '(' not in l and l.strip()]
         
-        # Keep all valid labels found
-        valid_found = [label for label in labels if label in valid_labels]
+        if valid_labels:
+            # Keep only valid labels from config
+            valid_found = [label for label in labels if label in valid_labels]
+            if valid_found:
+                return ', '.join(valid_found)
+            # If no valid labels found, return cleaned original as fallback
+            return cleaned
+        else:
+            # No config available, return cleaned labels
+            return ', '.join(labels) if labels else cleaned
+    
+    elif dataset_type in [
+        DatasetType.VOXPOPULI, 
+        DatasetType.VOXPOPULI_GREEK
+    ]:
+        # Multi-label classification with 'none' option
+        if cleaned.lower().strip() == 'none':
+            return 'none'
         
-        if valid_found:
-            return ', '.join(valid_found)
-        return cleaned
-
-    # Dataset-specific cleaning
-    if dataset_type == DatasetType.SQA:
+        labels = [l.strip().lower() for l in cleaned.split(',')]
+        labels = [l for l in labels if l and '(' not in l and l.strip()]
+        
+        if valid_labels:
+            # Add 'none' to valid labels if not present
+            extended_valid = valid_labels.copy()
+            extended_valid.add('none')
+            
+            valid_found = [label for label in labels if label in extended_valid]
+            if valid_found:
+                return ', '.join(valid_found)
+            return cleaned
+        else:
+            return ', '.join(labels) if labels else cleaned
+    
+    elif dataset_type == DatasetType.SQA:
         # For SQA, expect "start_time end_time"
         cleaned = cleaned.strip()
         try:
@@ -582,7 +591,7 @@ def clean_prediction(prediction: str, dataset_type: DatasetType = None) -> str:
         except:
             return cleaned
     
-    # Default cleaning for all datasets
+    # Default cleaning for unknown dataset types
     return cleaned.lower().strip()
 
 def analyze_errors(true_labels: List[Any], pred_labels: List[Any], dataset_type: DatasetType) -> Dict[str, Any]:

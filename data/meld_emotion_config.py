@@ -29,64 +29,64 @@ Guidelines:
 )
 
 # Greek version with arbitrary greek letter mappings
-# MELD_EMOTION_GREEK_CONFIG = DatasetConfig(
-#     name=DatasetType.MELD_EMOTION_GREEK,
-#     paths=MELD_EMOTION_CONFIG.paths,
-#     prompt_template="""You are an emotion recognition expert. Based on the input, respond with EXACTLY ONE WORD from these options: alpha, beta, gamma, delta, epsilon, zeta, eta.
-
-# Guidelines:
-# - Choose alpha if there is no distinct emotional state (neutral)
-# - Choose beta if there is happiness, excitement, delight, pleasure, or positive enthusiasm
-# - Choose gamma if there is unhappiness, sorrow, grief, disappointment, or regret
-# - Choose delta if there is irritation, rage, fury, annoyance, or hostility
-# - Choose epsilon if there is terror, anxiety, worry, concern, or nervousness
-# - Choose zeta if there is repulsion, distaste, revulsion, or strong dislike
-# - Choose eta if there is astonishment, shock, amazement, or unexpected reaction""",
-#     valid_labels=["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta"],
-#     label_mapping={
-#         "neutral": "alpha", 
-#         "joy": "beta", 
-#         "sadness": "gamma", 
-#         "anger": "delta", 
-#         "fear": "epsilon", 
-#         "disgust": "zeta", 
-#         "surprise": "eta"
-#     },
-#     audio_lookup_paths=MELD_EMOTION_CONFIG.audio_lookup_paths,
-#     text_key=MELD_EMOTION_CONFIG.text_key,
-#     completion_key=MELD_EMOTION_CONFIG.completion_key
-# )
-
-
 MELD_EMOTION_GREEK_CONFIG = DatasetConfig(
     name=DatasetType.MELD_EMOTION_GREEK,
     paths=MELD_EMOTION_CONFIG.paths,
-    prompt_template="""You are an emotion analysis expert. Based on the input, identify the most likely emotion from these options: wiprol, cynbax, durfez, kantol, puzvit, jogdem, or helfun.
+    prompt_template="""You are an emotion recognition expert. Based on the input, respond with EXACTLY ONE WORD from these options: alpha, beta, gamma, delta, epsilon, zeta, eta.
 
 Guidelines:
-- Choose wiprol for expressions of joy, happiness, delight, or enthusiasm
-- Choose cynbax for expressions of sadness, disappointment, or grief
-- Choose durfez for expressions of anger, irritation, annoyance, or rage
-- Choose kantol for neutral statements with no clear emotion
-- Choose puzvit for expressions of surprise, shock, or astonishment
-- Choose jogdem for expressions of fear, worry, or anxiety
-- Choose helfun for expressions of disgust or repulsion
-
-Respond with only the emotion label.""",
-    valid_labels=["wiprol", "cynbax", "durfez", "kantol", "puzvit", "jogdem", "helfun"],
-    completion_key=MELD_EMOTION_CONFIG.completion_key,
-    text_key=MELD_EMOTION_CONFIG.text_key,
-    audio_lookup_paths=MELD_EMOTION_CONFIG.audio_lookup_paths,
+- Choose alpha if there is no distinct emotional state (neutral)
+- Choose beta if there is happiness, excitement, delight, pleasure, or positive enthusiasm
+- Choose gamma if there is unhappiness, sorrow, grief, disappointment, or regret
+- Choose delta if there is irritation, rage, fury, annoyance, or hostility
+- Choose epsilon if there is terror, anxiety, worry, concern, or nervousness
+- Choose zeta if there is repulsion, distaste, revulsion, or strong dislike
+- Choose eta if there is astonishment, shock, amazement, or unexpected reaction""",
+    valid_labels=["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta"],
     label_mapping={
-        "joy": "wiprol",
-        "sadness": "cynbax", 
-        "anger": "durfez",
-        "neutral": "kantol",
-        "surprise": "puzvit",
-        "fear": "jogdem",
-        "disgust": "helfun"
-    }
+        "neutral": "alpha", 
+        "joy": "beta", 
+        "sadness": "gamma", 
+        "anger": "delta", 
+        "fear": "epsilon", 
+        "disgust": "zeta", 
+        "surprise": "eta"
+    },
+    audio_lookup_paths=MELD_EMOTION_CONFIG.audio_lookup_paths,
+    text_key=MELD_EMOTION_CONFIG.text_key,
+    completion_key=MELD_EMOTION_CONFIG.completion_key
 )
+
+
+# MELD_EMOTION_GREEK_CONFIG = DatasetConfig(
+#     name=DatasetType.MELD_EMOTION_GREEK,
+#     paths=MELD_EMOTION_CONFIG.paths,
+#     prompt_template="""You are an emotion analysis expert. Based on the input, identify the most likely emotion from these options: wiprol, cynbax, durfez, kantol, puzvit, jogdem, or helfun.
+
+# Guidelines:
+# - Choose wiprol for expressions of joy, happiness, delight, or enthusiasm
+# - Choose cynbax for expressions of sadness, disappointment, or grief
+# - Choose durfez for expressions of anger, irritation, annoyance, or rage
+# - Choose kantol for neutral statements with no clear emotion
+# - Choose puzvit for expressions of surprise, shock, or astonishment
+# - Choose jogdem for expressions of fear, worry, or anxiety
+# - Choose helfun for expressions of disgust or repulsion
+
+# Respond with only the emotion label.""",
+#     valid_labels=["wiprol", "cynbax", "durfez", "kantol", "puzvit", "jogdem", "helfun"],
+#     completion_key=MELD_EMOTION_CONFIG.completion_key,
+#     text_key=MELD_EMOTION_CONFIG.text_key,
+#     audio_lookup_paths=MELD_EMOTION_CONFIG.audio_lookup_paths,
+#     label_mapping={
+#         "joy": "wiprol",
+#         "sadness": "cynbax", 
+#         "anger": "durfez",
+#         "neutral": "kantol",
+#         "surprise": "puzvit",
+#         "fear": "jogdem",
+#         "disgust": "helfun"
+#     }
+# )
 
 # Descriptions for each emotion category
 MELD_EMOTION_DESCRIPTIONS = [

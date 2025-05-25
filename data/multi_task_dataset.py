@@ -201,7 +201,7 @@ class BaseMultiTaskDataset(Dataset):
                 if not is_example:
                     label = convert_ner_to_dict(text, label)
                 label_dict = [k for k, v in label.items() if v]
-                label= ', '.join(label_dict) if label_dict else 'None'
+                label= ', '.join(label_dict) if label_dict else 'none'
         
         # Handle list-type labels (for HVB datasets)
         if isinstance(label, list):

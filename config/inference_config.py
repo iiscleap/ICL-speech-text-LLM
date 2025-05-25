@@ -17,7 +17,7 @@ def get_inference_config(model_type: str, dataset_type: Optional[DatasetType] = 
         "num_workers": 2,
         "batch_size": 1,
         "generation_args": {
-            "max_new_tokens": 50,
+            "max_new_tokens": 10,
             "temperature": 0.7,
             "top_p": 0.9,
             "do_sample": True,
@@ -33,7 +33,7 @@ def get_inference_config(model_type: str, dataset_type: Optional[DatasetType] = 
                 "beats_path": "/data2/neeraja/neeraja/BEATs_iter3_plus_AS2M_finetuned_on_AS2M_cpt2.pt",
                 "lora": True,
                 "lora_rank": 8,
-                "lora_alpha": 16,
+                "lora_alpha": 32,
                 "lora_dropout": 0.05,
                 "max_txt_len": 128,
             }
