@@ -54,151 +54,122 @@ Guidelines:
     }
 )
 
-# HVB_GREEK_CONFIG = DatasetConfig(
-#     name=DatasetType.HVB_GREEK,
-#     paths=HVB_CONFIG.paths,
-#     prompt_template="""You are a dialogue analysis expert for banking conversations. Based on the statement below, identify all applicable dialogue actions from the following options:
-
-# Available dialogue actions:
-# - foo: Shows understanding or receipt of information
-# - bar: Expresses agreement
-# - baz: Expresses disagreement
-# - qux: General response to a question
-# - quux: Expression of regret or sorry
-# - corge: Brief verbal/textual feedback
-# - grault: Speech repairs, repetitions, or corrections
-# - garply: Actions that don't fit other categories
-# - waldo: Questions to verify understanding
-# - fred: General information-seeking questions
-# - plugh: Requests for repetition
-# - xyzzy: Self-directed speech
-# - thud: Concluding statements
-# - wibble: General statements or information
-# - wobble: Instructions or directions
-# - wubble: Opening statements or greetings
-# - flob: Statements describing issues or problems
-# - zoop: Expressions of gratitude""",
-#     valid_labels=[
-#         "foo", "bar", "baz", "qux", "quux", 
-#         "corge", "grault", "garply", "waldo", "fred",
-#         "plugh", "xyzzy", "thud", "wibble", "wobble",
-#         "wubble", "flob", "zoop"
-#     ],
-#     completion_key=HVB_CONFIG.completion_key,
-#     text_key=HVB_CONFIG.text_key,
-#     audio_lookup_paths=HVB_CONFIG.audio_lookup_paths,
-#     label_mapping={
-#         "acknowledge": "foo",
-#         "answer_agree": "bar",
-#         "answer_dis": "baz",
-#         "answer_general": "qux",
-#         "apology": "quux",
-#         "backchannel": "corge",
-#         "disfluency": "grault",
-#         "other": "garply",
-#         "question_check": "waldo",
-#         "question_general": "fred",
-#         "question_repeat": "plugh",
-#         "self": "xyzzy",
-#         "statement_close": "thud",
-#         "statement_general": "wibble",
-#         "statement_instruct": "wobble",
-#         "statement_open": "wubble",
-#         "statement_problem": "flob",
-#         "thanks": "zoop"
-#     }
-# )
-
-
-# SYMBOL_REPLACEMENT_MAPPING = {
-#     "alpha": "Alpha",
-#     "beta": "beta",
-#     "gamma": "GGamma",
-#     "foo": "foo",
-#     "bar": "Bar",
-#     "baz": "baz",
-#     "qux": "QuX",
-#     "quux": "QuLux",
-#     "corge": "Corges",
-#     "grault": "Graconsult",
-#     "garply": "GsharpLY",
-#     "waldo": "WalDo",
-#     "fred": "FRED",
-#     "plugh": "PlHugh",
-#     "xyzzy": "Xanalyzzi",
-#     "thud": "ThUD",
-#     "wibble": "WIBbles",
-#     "wobble": "stubbles",
-#     "wubble": "Wbles",
-#     "flob": "FLOB",
-#     "zoop": "ZoHop"
-# }
-
-# # Apply symbol replacement to create transformed labels
-# HVB_GREEK_TRANSFORMED_LABELS = []
-# for label in HVB_GREEK_CONFIG.valid_labels:
-#     transformed_label = SYMBOL_REPLACEMENT_MAPPING.get(label, label)
-#     HVB_GREEK_TRANSFORMED_LABELS.append(transformed_label)
-
-# Create new config with transformed labels
 HVB_GREEK_CONFIG = DatasetConfig(
-    name=DatasetType.HVB_GREEK,  # You'll need to add this to DatasetType enum
+    name=DatasetType.HVB_GREEK,
     paths=HVB_CONFIG.paths,
     prompt_template="""You are a dialogue analysis expert for banking conversations. Based on the statement below, identify all applicable dialogue actions from the following options:
 
 Available dialogue actions:
 - foo: Shows understanding or receipt of information
-- Bar: Expresses agreement
+- bar: Expresses agreement
 - baz: Expresses disagreement
-- QuX: General response to a question
-- QuLux: Expression of regret or sorry
-- Corges: Brief verbal/textual feedback
-- Graconsult: Speech repairs, repetitions, or corrections
-- GsharpLY: Actions that don't fit other categories
-- WalDo: Questions to verify understanding
-- FRED: General information-seeking questions
-- PlHugh: Requests for repetition
-- Xanalyzzi: Self-directed speech
-- ThUD: Concluding statements
-- WIBbles: General statements or information
-- stubbles: Instructions or directions
-- Wbles: Opening statements or greetings
-- FLOB: Statements describing issues or problems
-- ZoHop: Expressions of gratitude
-
-Guidelines:
-- Multiple actions can apply to a single statement
-- List all applicable actions separated by commas
-- Consider the banking context when analyzing
-- Be precise in identifying the dialogue actions""",
-    valid_labels= ["foo", "Bar", "baz", "QuX", "QuLux", "Corges", "Graconsult", "GsharpLY", 
-     "WalDo", "FRED", "PlHugh", "Xanalyzzi", "ThUD", "WIBbles", "stubbles", 
-     "Wbles", "FLOB", "ZoHop"],
+- qux: General response to a question
+- quux: Expression of regret or sorry
+- corge: Brief verbal/textual feedback
+- grault: Speech repairs, repetitions, or corrections
+- garply: Actions that don't fit other categories
+- waldo: Questions to verify understanding
+- fred: General information-seeking questions
+- plugh: Requests for repetition
+- xyzzy: Self-directed speech
+- thud: Concluding statements
+- wibble: General statements or information
+- wobble: Instructions or directions
+- wubble: Opening statements or greetings
+- flob: Statements describing issues or problems
+- zoop: Expressions of gratitude""",
+    valid_labels=[
+        "foo", "bar", "baz", "qux", "quux", 
+        "corge", "grault", "garply", "waldo", "fred",
+        "plugh", "xyzzy", "thud", "wibble", "wobble",
+        "wubble", "flob", "zoop"
+    ],
     completion_key=HVB_CONFIG.completion_key,
     text_key=HVB_CONFIG.text_key,
     audio_lookup_paths=HVB_CONFIG.audio_lookup_paths,
     label_mapping={
-        # Map original HVB labels to transformed Greek labels
         "acknowledge": "foo",
-        "answer_agree": "Bar",
+        "answer_agree": "bar",
         "answer_dis": "baz",
-        "answer_general": "QuX",
-        "apology": "QuLux",
-        "backchannel": "Corges",
-        "disfluency": "Graconsult",
-        "other": "GsharpLY",
-        "question_check": "WalDo",
-        "question_general": "FRED",
-        "question_repeat": "PlHugh",
-        "self": "Xanalyzzi",
-        "statement_close": "ThUD",
-        "statement_general": "WIBbles",
-        "statement_instruct": "stubbles",
-        "statement_open": "Wbles",
-        "statement_problem": "FLOB",
-        "thanks": "ZoHop"
+        "answer_general": "qux",
+        "apology": "quux",
+        "backchannel": "corge",
+        "disfluency": "grault",
+        "other": "garply",
+        "question_check": "waldo",
+        "question_general": "fred",
+        "question_repeat": "plugh",
+        "self": "xyzzy",
+        "statement_close": "thud",
+        "statement_general": "wibble",
+        "statement_instruct": "wobble",
+        "statement_open": "wubble",
+        "statement_problem": "flob",
+        "thanks": "zoop"
     }
 )
+
+
+
+# Create new config with transformed labels
+# HVB_GREEK_CONFIG = DatasetConfig(
+#     name=DatasetType.HVB_GREEK,  # You'll need to add this to DatasetType enum
+#     paths=HVB_CONFIG.paths,
+#     prompt_template="""You are a dialogue analysis expert for banking conversations. Based on the statement below, identify all applicable dialogue actions from the following options:
+
+# Available dialogue actions:
+# - foo: Shows understanding or receipt of information
+# - Bar: Expresses agreement
+# - baz: Expresses disagreement
+# - QuX: General response to a question
+# - QuLux: Expression of regret or sorry
+# - Corges: Brief verbal/textual feedback
+# - Graconsult: Speech repairs, repetitions, or corrections
+# - GsharpLY: Actions that don't fit other categories
+# - WalDo: Questions to verify understanding
+# - FRED: General information-seeking questions
+# - PlHugh: Requests for repetition
+# - Xanalyzzi: Self-directed speech
+# - ThUD: Concluding statements
+# - WIBbles: General statements or information
+# - stubbles: Instructions or directions
+# - Wbles: Opening statements or greetings
+# - FLOB: Statements describing issues or problems
+# - ZoHop: Expressions of gratitude
+
+# Guidelines:
+# - Multiple actions can apply to a single statement
+# - List all applicable actions separated by commas
+# - Consider the banking context when analyzing
+# - Be precise in identifying the dialogue actions""",
+#     valid_labels= ["foo", "Bar", "baz", "QuX", "QuLux", "Corges", "Graconsult", "GsharpLY", 
+#      "WalDo", "FRED", "PlHugh", "Xanalyzzi", "ThUD", "WIBbles", "stubbles", 
+#      "Wbles", "FLOB", "ZoHop"],
+#     completion_key=HVB_CONFIG.completion_key,
+#     text_key=HVB_CONFIG.text_key,
+#     audio_lookup_paths=HVB_CONFIG.audio_lookup_paths,
+#     label_mapping={
+#         # Map original HVB labels to transformed Greek labels
+#         "acknowledge": "foo",
+#         "answer_agree": "Bar",
+#         "answer_dis": "baz",
+#         "answer_general": "QuX",
+#         "apology": "QuLux",
+#         "backchannel": "Corges",
+#         "disfluency": "Graconsult",
+#         "other": "GsharpLY",
+#         "question_check": "WalDo",
+#         "question_general": "FRED",
+#         "question_repeat": "PlHugh",
+#         "self": "Xanalyzzi",
+#         "statement_close": "ThUD",
+#         "statement_general": "WIBbles",
+#         "statement_instruct": "stubbles",
+#         "statement_open": "Wbles",
+#         "statement_problem": "FLOB",
+#         "thanks": "ZoHop"
+#     }
+# )
 
 
 # New random nonsensical labels for HVB

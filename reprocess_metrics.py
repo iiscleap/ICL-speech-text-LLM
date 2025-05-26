@@ -44,7 +44,7 @@ def reprocess_results(results_file: str):
         # Process each dataset type
         dataset_types = {
             # 'voxceleb': DatasetType.VOXCELEB,
-            # 'voxceleb_greek': DatasetType.VOXCELEB_GREEK,
+            'voxceleb_greek': DatasetType.VOXCELEB_GREEK,
             # 'hvb': DatasetType.HVB,
             # 'hvb_greek': DatasetType.HVB_GREEK,
             # 'voxpopuli': DatasetType.VOXPOPULI,
@@ -53,7 +53,7 @@ def reprocess_results(results_file: str):
             # 'meld_greek': DatasetType.MELD_GREEK,
             # 'meld_emotion': DatasetType.MELD_EMOTION,
             # 'meld_emotion_greek': DatasetType.MELD_EMOTION_GREEK,
-            'sqa': DatasetType.SQA
+            # 'sqa': DatasetType.SQA
         }
         
         for dataset_name, dataset_type in dataset_types.items():

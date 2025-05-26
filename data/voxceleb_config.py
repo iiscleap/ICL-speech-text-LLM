@@ -71,7 +71,7 @@ Guidelines:
 - Choose Alpha if there is ANY hint of: approval, optimism, happiness, success, laughter, enjoyment, pride, or satisfaction
 - Choose beta if there is ANY hint of: criticism, pessimism, sadness, failure, frustration, anger, disappointment, or concern
 - Choose GGamma ONLY IF the statement is purely factual with zero emotional content""",
-    valid_labels=["Alpha", "beta", "gamma"],
+    valid_labels=["Alpha", "beta", "GGamma"],
     label_mapping={"positive": "Alpha", "negative": "beta", "neutral": "GGamma"},
     audio_lookup_paths=VOXCELEB_CONFIG.audio_lookup_paths,
     text_key=VOXCELEB_CONFIG.text_key,

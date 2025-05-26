@@ -86,10 +86,9 @@ def train_lora_phase(model, dataloader, args, cycle, current_symbols=None):
     model.freeze_mlp_weights()
     model.unfreeze_lora_weights()
     
-    # Log trainable parameters
-    trainable, frozen = model.get_trainable_parameters()
-    logging.info(f"Trainable parameters: {len(trainable)}")
-    logging.info(f"Frozen parameters: {len(frozen)}")
+    # Set MLP bypass for LoRA training
+    model.set_mlp_bypass(bypass=True)
+    logging.info("MLP bypass enabled for LoRA training")
     
     # LoRA optimizer (using AdamW like train.py)
     optimizer = torch.optim.AdamW(
@@ -281,22 +280,30 @@ def train_lora_phase(model, dataloader, args, cycle, current_symbols=None):
         else:
             logging.error(f"No valid batches in LoRA epoch {epoch+1}")
     
+    # Disable MLP bypass after LoRA training
+    model.set_mlp_bypass(bypass=False)
+    logging.info("MLP bypass disabled after LoRA training")
+    
     logging.info(f"=== Completed LoRA Training Phase - Cycle {cycle} ===")
     return model
 
 def train_mlp_phase(model, dataloader, args, cycle):
-    """Train MLP embeddings with detailed progress logging like inference.py"""
+    """Train MLP embeddings with better stability"""
     logging.info(f"=== Starting MLP Training Phase - Cycle {cycle} ===")
     
     # Freeze LoRA, unfreeze MLP
     model.freeze_lora_weights()
     model.unfreeze_mlp_weights()
     
-    # MLP optimizer
-    optimizer = torch.optim.SGD(
+    # Ensure MLP bypass is disabled for MLP training
+    model.set_mlp_bypass(bypass=False)
+    
+    # Use even more conservative optimizer
+    optimizer = torch.optim.Adam(  # Try Adam instead of SGD
         filter(lambda p: p.requires_grad, model.parameters()),
-        lr=args.mlp_lr,
-        momentum=0.0,
+        lr=args.mlp_lr * 0.1,  # Much smaller learning rate
+        betas=(0.9, 0.999),
+        eps=1e-8,
         weight_decay=0.0
     )
     
@@ -359,73 +366,54 @@ def train_mlp_phase(model, dataloader, args, cycle):
                         memory_reserved = torch.cuda.memory_reserved() / (1024 ** 3)
                         logging.info(f"GPU Memory: {memory_allocated:.2f}GB allocated, {memory_reserved:.2f}GB reserved")
                 
-                # Check MLP health
-                is_healthy, _ = model.check_mlp_health()
+                # Check MLP health before each batch
+                is_healthy, health_info = model.check_mlp_health()
                 if not is_healthy:
-                    logging.warning(f"MLP unhealthy at batch {batch_idx}, resetting weights")
+                    logging.warning(f"MLP unhealthy at batch {batch_idx}: {health_info}")
                     model.reset_mlp_weights()
                     optimizer.zero_grad()
-                    accumulated_loss = 0
                     continue
                 
                 # Forward pass
                 outputs = model(batch)
                 loss = outputs["loss"]
-                loss = loss / 8
                 
+                # Check for NaN/inf immediately
                 if torch.isnan(loss) or torch.isinf(loss):
                     logging.warning(f"Invalid loss at batch {batch_idx}: {loss}")
+                    model.reset_mlp_weights()
+                    optimizer.zero_grad()
                     continue
                 
-                loss.backward()
-                accumulated_loss += loss.item()
+                # Scale loss more conservatively
+                loss = loss / 16  # Larger accumulation for stability
                 
-                # Update every accumulation_steps
-                if (batch_idx + 1) % 8 == 0:
-                    # Check gradients
-                    max_grad_norm = 0.0
-                    for param in model.parameters():
-                        if param.grad is not None:
-                            max_grad_norm = max(max_grad_norm, param.grad.norm().item())
-                    
-                    if max_grad_norm > 10.0:
-                        logging.warning(f"Large gradient norm {max_grad_norm:.2f} at batch {batch_idx}, skipping update")
-                        optimizer.zero_grad()
-                        accumulated_loss = 0
-                        continue
-                    
-                    # Clip and update
-                    torch.nn.utils.clip_grad_norm_(
+                loss.backward()
+                
+                # Update every 16 steps instead of 8
+                if (batch_idx + 1) % 16 == 0:
+                    # More aggressive gradient clipping
+                    max_grad_norm = torch.nn.utils.clip_grad_norm_(
                         filter(lambda p: p.requires_grad, model.parameters()), 
-                        max_norm=1.0
+                        max_norm=0.5  # Much smaller clipping
                     )
+                    
+                    if max_grad_norm > 5.0:  # Lower threshold
+                        logging.warning(f"Large gradient norm {max_grad_norm:.2f}, skipping update")
+                        optimizer.zero_grad()
+                        continue
                     
                     optimizer.step()
                     optimizer.zero_grad()
                     
-                    # Track progress
-                    valid_update_steps += 1
-                    avg_loss = accumulated_loss / 8
-                    total_loss += accumulated_loss
-                    accumulated_loss = 0
-                    
-                    # Update progress bar with metrics (like inference.py)
-                    progress_bar.set_postfix({
-                        "loss": f"{avg_loss:.6f}", 
-                        "steps": valid_update_steps,
-                        "max_grad": f"{max_grad_norm:.3f}"
-                    })
-                    
-                    # Log detailed progress every 5 update steps (like inference.py)
-                    if valid_update_steps % 5 == 0:
-                        logging.info(
-                            f"MLP Cycle {cycle}, Epoch {epoch+1}, Batch {batch_idx+1}/{len(dataloader)}, "
-                            f"Update Step {valid_update_steps}, Loss: {avg_loss:.6f}, "
-                            f"Max Grad Norm: {max_grad_norm:.3f}"
-                        )
-                
+                    # Log gradient norms for monitoring
+                    if batch_idx % 50 == 0:
+                        logging.info(f"Gradient norm: {max_grad_norm:.4f}")
+            
             except Exception as e:
                 logging.error(f"Error in MLP training batch {batch_idx}: {e}")
+                model.reset_mlp_weights()
+                optimizer.zero_grad()
                 continue
         
         # Close progress bar to prevent log interference (like inference.py)
@@ -463,144 +451,80 @@ def train_mlp_phase(model, dataloader, args, cycle):
     return model, discovered_symbols
 
 def discover_symbols(model, args, cycle):
-    """Discover symbol mappings using actual dataset labels and model's existing methods"""
+    """Enhanced symbol discovery with random baseline"""
     try:
-        logging.info("Starting symbol discovery with actual dataset labels...")
+        logging.info("Starting enhanced symbol discovery...")
         
-        # Get actual label tokens from the model
+        # Temporarily disable MLP bypass for discovery
+        original_bypass = model.bypass_mlp_during_lora
+        model.set_mlp_bypass(bypass=False)
+        
+        # Get actual labels
         actual_labels = model.label_tokens if hasattr(model, 'label_tokens') else []
-        logging.info(f"Using actual labels from dataset: {actual_labels}")
+        logging.info(f"Using actual labels: {actual_labels}")
         
         if not actual_labels:
-            logging.warning("No label tokens found in model!")
+            model.set_mlp_bypass(original_bypass)
             return {}
         
-        # Store labels in model for easy access during discovery
-        if not hasattr(model, 'label_tokens'):
-            model.label_tokens = actual_labels
-        
-        # Find symbol mappings using the model's existing method
-        logging.info("Finding symbol mappings using model.find_symbol_mappings()...")
-        raw_mappings = model.find_symbol_mappings()
-        
-        # Convert raw token mappings to human-readable format
-        token_mappings = {}
-        if raw_mappings:
-            tokenizer = model.llama_tokenizer
-            
-            logging.info(f"Found {len(raw_mappings)} raw token mappings")
-            for source_token_id, target_token_id in raw_mappings.items():
-                source_text = tokenizer.decode([int(source_token_id)], skip_special_tokens=False).strip()
-                target_text = tokenizer.decode([int(target_token_id)], skip_special_tokens=False).strip()
-                
-                if source_text and target_text and source_text != target_text:
-                    token_mappings[source_text] = target_text
-                    logging.info(f"  Token mapping: '{source_text}' -> '{target_text}'")
-        
-        # Calculate label mappings using actual dataset labels and model's methods
-        label_mappings = {}
-        
-        logging.info("Calculating label mappings for actual dataset labels...")
-        for label in actual_labels:
-            logging.info(f"Processing label: '{label}'")
-            
-            # Use the model's existing label_to_token_ids mapping
-            if hasattr(model, 'label_to_token_ids') and label in model.label_to_token_ids:
-                label_token_ids = model.label_to_token_ids[label]
-            else:
-                # Fallback: tokenize the label
-                label_token_ids = tokenizer.encode(label, add_special_tokens=False)
-            
-            logging.info(f"  Label '{label}' has token IDs: {label_token_ids}")
-            
-            # Build combined result by applying token mappings
-            combined_result = ""
-            original_tokens = []
-            mapped_tokens = []
-            
-            for token_id in label_token_ids:
-                token_text = tokenizer.decode([token_id], skip_special_tokens=False).strip()
-                original_tokens.append(token_text)
-                
-                # Check if this token has a mapping in raw_mappings
-                if token_id in raw_mappings:
-                    mapped_token_id = raw_mappings[token_id]
-                    mapped_text = tokenizer.decode([mapped_token_id], skip_special_tokens=False).strip()
-                    mapped_tokens.append(mapped_text)
-                    combined_result += mapped_text
-                    logging.info(f"    Token '{token_text}' (ID: {token_id}) -> '{mapped_text}' (ID: {mapped_token_id})")
-                else:
-                    mapped_tokens.append(token_text)
-                    combined_result += token_text
-                    logging.info(f"    Token '{token_text}' (ID: {token_id}) -> unchanged")
-            
-            # Only save if the combined result is different from original
-            if combined_result and combined_result != label:
-                label_mappings[label] = combined_result
-                logging.info(f"  ✓ Label mapping: '{label}' -> '{combined_result}'")
-                logging.info(f"    Original tokens: {original_tokens}")
-                logging.info(f"    Mapped tokens: {mapped_tokens}")
-            else:
-                logging.info(f"  ✗ No change for label: '{label}'")
-        
-        # Use model's existing symbol replacement dict method
-        symbol_replacement_dict = {}
-        if hasattr(model, 'get_symbol_replacement_dict'):
-            symbol_replacement_dict = model.get_symbol_replacement_dict()
-            logging.info(f"Got symbol replacement dict from model: {symbol_replacement_dict}")
-        
-        # Save comprehensive results
-        results_file = os.path.join(args.output_dir, "symbol_discovery_results.json")
-        all_results = {}
-        
-        if os.path.exists(results_file):
+        # Run discovery with multiple samples for stability
+        all_mappings = []
+        for sample_idx in range(5):  # Try 5 different samples
             try:
-                with open(results_file, 'r', encoding='utf-8') as f:
-                    all_results = json.load(f)
-            except:
-                all_results = {}
+                raw_mappings = model.find_symbol_mappings()
+                if raw_mappings:
+                    all_mappings.append(raw_mappings)
+            except Exception as e:
+                logging.warning(f"Discovery sample {sample_idx} failed: {e}")
+                continue
         
-        # Save detailed results for this cycle
-        all_results[f"cycle_{cycle}"] = {
-            "actual_labels": actual_labels,
-            "token_mappings": token_mappings,
-            "label_mappings": label_mappings,
-            "symbol_replacement_dict": symbol_replacement_dict,
-            "raw_token_mappings": {str(k): int(v) for k, v in raw_mappings.items()} if raw_mappings else {},
-            "num_actual_labels": len(actual_labels),
-            "num_token_mappings": len(token_mappings),
-            "num_label_mappings": len(label_mappings),
-            "timestamp": datetime.now().isoformat()
-        }
-        
-        with open(results_file, 'w', encoding='utf-8') as f:
-            json.dump(all_results, f, indent=2, ensure_ascii=False)
-        
-        # Log summary
-        logging.info("=== Symbol Discovery Summary ===")
-        logging.info(f"Actual dataset labels: {len(actual_labels)} -> {actual_labels}")
-        logging.info(f"Raw token mappings found: {len(raw_mappings)}")
-        logging.info(f"Human-readable token mappings: {len(token_mappings)}")
-        logging.info(f"Label mappings found: {len(label_mappings)}")
-        
-        if label_mappings:
-            logging.info("Label transformations discovered:")
-            for old, new in label_mappings.items():
-                logging.info(f"  '{old}' -> '{new}'")
+        # Find consensus mappings
+        consensus_mappings = {}
+        if all_mappings:
+            # Only keep mappings that appear in multiple samples
+            for mapping in all_mappings:
+                for source, target in mapping.items():
+                    if source not in consensus_mappings:
+                        consensus_mappings[source] = {}
+                    if target not in consensus_mappings[source]:
+                        consensus_mappings[source][target] = 0
+                    consensus_mappings[source][target] += 1
+            
+            # Keep only mappings with consensus
+            final_mappings = {}
+            for source, targets in consensus_mappings.items():
+                max_count = max(targets.values())
+                if max_count >= 2:  # Appeared in at least 2 samples
+                    target = max(targets, key=targets.get)
+                    final_mappings[source] = target
+            
+            logging.info(f"Found {len(final_mappings)} consensus mappings")
         else:
-            logging.info("No label transformations discovered")
+            final_mappings = {}
+            logging.warning("No symbol mappings discovered")
         
-        if symbol_replacement_dict:
-            logging.info("Symbol replacement dictionary:")
-            for old, new in symbol_replacement_dict.items():
-                logging.info(f"  '{old}' -> '{new}'")
+        # Restore original bypass setting
+        model.set_mlp_bypass(original_bypass)
+        
+        # Convert to label mappings
+        label_mappings = {}
+        if final_mappings:
+            tokenizer = model.llama_tokenizer
+            for source_token_id, target_token_id in final_mappings.items():
+                try:
+                    source_text = tokenizer.decode([int(source_token_id)], skip_special_tokens=False).strip()
+                    target_text = tokenizer.decode([int(target_token_id)], skip_special_tokens=False).strip()
+                    
+                    if source_text and target_text and source_text != target_text:
+                        label_mappings[source_text] = target_text
+                        logging.info(f"Stable mapping: '{source_text}' -> '{target_text}'")
+                except Exception as e:
+                    logging.warning(f"Error processing mapping {source_token_id}->{target_token_id}: {e}")
         
         return label_mappings
         
     except Exception as e:
         logging.error(f"Error during symbol discovery: {e}")
-        import traceback
-        logging.error(traceback.format_exc())
         return {}
 
 def replace_symbols_in_batch(batch, symbol_mappings, tokenizer):
@@ -633,7 +557,6 @@ def main():
     args = setup_unified_logging(args)
     
     logging.info("=== Starting Unified Symbol Discovery Training ===")
-    
     try:
         # Parse dataset types
         dataset_types = [DatasetType(dt.strip()) for dt in args.dataset_type.split("-")]
@@ -658,10 +581,9 @@ def main():
             device=args.device,
             low_resource=True
         )
-        
         # checkpoint = load_checkpoint(args.initial_model_path)
         # model.load_state_dict(checkpoint["model_state_dict"], strict=False)
-
+        
         # Create dataset and dataloader
         from data.model_processors import get_processor
         processor = get_processor(args.model_type, model.input_processor, model.llama_tokenizer)
@@ -682,7 +604,7 @@ def main():
                 meta_datasets[dt] = full_val_dataset
             
             logging.info(f"Dataset {dt}: {len(train_datasets[dt])} train, {len(meta_datasets[dt])} meta")
-
+        
         # Create separate dataloaders
         train_dataset = DatasetFactory.create_dataset(
             dataset_type=dataset_types,
@@ -739,7 +661,6 @@ def main():
             logging.info(f"Completed Training Cycle {cycle}/{args.total_cycles}")
         
         logging.info("=== Unified Symbol Discovery Training Completed ===")
-        
     except Exception as e:
         logging.error(f"Error during unified training: {e}", exc_info=True)
         return 1
@@ -748,21 +669,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
-
-# CUDA_VISIBLE_DEVICES=0 python /data2/neeraja/neeraja/code/ICL/models/unified_symbol_training.py \
-#     --initial_model_path /data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_1_loss_0.3191/model.pt \
-#     --dataset_type voxceleb_greek-hvb_greek \
-#     --lora_lr 1e-5 \
-#     --mlp_lr 1e-4 \
-#     --lora_epochs 2 \
-#     --mlp_epochs 1 \
-#     --total_cycles 3 \
-#     --max_samples 64 \
-#     --batch_size 1 \
-#     --hidden_dim 8 \
-#     --gradient_accumulation_steps 8 \
-#     --max_grad_norm 1.0 \
-#     --warmup_steps 100 \
-#     --fp16 \
-#     --run_name "unified_symbol_discovery_v2"

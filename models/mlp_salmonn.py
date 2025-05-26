@@ -107,14 +107,11 @@ class MLPSalmonn(nn.Module):
         with torch.no_grad():
             for layer in self.position_wise_mlp:
                 if isinstance(layer, nn.Linear):
-                    # Use very small initialization - start near identity
-                    nn.init.normal_(layer.weight, mean=0.0, std=0.001)  # Much smaller
-                    nn.init.zeros_(layer.bias)
+                    # Use Xavier uniform with very small gain
+                    torch.nn.init.xavier_uniform_(layer.weight, gain=0.01)  # Much smaller gain
+                    if layer.bias is not None:
+                        torch.nn.init.zeros_(layer.bias)
         
-        # Make the final layer even smaller to start with near-zero output
-        with torch.no_grad():
-            nn.init.normal_(self.position_wise_mlp[3].weight, mean=0.0, std=0.00001)
-
         base_dtype = self.embed_module.weight.dtype
         self.position_wise_mlp = self.position_wise_mlp.to(dtype=base_dtype)
         logging.info(f"Initialized MLP with conservative initialization")
@@ -145,6 +142,22 @@ class MLPSalmonn(nn.Module):
         
         # Store discovered symbol mappings
         self.symbol_mappings = {}  # Maps original_token_id -> discovered_token_id
+
+        self.bypass_mlp_during_lora = False  # Add this flag
+    
+    def set_mlp_bypass(self, bypass=True):
+        """Enable/disable MLP bypass during LoRA training"""
+        self.bypass_mlp_during_lora = bypass
+        logging.info(f"MLP bypass set to: {bypass}")
+    
+    def apply_mlp_to_embeddings(self, embeddings, token_ids):
+        """Apply MLP transformation with bypass option"""
+        if self.bypass_mlp_during_lora:
+            logging.debug("MLP bypass active - returning original embeddings")
+            return embeddings
+        
+        # Apply MLP transformation to specific tokens in embeddings
+        return self.transform_text_embeddings(embeddings, token_ids)
     
     def get_transformed_embeddings(self):
         """Get embeddings with transformations applied for label tokens - consistent with transform_text_embeddings"""
@@ -245,13 +258,12 @@ class MLPSalmonn(nn.Module):
         # Get normal embeddings first 
         target_embeds = self.embed_module(target_tokens.input_ids)
 
-        # Apply MLP transformations to label tokens if in training mode
-        if self.training and self.label_token_ids:
-            # logging.info("Applying MLP to target embeddings")
-            target_embeds = self.transform_text_embeddings(
-                target_embeds,
-                target_tokens.input_ids
-            )
+        # Apply MLP to label token embeddings (with bypass check)
+        if self.label_token_ids and not self.bypass_mlp_during_lora:
+            logging.info(f"Applying MLP to {len(self.label_token_ids)} label tokens")
+            target_embeds = self.apply_mlp_to_embeddings(target_embeds, self.label_token_ids)
+        elif self.bypass_mlp_during_lora:
+            logging.debug("MLP bypass active - using original embeddings for LoRA training")
         
         prompt_length = wrapped_embeds.size(1)
         
@@ -812,58 +824,31 @@ class MLPSalmonn(nn.Module):
             print(f"  text = text.replace('{original}', '{discovered}')")
 
     def check_mlp_health(self):
-        """Check if MLP weights are healthy (no NaN/Inf) with detailed diagnostics"""
-        for i, layer in enumerate(self.position_wise_mlp):
-            if isinstance(layer, nn.Linear):
-                # Check weights
-                if torch.isnan(layer.weight).any():
-                    nan_count = torch.isnan(layer.weight).sum().item()
-                    return False, f"NaN in layer {i} weights ({nan_count}/{layer.weight.numel()} values)"
-                if torch.isinf(layer.weight).any():
-                    inf_count = torch.isinf(layer.weight).sum().item()
-                    return False, f"Inf in layer {i} weights ({inf_count}/{layer.weight.numel()} values)"
-                
-                # Check weight magnitudes
-                weight_max = layer.weight.abs().max().item()
-                weight_mean = layer.weight.abs().mean().item()
-                if weight_max > 10.0:  # Suspiciously large weights
-                    return False, f"Layer {i} weights too large (max: {weight_max:.6f}, mean: {weight_mean:.6f})"
-                
-                # Check bias
-                if torch.isnan(layer.bias).any():
-                    return False, f"NaN in layer {i} bias"
-                if torch.isinf(layer.bias).any():
-                    return False, f"Inf in layer {i} bias"
-                    
-                bias_max = layer.bias.abs().max().item()
-                if bias_max > 10.0:
-                    return False, f"Layer {i} bias too large (max: {bias_max:.6f})"
+        """Check if MLP weights are healthy"""
+        max_weight = 0.0
+        max_grad = 0.0
         
-        return True, "MLP weights are healthy"
+        for param in self.position_wise_mlp.parameters():
+            if param.data is not None:
+                max_weight = max(max_weight, param.data.abs().max().item())
+            if param.grad is not None:
+                max_grad = max(max_grad, param.grad.abs().max().item())
+        
+        is_healthy = (max_weight < 100.0 and max_grad < 10.0 and 
+                      not torch.isnan(torch.tensor(max_weight)) and 
+                      not torch.isnan(torch.tensor(max_grad)))
+        
+        return is_healthy, {"max_weight": max_weight, "max_grad": max_grad}
 
     def reset_mlp_weights(self):
-        """Reset MLP weights to a healthy state"""
-        logging.warning("Resetting MLP weights due to corruption...")
-        
-        # Get the correct dtype from the embedding module
-        target_dtype = self.embed_module.weight.dtype
-        
+        """Reset MLP weights to conservative initialization"""
+        logging.warning("Resetting MLP weights due to instability")
         with torch.no_grad():
-            # Reset first layer with VERY conservative initialization
-            nn.init.normal_(self.position_wise_mlp[0].weight, mean=0.0, std=0.001)  # Reduced from 0.01
-            nn.init.zeros_(self.position_wise_mlp[0].bias)
-            
-            # Reset final layer with EXTREMELY small initialization (near-identity)
-            nn.init.normal_(self.position_wise_mlp[3].weight, mean=0.0, std=0.00001)  # Reduced from 0.0001
-            nn.init.zeros_(self.position_wise_mlp[3].bias)
-            
-            # Ensure correct dtype
-            self.position_wise_mlp[0].weight.data = self.position_wise_mlp[0].weight.data.to(dtype=target_dtype)
-            self.position_wise_mlp[0].bias.data = self.position_wise_mlp[0].bias.data.to(dtype=target_dtype)
-            self.position_wise_mlp[3].weight.data = self.position_wise_mlp[3].weight.data.to(dtype=target_dtype)
-            self.position_wise_mlp[3].bias.data = self.position_wise_mlp[3].bias.data.to(dtype=target_dtype)
-        
-        logging.info(f"MLP weights reset successfully with dtype {target_dtype}")
+            for layer in self.position_wise_mlp:
+                if isinstance(layer, nn.Linear):
+                    torch.nn.init.xavier_uniform_(layer.weight, gain=0.01)
+                    if layer.bias is not None:
+                        torch.nn.init.zeros_(layer.bias)
 
     def safe_mlp_forward(self, embeddings):
         """Safely apply MLP with health checks"""
@@ -1028,3 +1013,40 @@ class MLPSalmonn(nn.Module):
         
         trainable = lora_params + mlp_params + qformer_params + projection_params + other_params
         return trainable, frozen_params
+
+def generate_random_symbols(num_symbols, symbol_length=2):
+    """Generate random symbols of fixed length"""
+    import random
+    import string
+    
+    symbols = []
+    used_symbols = set()
+    
+    # Create character pool (avoid confusing characters)
+    chars = string.ascii_lowercase + string.ascii_uppercase + string.digits
+    excluded = {'0', 'O', '1', 'l', 'I'}  # Avoid confusing characters
+    chars = [c for c in chars if c not in excluded]
+    
+    while len(symbols) < num_symbols:
+        # Generate random symbol of fixed length
+        symbol = ''.join(random.choices(chars, k=symbol_length))
+        
+        # Ensure uniqueness and no semantic meaning
+        if symbol not in used_symbols and not symbol.lower() in ['no', 'yes', 'ok', 'hi']:
+            symbols.append(symbol)
+            used_symbols.add(symbol)
+    
+    return symbols
+
+# Usage in unified_symbol_training.py:
+def get_random_label_tokens(original_labels, symbol_length=2):
+    """Replace original labels with random symbols"""
+    random_symbols = generate_random_symbols(len(original_labels), symbol_length)
+    
+    # Create mapping
+    label_mapping = {}
+    for orig, rand in zip(original_labels, random_symbols):
+        label_mapping[orig] = rand
+    
+    logging.info(f"Generated random label mapping: {label_mapping}")
+    return random_symbols, label_mapping
