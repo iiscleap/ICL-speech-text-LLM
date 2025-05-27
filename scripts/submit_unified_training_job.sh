@@ -9,15 +9,15 @@ dataset_type="voxceleb_greek-hvb_greek"  # Dataset type(s) to use
 # Training parameters
 lora_lr=1e-5
 mlp_lr=1e-4
-lora_epochs=2
+lora_epochs=1
 mlp_epochs=1
-total_cycles=4
+total_cycles=2
 hidden_dim=8
 batch_size=1
 gradient_accumulation_steps=8
 max_grad_norm=1.0
 warmup_steps=100
-max_samples=0  # Set to 0 for full dataset, or >0 for limited samples
+max_samples=10  # Set to 0 for full dataset, or >0 for limited samples
 
 # Performance optimization options
 use_fp16=true  # Enable mixed precision training with FP16
@@ -103,12 +103,12 @@ echo "Log File: ${LOG_DIR}/${RUN_NAME}.log"
 echo "=========================================="
 
 # Submit job
-qsub -q gpu.q -V -cwd \
-    -l hostname=compute-0-8 \
+qsub -q med.q -V -cwd \
+    -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=0,\
+    -v CUDA_VISIBLE_DEVICES=2,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\
