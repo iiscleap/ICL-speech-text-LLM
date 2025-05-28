@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument("--mlp_epochs", type=int, default=1, help="MLP epochs per cycle")
     parser.add_argument("--total_cycles", type=int, default=3, help="Total alternating cycles")
     parser.add_argument("--hidden_dim", type=int, default=8, help="Hidden dimension for MLP")
-    parser.add_argument("--gradient_accumulation_steps", type=int, default=1, help="Gradient accumulation steps")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=8, help="Gradient accumulation steps")
     parser.add_argument("--max_grad_norm", type=float, default=1.0, help="Max gradient norm for clipping")
     parser.add_argument("--warmup_steps", type=int, default=100, help="Warmup steps for scheduler")
     parser.add_argument("--fp16", action="store_true", help="Use mixed precision training")
@@ -52,6 +52,11 @@ def parse_args():
     parser.add_argument("--output_dir", type=str, default="/data2/neeraja/neeraja/results/model_ICL/unified_training", 
                       help="Output directory for results")
     parser.add_argument("--run_name", type=str, default="", help="Name for the run")
+    
+    # NEW: MLP training frequency options
+    parser.add_argument("--mlp_training_mode", type=str, default="first_only", 
+                       choices=["every_cycle", "first_only", "first_and_last"],
+                       help="When to train MLP: every_cycle, first_only, or first_and_last")
     
     return parser.parse_args()
 
@@ -78,6 +83,17 @@ def setup_unified_logging(args):
     
     logging.info(f"Arguments: {args}")
     return args
+
+def should_train_mlp(cycle, total_cycles, mlp_training_mode):
+    """Determine if MLP should be trained in this cycle"""
+    if mlp_training_mode == "every_cycle":
+        return True
+    elif mlp_training_mode == "first_only":
+        return cycle == 1
+    elif mlp_training_mode == "first_and_second":
+        return cycle == 1 or cycle == 2
+    else:
+        return True  # Default to every cycle
 
 def train_lora_phase(model, dataloader, args, cycle, current_symbols=None):
     """Train LoRA weights with discovered symbols applied"""
@@ -273,197 +289,146 @@ def train_lora_phase(model, dataloader, args, cycle, current_symbols=None):
     return model
 
 def train_mlp_phase(model, dataloader, args, cycle, current_symbols=None):
-    """Train MLP embeddings with discovered symbols applied"""
+    """Train MLP for symbol discovery"""
     logging.info(f"=== Starting MLP Training Phase - Cycle {cycle} ===")
-    
-    # Log current symbols being used
+
     if current_symbols:
-        logging.info(f"Using discovered symbols in MLP training:")
-        for orig, disc in current_symbols.items():
-            logging.info(f"  '{orig}' -> '{disc}'")
-    else:
-        logging.info("No symbol mappings available - using original symbols")
+        model.update_label_tokens(current_symbols)
     
     # Freeze LoRA, unfreeze MLP
     model.freeze_lora_weights()
     model.unfreeze_mlp_weights()
     
-    # Ensure MLP bypass is disabled for MLP training
+    # Disable MLP bypass for training
     model.set_mlp_bypass(bypass=False)
+    logging.info("MLP bypass disabled - MLP will be trained")
     
-    # Use even more conservative optimizer
-    optimizer = torch.optim.Adam(
+    # ✅ FIX: Much more lenient gradient clipping
+    max_grad_norm = 100.0  # Increased from 50.0
+    
+    # MLP optimizer with higher learning rate
+    optimizer = torch.optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
-        lr=args.mlp_lr * 0.1,  # Much smaller learning rate
+        lr=args.mlp_lr,  # Usually 1e-4
         betas=(0.9, 0.999),
         eps=1e-8,
-        weight_decay=0.0
+        weight_decay=0.01
     )
     
     # Scheduler
+    total_steps = len(dataloader) * args.mlp_epochs
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, 
-        mode='min', 
-        factor=0.5, 
-        patience=3,
-        verbose=True
+        optimizer, mode='min', factor=0.8, patience=2, verbose=True
     )
     
+    # ✅ FIX: More lenient health check
+    def is_mlp_healthy(model, loss):
+        """Check if MLP is healthy with more lenient thresholds"""
+        if torch.isnan(loss) or torch.isinf(loss):
+            return False, "NaN/Inf loss"
+        
+        max_weight = 0
+        max_grad = 0
+        
+        for param in model.position_wise_mlp.parameters():
+            if param.data is not None:
+                max_weight = max(max_weight, param.data.abs().max().item())
+            if param.grad is not None:
+                max_grad = max(max_grad, param.grad.abs().max().item())
+        
+        # ✅ FIX: Very lenient thresholds
+        if max_weight > 1000.0:  # Much higher threshold
+            return False, f"Extreme weights: {max_weight}"
+        if max_grad > 10000.0:  # Much higher threshold
+            return False, f"Extreme gradients: {max_grad}"
+        
+        return True, None
+    
     # Training loop
+    unhealthy_count = 0
+    valid_update_steps = 0
+    
     for epoch in range(args.mlp_epochs):
         model.train()
         total_loss = 0
-        valid_update_steps = 0
-        accumulated_loss = 0
         
-        # Log epoch start
         logging.info(f"Starting MLP Cycle {cycle} Epoch {epoch+1}/{args.mlp_epochs}")
-        logging.info(f"Total batches to process: {len(dataloader)}")
         
-        # Create progress bar with detailed description
-        progress_bar = tqdm(dataloader, desc=f"MLP Cycle {cycle} Epoch {epoch+1}", disable=False)
+        progress_bar = tqdm(dataloader, desc=f"MLP Cycle {cycle} Epoch {epoch+1} - Processing batch {len(dataloader)}")
         
-        for batch_idx, batch in enumerate(progress_bar):
+        for step, batch in enumerate(progress_bar):
             try:
-                # Apply symbol mappings to batch data (SAME AS LORA PHASE)
+
                 if current_symbols:
                     batch = replace_symbols_in_batch(batch, current_symbols, model.llama_tokenizer)
-                
+                # Move batch to device
                 batch = {k: v.to(args.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
-                
-                # Update progress bar description with current batch
-                progress_bar.set_description(f"MLP Cycle {cycle} Epoch {epoch+1} - Processing batch {batch_idx+1}")
-                
-                # Log progress every 10 batches
-                if batch_idx % 10 == 0:
-                    logging.info(f"Processing MLP batch {batch_idx+1}/{len(dataloader)} (Cycle {cycle}, Epoch {epoch+1})")
-                
-                # Add detailed logging for first 5 iterations with symbol replacement
-                if batch_idx < 5:
-                    logging.info(f"=== MLP Cycle {cycle}, Epoch {epoch+1}, Batch {batch_idx+1} ===")
-                    
-                    if current_symbols:
-                        logging.info("Symbol-replaced prompt:")
-                        logging.info(batch["prompt"][0])
-                        logging.info("Symbol-replaced completion:")
-                        logging.info(batch["completion"][0])
-                    else:
-                        logging.info("Original prompt (no symbols):")
-                        logging.info(batch["prompt"][0])
-                        logging.info("Original completion:")
-                        logging.info(batch["completion"][0])
-                    
-                    logging.info("=" * 60)
-                
-                # Clear memory every 50 steps
-                if batch_idx > 0 and batch_idx % 50 == 0:
-                    logging.info(f"Clearing memory at MLP batch {batch_idx}")
-                    import gc
-                    gc.collect()
-                    torch.cuda.empty_cache()
-                    if torch.cuda.is_available():
-                        memory_allocated = torch.cuda.memory_allocated() / (1024 ** 3)
-                        memory_reserved = torch.cuda.memory_reserved() / (1024 ** 3)
-                        logging.info(f"GPU Memory: {memory_allocated:.2f}GB allocated, {memory_reserved:.2f}GB reserved")
-                
-                # Check MLP health before each batch
-                is_healthy, health_info = model.check_mlp_health()
-                if not is_healthy:
-                    logging.warning(f"MLP unhealthy at batch {batch_idx}: {health_info}")
-                    model.reset_mlp_weights()
-                    optimizer.zero_grad()
-                    accumulated_loss = 0
-                    continue
                 
                 # Forward pass
                 outputs = model(batch)
                 loss = outputs["loss"]
                 
-                # Check for NaN/inf immediately
-                if torch.isnan(loss) or torch.isinf(loss):
-                    logging.warning(f"Invalid loss at batch {batch_idx}: {loss}")
-                    model.reset_mlp_weights()
+                # Backward pass
+                loss.backward()
+                
+                # ✅ FIX: Check gradient norm but be more permissive
+                total_norm = 0
+                for param in model.parameters():
+                    if param.grad is not None:
+                        param_norm = param.grad.data.norm(2)
+                        total_norm += param_norm.item() ** 2
+                total_norm = total_norm ** (1. / 2)
+                
+                # ✅ FIX: Only clip if really necessary, don't skip updates
+                if total_norm > max_grad_norm:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+                    logging.info(f"Gradient norm {total_norm:.2f} clipped to {max_grad_norm}")
+                
+                # ✅ FIX: Don't skip updates unless gradients are truly insane
+                if total_norm > 10000.0:  # Much higher threshold
+                    logging.error(f"Extreme gradient norm {total_norm:.2f}, skipping update")
                     optimizer.zero_grad()
-                    accumulated_loss = 0
                     continue
                 
-                # Scale loss more conservatively
-                loss = loss / 16  # Larger accumulation for stability
-                
-                loss.backward()
-                accumulated_loss += loss.item()
-                
-                # Update every 16 steps instead of 8
-                if (batch_idx + 1) % 16 == 0:
-                    # More aggressive gradient clipping
-                    max_grad_norm = torch.nn.utils.clip_grad_norm_(
-                        filter(lambda p: p.requires_grad, model.parameters()), 
-                        max_norm=0.5  # Much smaller clipping
-                    )
-                    
-                    if max_grad_norm > 5.0:  # Lower threshold
-                        logging.warning(f"Large gradient norm {max_grad_norm:.2f}, skipping update")
-                        optimizer.zero_grad()
-                        accumulated_loss = 0
-                        continue
-                    
-                    optimizer.step()
-                    optimizer.zero_grad()
-                    
-                    # Track progress
-                    valid_update_steps += 1
-                    avg_loss = accumulated_loss / 16
-                    total_loss += accumulated_loss
-                    accumulated_loss = 0
-                    
-                    # Update progress bar with metrics
-                    progress_bar.set_postfix({
-                        "loss": f"{avg_loss:.6f}", 
-                        "steps": valid_update_steps,
-                        "max_grad": f"{max_grad_norm:.3f}"
-                    })
-                    
-                    # Log detailed progress every 5 update steps
-                    if valid_update_steps % 5 == 0:
-                        logging.info(
-                            f"MLP Cycle {cycle}, Epoch {epoch+1}, Batch {batch_idx+1}/{len(dataloader)}, "
-                            f"Update Step {valid_update_steps}, Loss: {avg_loss:.6f}, "
-                            f"Max Grad Norm: {max_grad_norm:.3f}"
-                        )
-            
-            except Exception as e:
-                logging.error(f"Error in MLP training batch {batch_idx}: {e}")
-                model.reset_mlp_weights()
+                # Update weights
+                optimizer.step()
                 optimizer.zero_grad()
-                accumulated_loss = 0
+                valid_update_steps += 1
+                
+                # Health check with more tolerance
+                is_healthy, reason = is_mlp_healthy(model, loss)
+                if not is_healthy:
+                    logging.warning(f"MLP unhealthy at batch {step}: {reason}")
+                    unhealthy_count += 1
+                    if unhealthy_count >= 10:  # Much more tolerance
+                        logging.warning("Resetting MLP weights due to persistent instability")
+                        model.reset_mlp_weights()
+                        unhealthy_count = 0
+                else:
+                    unhealthy_count = 0
+                
+                total_loss += loss.item()
+                
+                # Update progress bar
+                progress_bar.set_postfix({
+                    "loss": f"{loss.item():.6f}",
+                    "grad_norm": f"{total_norm:.2f}",
+                    "valid_steps": valid_update_steps
+                })
+                
+            except Exception as e:
+                logging.error(f"Error in MLP training batch {step}: {e}")
                 continue
         
-        # Close progress bar to prevent log interference
         progress_bar.close()
         
         if valid_update_steps > 0:
-            epoch_loss = total_loss / valid_update_steps
+            epoch_loss = total_loss / len(dataloader)
             logging.info(f"✓ MLP Cycle {cycle} Epoch {epoch+1} COMPLETED: Average loss = {epoch_loss:.6f}")
-            logging.info(f"  Total batches processed: {len(dataloader)}")
             logging.info(f"  Valid update steps: {valid_update_steps}")
-            
-            # Step the scheduler
             scheduler.step(epoch_loss)
-            
-            # Save MLP checkpoint
-            checkpoint_dir = os.path.join(args.output_dir, f"cycle_{cycle}_mlp_epoch_{epoch+1}")
-            os.makedirs(checkpoint_dir, exist_ok=True)
-            save_checkpoint(
-                model=model,
-                optimizer=optimizer,
-                scheduler=scheduler,
-                epoch=epoch,
-                loss=epoch_loss,
-                path=os.path.join(checkpoint_dir, "model.pt")
-            )
-            logging.info(f"Saved MLP checkpoint: {checkpoint_dir}")
         else:
-            logging.error(f"No valid update steps in MLP epoch {epoch+1}")
+            logging.error(f"❌ NO VALID UPDATE STEPS in MLP epoch {epoch+1} - MLP training failed!")
     
     # Discover new symbols
     logging.info(f"=== Symbol Discovery - Cycle {cycle} ===")
@@ -473,84 +438,42 @@ def train_mlp_phase(model, dataloader, args, cycle, current_symbols=None):
     return model, discovered_symbols
 
 def discover_symbols(model, args, cycle):
-    """Enhanced symbol discovery with random baseline"""
+    """Discover symbols and save to file"""
     try:
-        logging.info("Starting enhanced symbol discovery...")
+        logging.info(f"=== Starting Symbol Discovery - Cycle {cycle} ===")
         
         # Temporarily disable MLP bypass for discovery
         original_bypass = model.bypass_mlp_during_lora
         model.set_mlp_bypass(bypass=False)
         
-        # Get actual labels
-        actual_labels = model.label_tokens if hasattr(model, 'label_tokens') else []
-        logging.info(f"Using actual labels: {actual_labels}")
-        
-        if not actual_labels:
-            model.set_mlp_bypass(original_bypass)
-            return {}
-        
-        # Run discovery with multiple samples for stability
-        all_mappings = []
-        for sample_idx in range(5):  # Try 5 different samples
-            try:
-                raw_mappings = model.find_symbol_mappings()
-                if raw_mappings:
-                    all_mappings.append(raw_mappings)
-            except Exception as e:
-                logging.warning(f"Discovery sample {sample_idx} failed: {e}")
-                continue
-        
-        # Find consensus mappings
-        consensus_mappings = {}
-        if all_mappings:
-            # Only keep mappings that appear in multiple samples
-            for mapping in all_mappings:
-                for source, target in mapping.items():
-                    if source not in consensus_mappings:
-                        consensus_mappings[source] = {}
-                    if target not in consensus_mappings[source]:
-                        consensus_mappings[source][target] = 0
-                    consensus_mappings[source][target] += 1
-            
-            # Keep only mappings with consensus
-            final_mappings = {}
-            for source, targets in consensus_mappings.items():
-                max_count = max(targets.values())
-                if max_count >= 2:  # Appeared in at least 2 samples
-                    target = max(targets, key=targets.get)
-                    final_mappings[source] = target
-            
-            logging.info(f"Found {len(final_mappings)} consensus mappings")
-        else:
-            final_mappings = {}
-            logging.warning("No symbol mappings discovered")
+        # Find closest symbols
+        token_mappings = model.find_closest_symbols()
+        text_mappings = model.convert_token_mappings_to_text(token_mappings)
         
         # Restore original bypass setting
         model.set_mlp_bypass(original_bypass)
         
-        # Convert to label mappings
-        label_mappings = {}
-        if final_mappings:
-            tokenizer = model.llama_tokenizer
-            for source_token_id, target_token_id in final_mappings.items():
-                try:
-                    source_text = tokenizer.decode([int(source_token_id)], skip_special_tokens=False).strip()
-                    target_text = tokenizer.decode([int(target_token_id)], skip_special_tokens=False).strip()
-                    
-                    if source_text and target_text and source_text != target_text:
-                        label_mappings[source_text] = target_text
-                        logging.info(f"Stable mapping: '{source_text}' -> '{target_text}'")
-                except Exception as e:
-                    logging.warning(f"Error processing mapping {source_token_id}->{target_token_id}: {e}")
+        # Save discovered symbols to file
+        if text_mappings:
+            discovery_file = os.path.join(args.output_dir, f"discovered_symbols_cycle_{cycle}.json")
+            with open(discovery_file, 'w') as f:
+                json.dump(text_mappings, f, indent=2)
+            logging.info(f"Saved discovered symbols to {discovery_file}")
+            
+            # Log summary
+            logging.info(f"Discovered {len(text_mappings)} symbol mappings:")
+            for orig, disc in text_mappings.items():
+                logging.info(f"  '{orig}' -> '{disc}'")
         
-        return label_mappings
+        logging.info(f"=== Symbol Discovery Complete - Cycle {cycle} ===")
+        return text_mappings
         
     except Exception as e:
         logging.error(f"Error during symbol discovery: {e}")
         return {}
 
 def replace_symbols_in_batch(batch, symbol_mappings, tokenizer):
-    """Replace original symbols with discovered symbols in batch data"""
+    """Replace symbols with minimal logging"""
     if not symbol_mappings:
         return batch
     
@@ -570,6 +493,7 @@ def replace_symbols_in_batch(batch, symbol_mappings, tokenizer):
     if "completion" in batch:
         updated_completions = []
         for completion in batch["completion"]:
+            original_completion = completion
             updated_completion = completion
             for original, discovered in symbol_mappings.items():
                 updated_completion = updated_completion.replace(original, discovered)
@@ -665,6 +589,7 @@ def main():
         
         logging.info("Starting Unified Symbol Discovery Training")
         logging.info(f"Training arguments: {vars(args)}")
+        logging.info(f"MLP training mode: {args.mlp_training_mode}")
         
         # Load dataset configs
         datasets = args.dataset_type.split('-')
@@ -778,37 +703,54 @@ def main():
             logging.info(f"\n{'='*60}")
             logging.info(f"Starting Training Cycle {cycle}/{args.total_cycles}")
             logging.info(f"Current symbols: {current_symbols}")
+            logging.info(f"Will train MLP this cycle: {should_train_mlp(cycle, args.total_cycles, args.mlp_training_mode)}")
             logging.info(f"{'='*60}")
             
-            # Phase 1: Train MLP first
-            logging.info(f"Phase 1: MLP training - Cycle {cycle}")
-            model, discovered_symbols = train_mlp_phase(model, meta_loader, args, cycle, current_symbols)
-            
-            # Update symbols after MLP training
-            if discovered_symbols:
-                current_symbols.update(discovered_symbols)
-                logging.info(f"Updated symbol mappings after MLP training:")
-                for orig, disc in discovered_symbols.items():
-                    logging.info(f"  '{orig}' -> '{disc}'")
-            
-            # Phase 2: Train LoRA with discovered symbols
-            logging.info(f"Phase 2: LoRA training with discovered symbols - Cycle {cycle}")
+            # Phase 1: ALWAYS train LoRA with current symbols
+            logging.info(f"Phase 1: LoRA training with current symbols - Cycle {cycle}")
             model = train_lora_phase(model, train_loader, args, cycle, current_symbols)
+            
+            # Phase 2: Conditionally train MLP and discover new symbols
+            if should_train_mlp(cycle, args.total_cycles, args.mlp_training_mode):
+                logging.info(f"Phase 2: MLP training and symbol discovery - Cycle {cycle}")
+                model, discovered_symbols = train_mlp_phase(model, meta_loader, args, cycle, current_symbols)
+                
+                # Update symbols if new ones were discovered
+                if discovered_symbols:
+                    old_symbols = current_symbols.copy()
+                    current_symbols.update(discovered_symbols)
+                    logging.info(f"Updated symbol mappings:")
+                    for orig, disc in discovered_symbols.items():
+                        old_val = old_symbols.get(orig, "None")
+                        logging.info(f"  '{orig}': '{old_val}' -> '{disc}'")
+                else:
+                    logging.info("No new symbols discovered this cycle")
+            else:
+                logging.info(f"Phase 2: Skipping MLP training (mode: {args.mlp_training_mode})")
             
             logging.info(f"Completed Training Cycle {cycle}/{args.total_cycles}")
         
-        # Final symbol discovery and save results
-        logging.info("=== Final Symbol Discovery ===")
-        final_symbols = discover_symbols(model, args, args.total_cycles)
+        # Save final symbol mappings
+        symbol_file = os.path.join(args.output_dir, "final_symbol_mappings.json")
+        with open(symbol_file, 'w') as f:
+            json.dump(current_symbols, f, indent=2)
+        logging.info(f"Saved final symbol mappings to {symbol_file}")
         
-        if final_symbols:
-            current_symbols.update(final_symbols)
-            
-            # Save final symbol mappings
-            symbol_file = os.path.join(args.output_dir, "final_symbol_mappings.json")
-            with open(symbol_file, 'w') as f:
-                json.dump(current_symbols, f, indent=2)
-            logging.info(f"Saved final symbol mappings to {symbol_file}")
+        # Save training summary
+        summary = {
+            "args": vars(args),
+            "original_labels": original_labels,
+            "random_symbols": random_symbols,
+            "initial_mapping": initial_symbol_mapping,
+            "final_mapping": current_symbols,
+            "mlp_training_mode": args.mlp_training_mode,
+            "cycles_completed": args.total_cycles
+        }
+        
+        summary_file = os.path.join(args.output_dir, "training_summary.json")
+        with open(summary_file, 'w') as f:
+            json.dump(summary, f, indent=2)
+        logging.info(f"Saved training summary to {summary_file}")
         
         return 0
         

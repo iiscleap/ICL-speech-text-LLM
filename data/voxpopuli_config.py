@@ -25,15 +25,15 @@ Guidelines:
     valid_labels=["law", "norp", "org", "person", "place", "quant", "when"],
     completion_key="normalized_combined_ner",
     text_key="normalized_text",
-# audio_lookup_paths={
-#         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_audio_lookup",
-#         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_audio_lookup",
-#     }
     audio_lookup_paths={
-        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
-        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
-        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
+        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_audio_lookup",
+        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_audio_lookup",
     }
+    # audio_lookup_paths={
+    #     DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
+    #     DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
+    #     DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",
+    # }
 )
 
 VOXPOPULI_GREEK_CONFIG = DatasetConfig(

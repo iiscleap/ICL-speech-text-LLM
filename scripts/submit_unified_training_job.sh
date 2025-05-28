@@ -9,15 +9,15 @@ dataset_type="voxceleb_greek-hvb_greek"  # Dataset type(s) to use
 # Training parameters
 lora_lr=1e-5
 mlp_lr=1e-4
-lora_epochs=1
+lora_epochs=2
 mlp_epochs=1
-total_cycles=2
+total_cycles=4
 hidden_dim=8
 batch_size=1
 gradient_accumulation_steps=8
 max_grad_norm=1.0
 warmup_steps=100
-max_samples=10  # Set to 0 for full dataset, or >0 for limited samples
+max_samples=0  # Set to 0 for full dataset, or >0 for limited samples
 
 # Performance optimization options
 use_fp16=true  # Enable mixed precision training with FP16

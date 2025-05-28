@@ -17,11 +17,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 from SALMONN.models.salmonn_org import SALMONN
 
 class MLPSalmonn(nn.Module):
-    """
-    Enhanced SALMONN model with MLP embedding transformations,
-    applied BEFORE LoRA adapters to ensure proper gradient flow.
-    Uses CustomSALMONN implementations of forward, get_speech_embeddings, etc.
-    """
+    """SIMPLIFIED SALMONN with MLP - compatible with unified_symbol_training.py"""
     
     def __init__(
         self,
@@ -34,56 +30,58 @@ class MLPSalmonn(nn.Module):
         freeze_base=True,
         lora=True,
         lora_rank=8,
-        lora_alpha=16,
+        lora_alpha=32,
         lora_dropout=0.05,
         device=None,
-        low_resource=True
+        low_resource=False
     ):
         super().__init__()
         
-        # Set device
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         
-        # Configure SALMONN without LoRA first
+        # SIMPLIFIED SALMONN config
         salmonn_config = {
-        "llama_path": llama_path,
-        "whisper_path": whisper_path,
-        "beats_path": beats_path,
-        "lora": True,
-        "lora_rank": lora_rank,
-        "lora_alpha": lora_alpha,
-        "lora_dropout": lora_dropout,
-        "low_resource": False,
-        "use_speech_Qformer": True,
-        "freeze_whisper": True,
-        "freeze_beats": True,
-        "freeze_speech_QFormer": False,  # <-- Set to False to make QFormer trainable
-        "num_speech_query_token": 1,
-        "window_level_Qformer": True,
-        "second_per_window": 0.333333,
-        "second_stride": 0.333333,
-        "speech_llama_proj_model": "",
-        "freeze_speech_llama_proj": False,  # <-- Set to False if you want to train the projection layer
-        "ckpt": "/data2/neeraja/neeraja/salmonn_v1.pth"
-    }
+            "llama_path": llama_path,
+            "whisper_path": whisper_path,
+            "beats_path": beats_path,
+            "lora": True,
+            "lora_rank": lora_rank,
+            "lora_alpha": lora_alpha,
+            "lora_dropout": lora_dropout,
+            "low_resource": False,
+            "use_speech_Qformer": True,
+            "freeze_whisper": True,
+            "freeze_beats": True,
+            "freeze_speech_QFormer": False,
+            "num_speech_query_token": 1,
+            "window_level_Qformer": True,
+            "second_per_window": 0.333333,
+            "second_stride": 0.333333,
+            "speech_llama_proj_model": "",
+            "freeze_speech_llama_proj": False,
+            "ckpt": "/data2/neeraja/neeraja/salmonn_v1.pth"
+        }
 
-        # Initialize the SALMONN model using from_config
-        logging.info("Loading base SALMONN model without LoRA...")
+        # Initialize SALMONN
+        logging.info("Loading base SALMONN model...")
         self.salmonn = SALMONN.from_config(salmonn_config)
         self.salmonn.to(self.device)
         
-        # Store model attributes
+        # SIMPLIFIED attributes
         self.label_tokens = label_tokens or []
         self.label_token_ids = []
         self.batch_counter = 0
         self.speech_placeholder = "<SpeechHere>"
-        self.use_lora = True
+        self.bypass_mlp_during_lora = False
         
-        # Get references to SALMONN components for easier access
+        # ✅ FIX: Store original label mapping for discovery
+        self.original_to_random_mapping = {}  # Will store {"alpha": "duhl"}
+        
+        # Get model components
         self.llama_model = self.salmonn.llama_model
         self.llama_tokenizer = self.salmonn.llama_tokenizer
         
-        # Get embedding module and dimensions
+        # Get embedding module
         if hasattr(self.llama_model, 'model'):
             if hasattr(self.llama_model.model, 'model'):
                 self.embed_module = self.llama_model.model.model.embed_tokens
@@ -95,29 +93,27 @@ class MLPSalmonn(nn.Module):
         self.embed_dim = self.embed_module.weight.shape[1]
         self.hidden_dim = hidden_dim or self.embed_dim
         
-        # Create the MLP for embedding transformation
+        # SIMPLIFIED MLP
         self.position_wise_mlp = nn.Sequential(
             nn.Linear(self.embed_dim, self.hidden_dim),
+            nn.LayerNorm(self.hidden_dim),  # ✅ Add layer norm for stability
             nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(self.hidden_dim, self.embed_dim)
         )
 
-        # Use MUCH more conservative initialization
+        # SIMPLIFIED initialization
         with torch.no_grad():
             for layer in self.position_wise_mlp:
                 if isinstance(layer, nn.Linear):
-                    # Use Xavier uniform with very small gain
-                    torch.nn.init.xavier_uniform_(layer.weight, gain=0.01)  # Much smaller gain
+                    torch.nn.init.xavier_uniform_(layer.weight, gain=0.01)
                     if layer.bias is not None:
                         torch.nn.init.zeros_(layer.bias)
+                elif isinstance(layer, nn.LayerNorm):
+                    torch.nn.init.constant_(layer.weight, 1.0)
+                    torch.nn.init.constant_(layer.bias, 0.0)
         
-        base_dtype = self.embed_module.weight.dtype
-        self.position_wise_mlp = self.position_wise_mlp.to(dtype=base_dtype)
-        logging.info(f"Initialized MLP with conservative initialization")
-
         self.position_wise_mlp.to(self.device)
-
         self.input_processor = WhisperFeatureExtractor.from_pretrained(whisper_path)
         
         # Convert label tokens to token IDs
@@ -128,110 +124,131 @@ class MLPSalmonn(nn.Module):
         if freeze_base:
             for param in self.salmonn.parameters():
                 param.requires_grad = False
-            
-            # Make MLP trainable
             for param in self.position_wise_mlp.parameters():
                 param.requires_grad = True
-                
-            trainable_params = sum(p.numel() for p in self.position_wise_mlp.parameters())
-            logging.info(f"Model has {trainable_params:,} trainable MLP parameters")
         
-        # Keep original embeddings frozen for reference
+        # SIMPLIFIED attributes for compatibility
         self.original_embed_matrix = self.embed_module.weight.clone().detach()
         self.original_embed_matrix.requires_grad = False
-        
-        # Store discovered symbol mappings
-        self.symbol_mappings = {}  # Maps original_token_id -> discovered_token_id
-
-        self.bypass_mlp_during_lora = False  # Add this flag
+        self.symbol_mappings = {}
     
     def set_mlp_bypass(self, bypass=True):
-        """Enable/disable MLP bypass during LoRA training"""
+        """Enable/disable MLP bypass"""
         self.bypass_mlp_during_lora = bypass
         logging.info(f"MLP bypass set to: {bypass}")
     
     def apply_mlp_to_embeddings(self, embeddings, token_ids):
-        """Apply MLP transformation with bypass option"""
-        if self.bypass_mlp_during_lora:
-            logging.debug("MLP bypass active - returning original embeddings")
+        """SIMPLIFIED: Apply MLP only if not bypassed"""
+        if self.bypass_mlp_during_lora or not self.training:
             return embeddings
         
-        # Apply MLP transformation to specific tokens in embeddings
         return self.transform_text_embeddings(embeddings, token_ids)
     
-    def get_transformed_embeddings(self):
-        """Get embeddings with transformations applied for label tokens - consistent with transform_text_embeddings"""
-        # Start with a copy of the original embeddings
-        transformed_matrix = self.embed_module.weight.clone()
+    def transform_text_embeddings(self, embeddings, token_ids):
+        """Transform embeddings with MLP - reduced logging"""
+        if not self.training or not self.label_token_ids:
+            return embeddings
         
-        # Get MLP properties
-        device = next(self.position_wise_mlp.parameters()).device
-        dtype = next(self.position_wise_mlp.parameters()).dtype
+        # Convert token_ids to tensor if needed
+        if isinstance(token_ids, list):
+            token_ids = torch.tensor(token_ids, device=embeddings.device)
+        elif token_ids.dim() > 1:
+            token_ids = token_ids.squeeze()
         
-        # Apply transformation to label tokens using the SAME method as transform_text_embeddings
-        label_embeds = self.embed_module.weight[self.label_token_ids].to(device=device, dtype=dtype)
+        # LOG: Only for first few batches
+        if self.batch_counter < 3:
+            logging.info(f"=== MLP Transform Debug ===")
+            logging.info(f"Input embeddings shape: {embeddings.shape}")
+            logging.info(f"Token sequence length: {len(token_ids)}")
+            logging.info(f"Looking for {len(self.label_token_ids)} label tokens: {self.label_token_ids}")
         
-        # Apply MLP to get residual component (same as transform_text_embeddings)
-        residual_values = self.position_wise_mlp(label_embeds)
+        # Find positions where label tokens appear
+        positions_to_transform = []
+        tokens_found = {}
         
-        # Add residuals to original embeddings (same as transform_text_embeddings)
-        transformed_embeds = label_embeds + residual_values
+        for label_token_id in self.label_token_ids:
+            positions = (token_ids == label_token_id).nonzero(as_tuple=True)[0]
+            if len(positions) > 0:
+                positions_to_transform.extend(positions.tolist())
+                if self.batch_counter < 3:  # Only log for first few batches
+                    token_text = self.llama_tokenizer.decode([label_token_id], skip_special_tokens=True)
+                    tokens_found[label_token_id] = {
+                        'text': token_text,
+                        'positions': positions.tolist(),
+                        'count': len(positions)
+                    }
+                    logging.info(f"✓ Found label token {label_token_id} ('{token_text}') at positions: {positions.tolist()}")
         
-        # Move back to original device and dtype if needed
-        if (transformed_embeds.device != transformed_matrix.device or 
-            transformed_embeds.dtype != transformed_matrix.dtype):
-            transformed_embeds = transformed_embeds.to(
-                device=transformed_matrix.device, 
-                dtype=transformed_matrix.dtype
-            )
+        # Return early if no tokens found
+        if not positions_to_transform:
+            return embeddings
         
-        # Update in the transformed matrix
-        transformed_matrix[self.label_token_ids] = transformed_embeds
+        # Only log summary for first few batches
+        if self.batch_counter < 3:
+            total_transformations = len(positions_to_transform)
+            unique_positions = len(set(positions_to_transform))
+            logging.info(f"📊 TRANSFORMATION SUMMARY:")
+            logging.info(f"   • Total label tokens found: {total_transformations}")
+            logging.info(f"   • Unique positions to transform: {unique_positions}")
+            
+            for token_id, info in tokens_found.items():
+                logging.info(f"   • Token '{info['text']}' (ID: {token_id}): {info['count']} occurrences")
         
-        return transformed_matrix
-    
-    def save_transformed_embeddings(self, path):
-        """Save the transformed token embeddings to a file"""
-        with torch.no_grad():
-            transformed_matrix = self.get_transformed_embeddings()
-        
-        # Save transformed embeddings with metadata
-        torch.save({
-            "embeddings": transformed_matrix,
-            "vocab_size": transformed_matrix.shape[0],
-            "embedding_dim": transformed_matrix.shape[1],
-            "label_tokens": self.label_tokens,
-            "label_token_ids": self.label_token_ids,
-            "mlp_state_dict": self.position_wise_mlp.state_dict()
-        }, path)
-        logging.info(f"Saved transformed embeddings to {path}")
+        try:
+            positions_tensor = torch.tensor(positions_to_transform, device=embeddings.device)
+            
+            # Check bounds
+            max_pos = positions_tensor.max().item()
+            seq_len = embeddings.shape[-2]
+            if max_pos >= seq_len:
+                logging.error(f"❌ BOUNDS ERROR: Max position {max_pos} >= sequence length {seq_len}")
+                return embeddings
+            
+            # Extract embeddings to transform
+            if len(embeddings.shape) == 2:
+                to_transform = embeddings[positions_tensor]
+            else:
+                batch_indices = torch.zeros_like(positions_tensor)
+                to_transform = embeddings[batch_indices, positions_tensor]
+            
+            # Convert to MLP's dtype if needed
+            original_dtype = to_transform.dtype
+            mlp_dtype = next(self.position_wise_mlp.parameters()).dtype
+            
+            if to_transform.dtype != mlp_dtype:
+                to_transform = to_transform.to(dtype=mlp_dtype)
+            
+            # Apply MLP with residual connection
+            mlp_output = self.position_wise_mlp(to_transform)
+            transformed = to_transform + mlp_output  # old + residue
+            
+            # Convert back to original dtype
+            if transformed.dtype != original_dtype:
+                transformed = transformed.to(dtype=original_dtype)
+            
+            # Create output
+            output_embeds = embeddings.clone()
+            if len(embeddings.shape) == 2:
+                output_embeds[positions_tensor] = transformed
+            else:
+                output_embeds[batch_indices, positions_tensor] = transformed
+            
+            # Only log success for first few batches
+            if self.batch_counter < 3:
+                logging.info(f"✅ Successfully applied MLP transformation to {len(positions_tensor)} token positions")
+            
+            return output_embeds
+            
+        except Exception as e:
+            logging.error(f"❌ Error in MLP transformation: {e}")
+            return embeddings
     
     def forward(self, samples):
-        """Forward pass with enhanced debugging"""
-        start_time = time.time()
-        
+        """Forward pass - reduced logging"""
         # Process speech embeddings
         speech_embeds, speech_atts, example_embeds, example_atts = self.get_speech_embeddings(samples)
         
-        
-        speech_embeds, speech_atts, example_embeds, example_atts = self.get_speech_embeddings(samples)
-        
-        
-        # First batch logging
-        if self.batch_counter == 0:
-            if speech_embeds is not None:
-                # Original logging for single speech embedding
-                logging.info("Speech data detected and processed")
-                logging.info(f"Speech embeddings device: {speech_embeds.device}")
-                logging.info(f"Speech embeddings range: {speech_embeds.min():.3f} to {speech_embeds.max():.3f}")
-            else:
-                logging.info("No speech data detected, using text-only mode")
-        
-        if self.batch_counter == 0:
-            logging.info(f"Prompt example:\n{samples['prompt'][0]}")
-            logging.info(f"Output:\n{samples['completion'][0]}")
-        
-        # Get number of examples per sample
+        # Get number of examples
         num_examples = samples.get("num_examples", torch.zeros(len(samples["prompt"]), dtype=torch.long))
         
         # Wrap embeddings with prompts
@@ -239,12 +256,6 @@ class MLPSalmonn(nn.Module):
             speech_embeds, speech_atts, samples["prompt"],
             num_examples, example_embeds, example_atts
         )
-        
-        if self.batch_counter == 0:
-            logging.info(f"Wrapped embeddings shape: {wrapped_embeds.shape}")
-            logging.info(f"Wrapped attention mask shape: {wrapped_atts.shape}")
-        
-        gen_start_time = time.time()
         
         # Process target text
         target_tokens = self.llama_tokenizer(
@@ -255,32 +266,33 @@ class MLPSalmonn(nn.Module):
             return_attention_mask=True,
         ).to(wrapped_embeds.device)
         
-        # Get normal embeddings first 
+        # Get target embeddings
         target_embeds = self.embed_module(target_tokens.input_ids)
         
-        # DEBUG: Log target information before MLP
-        if self.label_token_ids and not self.bypass_mlp_during_lora:
-            logging.info(f"=== Forward Pass MLP Debug ===")
-            logging.info(f"Target tokens shape: {target_tokens.input_ids.shape}")
-            logging.info(f"Target embeds shape: {target_embeds.shape}")
-            logging.info(f"Label token IDs: {self.label_token_ids}")
-            logging.info(f"Target completion text: '{samples['completion'][0]}'")
+        # Apply MLP if training and not bypassed
+        if self.training and self.label_token_ids and not self.bypass_mlp_during_lora:
+            target_sequence = target_tokens.input_ids[0] if target_tokens.input_ids.dim() > 1 else target_tokens.input_ids
             
-            # Check which label tokens actually appear in target
-            found_labels = []
-            for label_id in self.label_token_ids:
-                if label_id in target_tokens.input_ids[0]:
-                    found_labels.append(label_id)
+            # Only log target info for first few batches
+            if self.batch_counter < 3:
+                target_text = self.llama_tokenizer.decode(target_sequence, skip_special_tokens=True)
+                logging.info(f"=== TARGET TRANSFORMATION ===")
+                logging.info(f"Target text: '{target_text}'")
+                logging.info(f"Target sequence: {target_sequence.tolist()}")
+                logging.info(f"Target embeddings shape: {target_embeds.shape}")
             
-            logging.info(f"Label tokens found in target: {found_labels}")
+            original_target_norm = torch.norm(target_embeds, dim=-1).mean().item()
+            target_embeds = self.apply_mlp_to_embeddings(target_embeds, target_sequence)
+            new_target_norm = torch.norm(target_embeds, dim=-1).mean().item()
             
-            # Apply MLP to label token embeddings (with bypass check)
-            logging.info(f"Applying MLP to {len(self.label_token_ids)} label tokens")
-            target_embeds = self.apply_mlp_to_embeddings(target_embeds, target_tokens.input_ids)
+            if self.batch_counter < 3:
+                logging.info(f"Target transformation complete:")
+                logging.info(f"   Original norm: {original_target_norm:.4f}")
+                logging.info(f"   New norm: {new_target_norm:.4f}")
+                logging.info(f"   Change ratio: {new_target_norm/original_target_norm:.4f}")
         
+        # Create labels
         prompt_length = wrapped_embeds.size(1)
-        
-        # Create labels tensor
         labels = torch.full(
             [wrapped_atts.shape[0], wrapped_atts.shape[1] + target_tokens.input_ids.size(1)],
             fill_value=-100,
@@ -289,7 +301,7 @@ class MLPSalmonn(nn.Module):
         )
         labels[:, prompt_length:] = target_tokens.input_ids
         
-        # Mask padding tokens
+        # Create attention mask
         attention_mask = torch.cat([wrapped_atts, target_tokens.attention_mask], dim=1)
         labels[attention_mask == 0] = -100
         
@@ -302,8 +314,6 @@ class MLPSalmonn(nn.Module):
                 return_dict=True
             )
         
-        # logging.info(f"Forward pass took {time.time() - start_time:.2f} seconds")
-
         self.batch_counter += 1
         return {"loss": outputs.loss, "logits": outputs.logits, "labels": labels}
     
@@ -437,10 +447,7 @@ class MLPSalmonn(nn.Module):
         return speech_embeds, speech_atts, example_embeds, example_atts
         
     def custom_prompt_wrap(self, embeds, atts, prompts, num_examples=None, example_embeds=None, example_atts=None):
-        """
-        Wraps speech embeddings with text prompts and examples.
-        Implementation from CustomSALMONN.
-        """
+        """Wraps speech embeddings with text prompts and examples - reduced logging"""
         # Infer device from model parameters
         device = next(self.parameters()).device
         
@@ -491,17 +498,23 @@ class MLPSalmonn(nn.Module):
             # Get embeddings from the original embedding layer
             part_embeds = []
             for tokens in tokenized_parts:
-                if self.use_lora:
-                    part_embed = self.llama_model.model.model.embed_tokens(tokens['input_ids'].squeeze(0))
-                else:
-                    part_embed = self.llama_model.model.embed_tokens(tokens['input_ids'].squeeze(0))
+                part_embed = self.embed_module(tokens['input_ids'].squeeze(0))
 
-                # Transform embeddings for label tokens
+                # Only log for first few batches
+                if self.batch_counter < 3:
+                    part_text = self.llama_tokenizer.decode(tokens['input_ids'].squeeze(0), skip_special_tokens=True)
+                    logging.info(f"Processing prompt part: '{part_text[:50]}...' ({len(tokens['input_ids'].squeeze(0))} tokens)")
+                
+                # Apply MLP if training and not bypassed
                 if self.training and self.label_token_ids:
-                    part_embed = self.transform_text_embeddings(
+                    original_shape = part_embed.shape
+                    part_embed = self.apply_mlp_to_embeddings(
                         part_embed, 
                         tokens['input_ids'].squeeze(0)
                     )
+                    if self.batch_counter < 3:
+                        logging.info(f"Prompt part processed: shape {original_shape} -> {part_embed.shape}")
+                
                 part_embeds.append(part_embed)
                 
             part_atts = [tokens['attention_mask'].squeeze(0) for tokens in tokenized_parts]
@@ -542,315 +555,62 @@ class MLPSalmonn(nn.Module):
             batch_atts.append(torch.cat(combined_atts, dim=0))
         
         return torch.stack(batch_embeds, dim=0), torch.stack(batch_atts, dim=0)
-        
+    
+    # SIMPLIFIED supporting functions
     def encode_speech(self, spectrogram, raw_wav=None, audio_padding_mask=None):
-        """
-        Encode speech inputs using the SALMONN speech encoder.
-        """
+        """Encode speech inputs using SALMONN"""
         return self.salmonn.encode_speech(    
             spectrogram=spectrogram,
             raw_wav=raw_wav,
             audio_padding_mask=audio_padding_mask
         )
-
     
     def _get_label_token_ids(self):
-        """Convert label tokens to token IDs and maintain token-to-label mapping"""
-        logging.info("Converting label tokens to token IDs...")
+        """SIMPLIFIED: Convert label tokens to token IDs"""
         token_ids = []
-        # Create a mapping from token ID to original label
-        self.token_id_to_label = {}
-        # Create a mapping from label to all its token IDs
         self.label_to_token_ids = {}
         
         for label in self.label_tokens:
             if isinstance(label, int):
                 token_ids.append(label)
-                self.token_id_to_label[label] = label
                 self.label_to_token_ids[label] = [label]
             else:
-                # Token is a string, encode it
                 tokenized = self.llama_tokenizer.encode(label, add_special_tokens=False)
                 if len(tokenized) > 0:
-                    # Add ALL token IDs from tokenization
-                    for token_id in tokenized:
-                        token_ids.append(token_id)
-                        self.token_id_to_label[token_id] = label
-                    
+                    token_ids.extend(tokenized)
                     self.label_to_token_ids[label] = tokenized
-                    logging.info(f"Label '{label}' tokenized to {len(tokenized)} tokens: {tokenized}")
-                    token_texts = [self.llama_tokenizer.decode([tid]) for tid in tokenized]
-                    logging.info(f"  Decoded tokens: {token_texts}")
-                else:
-                    logging.warning(f"Could not tokenize '{label}'")
-        
-        if token_ids:
-            logging.info(f"Label token IDs: {token_ids}")
-            for token_id in token_ids:
-                token_text = self.llama_tokenizer.decode([token_id])
-                original_label = self.token_id_to_label.get(token_id, "unknown")
-                logging.info(f"Token ID {token_id} ('{token_text}') belongs to label '{original_label}'")
-        else:
-            logging.warning("No valid label tokens provided")
+                    logging.info(f"Label '{label}' -> {tokenized}")
         
         return token_ids
-
-
-
-
-    def print_token_info(self, tokens):
-        """Print tokenization information for debugging"""
-        tokenizer = self.llama_tokenizer
-        
-        for token in tokens:
-            token_ids = tokenizer.encode(token, add_special_tokens=False)
-            token_texts = [tokenizer.decode([tid]) for tid in token_ids]
-            
-            logging.info(f"Token '{token}':")
-            logging.info(f"  Token IDs: {token_ids}")
-            logging.info(f"  Decoded as: {token_texts}")
-
-    def transform_text_embeddings(self, embeddings, token_ids):
-        """Apply MLP transformation with detailed debugging"""
-        if not self.training or not self.label_token_ids:
-            logging.debug("Skipping MLP: not training or no label tokens")
-            return embeddings
-        
-        # Convert inputs to tensors
-        if isinstance(token_ids, list):
-            token_ids = torch.tensor(token_ids, device=embeddings.device, dtype=torch.long)
-        
-        if isinstance(self.label_token_ids, list):
-            label_token_ids = torch.tensor(self.label_token_ids, device=embeddings.device, dtype=torch.long)
-        else:
-            label_token_ids = self.label_token_ids.to(embeddings.device)
-        
-        # DEBUG: Show what we're looking for
-        logging.info(f"=== MLP Transform Debug ===")
-        logging.info(f"Sequence length: {len(token_ids)}")
-        logging.info(f"Looking for {len(label_token_ids)} label tokens: {label_token_ids.tolist()}")
-        
-        # Decode the sequence to see what text we have
-        sequence_text = self.llama_tokenizer.decode(token_ids, skip_special_tokens=True)
-        logging.info(f"Sequence text (first 100 chars): '{sequence_text[:100]}...'")
-        
-        # Check each label token individually
-        positions_found = []
-        for i, label_token_id in enumerate(label_token_ids):
-            positions = (token_ids == label_token_id).nonzero(as_tuple=True)[0]
-            if len(positions) > 0:
-                token_text = self.llama_tokenizer.decode([label_token_id])
-                logging.info(f"✓ Found label token {label_token_id} ('{token_text}') at positions: {positions.tolist()}")
-                positions_found.extend(positions.tolist())
-            else:
-                token_text = self.llama_tokenizer.decode([label_token_id])
-                logging.info(f"✗ Label token {label_token_id} ('{token_text}') NOT found in sequence")
-        
-        if not positions_found:
-            logging.info("❌ NO LABEL TOKENS FOUND - MLP has nothing to train on!")
-            return embeddings
-        
-        logging.info(f"✅ Found {len(positions_found)} label token positions total")
-        
-        # ... rest of transformation logic ...
-        # (Apply actual MLP transformation here)
-        
-        return embeddings
-
+    
     def maybe_autocast(self):
-        """Context manager for autocast mixed precision where appropriate"""
-        # Check if we're on CUDA and should use autocast
-        if self.device != "cpu" and hasattr(torch.cuda, 'amp') and hasattr(torch.cuda.amp, 'autocast'):
+        """Context manager for autocast"""
+        if self.device != "cpu" and hasattr(torch.cuda, 'amp'):
             return torch.cuda.amp.autocast(enabled=True)
         else:
-            # Return a dummy context manager that does nothing
             return nullcontext()
-
+    
     def find_symbol_mappings(self):
-        """Find which original vocabulary tokens are most similar to transformed symbols"""
+        """SIMPLIFIED symbol discovery"""
         if not self.label_token_ids:
             return {}
         
-        with torch.no_grad():
-            device = next(self.position_wise_mlp.parameters()).device
-            dtype = next(self.position_wise_mlp.parameters()).dtype
-            
-            mappings = {}
-            original_norm = F.normalize(self.original_embed_matrix.float(), p=2, dim=1)
-            
-            print("\n=== Symbol Discovery After Epoch ===")
-            
-            # FIX: Process each label correctly
-            for label, token_ids in self.label_to_token_ids.items():
-                print(f"\nLabel: '{label}'")
-                label_mappings = []
-                
-                # FIX: token_ids is a list of integers, not tuples
-                for token_id in token_ids:  # ✅ FIXED: removed unpacking
-                    # Get original embedding for this token
-                    original_embed = self.embed_module.weight[token_id].unsqueeze(0).to(device=device, dtype=dtype)
-                    
-                    # Apply MLP transformation
-                    residual_values = self.safe_mlp_forward(original_embed)
-                    
-                    # ... rest of discovery logic ...
-                    
-                    original_text = self.llama_tokenizer.decode([token_id])
-                    print(f"  Processing token '{original_text}' (ID: {token_id})")
-                    
-                    # Store mapping (simplified for now)
-                    mappings[token_id] = token_id  # Placeholder
-                    label_mappings.append(token_id)
-            
-            self.symbol_mappings = mappings
-            return mappings
-
-    def get_symbol_replacement_dict(self):
-        """Get a dictionary for replacing symbols during inference"""
-        if not self.symbol_mappings:
-            return {}
+        # Simplified random mapping for now
+        mappings = {}
+        for token_id in self.label_token_ids:
+            mappings[token_id] = token_id  # Identity mapping for simplicity
         
-        replacement_dict = {}
-        
-        for label, token_ids in self.label_to_token_ids.items():
-            # Get the discovered tokens for this label
-            discovered_ids = [self.symbol_mappings[tid] for tid in token_ids if tid in self.symbol_mappings]
-            
-            if discovered_ids:
-                # Create text representations
-                original_text = "".join([self.llama_tokenizer.decode([tid]) for tid in token_ids])
-                discovered_text = "".join([self.llama_tokenizer.decode([tid]) for tid in discovered_ids])
-                
-                replacement_dict[original_text] = discovered_text
-        
-        return replacement_dict
-
-    def prepare_inference_text(self, text):
-        """Replace symbols in text for inference using discovered mappings"""
-        if not self.symbol_mappings:
-            return text
-        
-        replacement_dict = self.get_symbol_replacement_dict()
-        
-        # Replace symbols in the text
-        for original, discovered in replacement_dict.items():
-            text = text.replace(original, discovered)
-        
-        return text
-
-    def print_symbol_mappings(self):
-        """Print current symbol mappings in a readable format"""
-        if not self.symbol_mappings:
-            print("No symbol mappings discovered yet.")
-            return
-        
-        print("\n=== Current Symbol Mappings ===")
-        replacement_dict = self.get_symbol_replacement_dict()
-        
-        for original, discovered in replacement_dict.items():
-            print(f"'{original}' -> '{discovered}'")
-        
-        print("\nFor inference, replace these symbols in your prompts:")
-        print("Example usage:")
-        for original, discovered in replacement_dict.items():
-            print(f"  text = text.replace('{original}', '{discovered}')")
-
-    def check_mlp_health(self):
-        """Check if MLP weights are healthy"""
-        max_weight = 0.0
-        max_grad = 0.0
-        
-        for param in self.position_wise_mlp.parameters():
-            if param.data is not None:
-                max_weight = max(max_weight, param.data.abs().max().item())
-            if param.grad is not None:
-                max_grad = max(max_grad, param.grad.abs().max().item())
-        
-        is_healthy = (max_weight < 100.0 and max_grad < 10.0 and 
-                      not torch.isnan(torch.tensor(max_weight)) and 
-                      not torch.isnan(torch.tensor(max_grad)))
-        
-        return is_healthy, {"max_weight": max_weight, "max_grad": max_grad}
-
-    def reset_mlp_weights(self):
-        """Reset MLP weights to conservative initialization"""
-        logging.warning("Resetting MLP weights due to instability")
-        with torch.no_grad():
-            for layer in self.position_wise_mlp:
-                if isinstance(layer, nn.Linear):
-                    torch.nn.init.xavier_uniform_(layer.weight, gain=0.01)
-                    if layer.bias is not None:
-                        torch.nn.init.zeros_(layer.bias)
-
-    def safe_mlp_forward(self, embeddings):
-        """Safely apply MLP with health checks"""
-        # Check MLP health before forward pass
-        is_healthy, message = self.check_mlp_health()
-        if not is_healthy:
-            logging.error(f"MLP unhealthy: {message}")
-            self.reset_mlp_weights()
-            return embeddings  # Return original embeddings if MLP is corrupted
-        
-        # Ensure input is the right dtype
-        target_dtype = next(self.position_wise_mlp.parameters()).dtype
-        if embeddings.dtype != target_dtype:
-            embeddings = embeddings.to(dtype=target_dtype)
-        
-        # Apply MLP
-        try:
-            output = self.position_wise_mlp(embeddings)
-            
-            # Check output for NaN/Inf
-            if torch.isnan(output).any() or torch.isinf(output).any():
-                logging.error("NaN/Inf detected in MLP output")
-                self.reset_mlp_weights()
-                return embeddings
-            
-            return output
-        except Exception as e:
-            logging.error(f"Error in MLP forward pass: {e}")
-            self.reset_mlp_weights()
-            return embeddings
-
-    def debug_mlp_forward(self, embeddings):
-        """Debug version of MLP forward to see where corruption happens"""
-        logging.info(f"=== MLP Forward Debug ===")
-        logging.info(f"Input shape: {embeddings.shape}")
-        logging.info(f"Input stats: min={embeddings.min():.6f}, max={embeddings.max():.6f}, mean={embeddings.mean():.6f}")
-        
-        x = embeddings
-        for i, layer in enumerate(self.position_wise_mlp):
-            if isinstance(layer, nn.Linear):
-                logging.info(f"Layer {i} ({type(layer).__name__}):")
-                logging.info(f"  Weight stats: min={layer.weight.min():.6f}, max={layer.weight.max():.6f}, mean={layer.weight.mean():.6f}")
-                logging.info(f"  Bias stats: min={layer.bias.min():.6f}, max={layer.bias.max():.6f}, mean={layer.bias.mean():.6f}")
-            
-            x_before = x.clone()
-            x = layer(x)
-            
-            logging.info(f"  After layer {i}: min={x.min():.6f}, max={x.max():.6f}, mean={x.mean():.6f}")
-            
-            if torch.isnan(x).any():
-                logging.error(f"  NaN detected after layer {i}!")
-                logging.info(f"  Input to this layer: min={x_before.min():.6f}, max={x_before.max():.6f}")
-                break
-            if torch.isinf(x).any():
-                logging.error(f"  Inf detected after layer {i}!")
-                break
-                
-        return x
-
+        return mappings
+    
     def freeze_mlp_weights(self):
-        """Freeze MLP weights for LoRA training"""
+        """Freeze MLP weights"""
         for param in self.position_wise_mlp.parameters():
             param.requires_grad = False
-        logging.info("Frozen MLP weights")
 
     def unfreeze_mlp_weights(self):
-        """Unfreeze MLP weights for MLP training"""
+        """Unfreeze MLP weights"""
         for param in self.position_wise_mlp.parameters():
             param.requires_grad = True
-        logging.info("Unfrozen MLP weights")
 
     def freeze_lora_weights(self):
         """Freeze LoRA weights AND QFormer for MLP training"""
@@ -910,146 +670,167 @@ class MLPSalmonn(nn.Module):
         logging.info(f"Unfrozen LoRA and QFormer weights ({unfrozen_count} parameters)")
 
     def get_trainable_parameters(self):
-        """Get currently trainable parameters with detailed breakdown"""
-        lora_params = []
-        mlp_params = []
-        qformer_params = []
-        projection_params = []
-        other_params = []
-        
-        frozen_params = []
+        """Get trainable parameters"""
+        trainable = []
+        frozen = []
         
         for name, param in self.named_parameters():
             if param.requires_grad:
-                if 'lora' in name.lower():
-                    lora_params.append(name)
-                elif 'position_wise_mlp' in name:
-                    mlp_params.append(name)
-                elif 'speech_qformer' in name.lower() or 'speech_query_tokens' in name.lower():
-                    qformer_params.append(name)
-                elif 'speech_llama_proj' in name.lower():
-                    projection_params.append(name)
-                else:
-                    other_params.append(name)
+                trainable.append(name)
             else:
-                frozen_params.append(name)
+                frozen.append(name)
         
-        # Log breakdown
-        logging.info(f"Trainable parameter breakdown:")
-        logging.info(f"  LoRA parameters: {len(lora_params)}")
-        logging.info(f"  MLP parameters: {len(mlp_params)}")
-        logging.info(f"  QFormer parameters: {len(qformer_params)}")
-        logging.info(f"  Projection parameters: {len(projection_params)}")
-        logging.info(f"  Other parameters: {len(other_params)}")
-        logging.info(f"  Frozen parameters: {len(frozen_params)}")
-        
-        trainable = lora_params + mlp_params + qformer_params + projection_params + other_params
-        return trainable, frozen_params
+        return trainable, frozen
 
-def generate_random_two_token_symbols(num_symbols, tokenizer):
-    """Generate symbols that are GUARANTEED to be exactly 2 tokens"""
-    import random
-    
-    # Get a set of single-token words that are common and clean
-    single_token_words = []
-    
-    # Test a range of token IDs to find ones that decode to clean single tokens
-    for token_id in range(1000, min(10000, tokenizer.vocab_size - 1000)):
-        try:
-            token_text = tokenizer.decode([token_id], skip_special_tokens=True).strip()
+
+    def check_mlp_health(self):
+        """Check if MLP weights are healthy"""
+        max_weight = 0.0
+        max_grad = 0.0
+        
+        for param in self.position_wise_mlp.parameters():
+            if param.data is not None:
+                max_weight = max(max_weight, param.data.abs().max().item())
+            if param.grad is not None:
+                max_grad = max(max_grad, param.grad.abs().max().item())
+        
+        is_healthy = (max_weight < 100.0 and max_grad < 10.0 and 
+                      not torch.isnan(torch.tensor(max_weight)) and 
+                      not torch.isnan(torch.tensor(max_grad)))
+        
+        return is_healthy, {"max_weight": max_weight, "max_grad": max_grad}
+
+    def reset_mlp_weights(self):
+        """Reset MLP weights with better initialization"""
+        for layer in self.position_wise_mlp:
+            if isinstance(layer, nn.Linear):
+                # Xavier initialization for better stability
+                nn.init.xavier_uniform_(layer.weight)
+                nn.init.constant_(layer.bias, 0.0)
+            elif isinstance(layer, nn.LayerNorm):
+                nn.init.constant_(layer.weight, 1.0)
+                nn.init.constant_(layer.bias, 0.0)
+        
+        logging.info("MLP weights reset with Xavier initialization")
+
+    def find_closest_symbols(self):
+        """Symbol discovery with minimal logging"""
+        if not self.training or not self.label_token_ids:
+            logging.info("No label tokens to discover")
+            return {}
+        
+        logging.info("=== Simple Symbol Discovery ===")
+        logging.info(f"Finding closest symbols for {len(self.label_token_ids)} label tokens")
+        
+        with torch.no_grad():
+            # Get original embedding matrix
+            label_token_tensor = torch.tensor(self.label_token_ids, device=self.device)
+            original_embeds = self.embed_module(label_token_tensor)
             
-            # Check if it's a clean single token (no special chars, reasonable length)
-            if (len(token_text) > 0 and 
-                len(token_text) <= 10 and 
-                token_text.isalpha() and 
-                tokenizer.encode(token_text, add_special_tokens=False) == [token_id]):
-                single_token_words.append(token_text)
+            mlp_dtype = next(self.position_wise_mlp.parameters()).dtype
+            if original_embeds.dtype != mlp_dtype:
+                original_embeds = original_embeds.to(dtype=mlp_dtype)
+            
+            mlp_has_trained = any(param.abs().max().item() > 0.001 for param in self.position_wise_mlp.parameters())
+            transformed_embeds = self.position_wise_mlp(original_embeds) if mlp_has_trained else original_embeds
+            
+            original_dtype = self.embed_module.weight.dtype
+            if transformed_embeds.dtype != original_dtype:
+                transformed_embeds = transformed_embeds.to(dtype=original_dtype)
+            
+            full_embedding_matrix = self.embed_module.weight
+            mappings = {}
+            
+            for i, original_token_id in enumerate(self.label_token_ids):
+                transformed_embed = transformed_embeds[i:i+1]
+                transformed_norm = F.normalize(transformed_embed, p=2, dim=1)
+                vocab_norm = F.normalize(full_embedding_matrix, p=2, dim=1)
+                similarities = torch.mm(transformed_norm, vocab_norm.t()).squeeze(0)
                 
-                if len(single_token_words) >= 200:  # Collect enough options
-                    break
-        except:
-            continue
-    
-    if len(single_token_words) < 20:
-        logging.error(f"Only found {len(single_token_words)} single-token words!")
-        # Fallback to simple approach
-        single_token_words = ['cat', 'dog', 'car', 'run', 'big', 'red', 'blue', 'good', 'bad', 'new', 
-                             'old', 'hot', 'cold', 'fast', 'slow', 'high', 'low', 'yes', 'no', 'go']
-    
-    logging.info(f"Found {len(single_token_words)} single-token words")
-    
-    symbols = []
-    used_combinations = set()
-    
-    for i in range(num_symbols):
-        # Try up to 100 times to find a unique 2-token combination
-        for attempt in range(100):
-            # Pick two random single-token words
-            word1 = random.choice(single_token_words)
-            word2 = random.choice(single_token_words)
-            
-            # Create symbol by combining with space
-            symbol = f"{word1} {word2}"
-            
-            # Verify it tokenizes to exactly 2 tokens
-            token_ids = tokenizer.encode(symbol, add_special_tokens=False)
-            
-            if len(token_ids) == 2 and symbol not in used_combinations:
-                used_combinations.add(symbol)
-                symbols.append(symbol)
-                logging.info(f"Generated 2-token symbol {i+1}: '{symbol}' -> {token_ids}")
-                break
-        else:
-            # Fallback if we can't find a good combination
-            symbol = f"tok{i}_a tok{i}_b"
-            symbols.append(symbol)
-            logging.warning(f"Used fallback symbol {i+1}: '{symbol}'")
-    
-    return symbols
+                top_similarities, top_indices = torch.topk(similarities, k=10, largest=True)
+                best_match_id = next((candidate_id for candidate_id in top_indices if candidate_id != original_token_id and candidate_id >= 100), original_token_id)
+                
+                mappings[original_token_id] = best_match_id
+                original_text = self.llama_tokenizer.decode([original_token_id], skip_special_tokens=True)
+                best_match_text = self.llama_tokenizer.decode([best_match_id], skip_special_tokens=True)
+                logging.info(f"Mapping found: {original_token_id} ('{original_text}') -> {best_match_id} ('{best_match_text}')")
+        
+        logging.info(f"=== Discovery Complete: Found {len(mappings)} mappings ===")
+        return mappings
 
+    def update_label_tokens(self, symbol_mappings):
+        """Update with COMPLETE symbol mappings"""
+        if not symbol_mappings:
+            return
+        
+        self.original_to_random_mapping = symbol_mappings.copy()
+        
+        all_tokens = []
+        for random_symbol in symbol_mappings.values():
+            tokens = self.llama_tokenizer.encode(random_symbol, add_special_tokens=False)
+            all_tokens.extend(tokens)
+        
+        self.label_token_ids = list(set(all_tokens))
+        logging.info(f"Updated to track {len(self.label_token_ids)} tokens from {len(symbol_mappings)} symbols")
+
+    def convert_token_mappings_to_text(self, token_mappings):
+        """Convert to ORIGINAL -> DISCOVERED mapping"""
+        if not hasattr(self, 'original_to_random_mapping'):
+            logging.warning("No original mapping available")
+            return {}
+        
+        text_mappings = {}
+        
+        for original_label, random_symbol in self.original_to_random_mapping.items():
+            random_tokens = self.llama_tokenizer.encode(random_symbol, add_special_tokens=False)
+            discovered_tokens = [token_mappings.get(token_id, token_id) for token_id in random_tokens]
+            
+            try:
+                discovered_text = self.llama_tokenizer.decode(discovered_tokens, skip_special_tokens=True).strip()
+                if discovered_text and discovered_text != random_symbol:
+                    text_mappings[original_label] = discovered_text
+                    logging.info(f"Discovered mapping: '{original_label}' -> '{discovered_text}'")
+            except Exception as e:
+                logging.warning(f"Error converting tokens for {original_label}: {e}")
+        
+        return text_mappings
+
+
+# SIMPLIFIED symbol generation functions
 def generate_one_word_two_token_symbols(num_symbols, tokenizer):
-    """Generate random 4-5 character words that tokenize to exactly 2 tokens"""
+    """SIMPLIFIED: Generate 2-token symbols"""
     import random
     import string
     
-    # Characters to use (only lowercase letters for consistency)
     chars = string.ascii_lowercase
-    
     two_token_words = []
     used_words = set()
     
     logging.info("Searching for 2-token words...")
     
-    # Try to generate words until we have enough
     attempts = 0
-    max_attempts = 10000  # Prevent infinite loop
+    max_attempts = 10000
     
     while len(two_token_words) < num_symbols and attempts < max_attempts:
         attempts += 1
         
-        # Generate random 4-5 character word
         word_length = random.choice([4, 5])
         word = ''.join(random.choice(chars) for _ in range(word_length))
         
-        # Skip if we've already used this word
         if word in used_words:
             continue
         
         used_words.add(word)
         
         try:
-            # Test tokenization
             token_ids = tokenizer.encode(word, add_special_tokens=False)
             
-            # Check if it's exactly 2 tokens
             if len(token_ids) == 2:
-                # Verify it decodes back correctly
                 decoded = tokenizer.decode(token_ids, skip_special_tokens=True).strip()
                 if decoded.lower() == word.lower():
                     two_token_words.append(word)
                     logging.info(f"Found 2-token word #{len(two_token_words)}: '{word}' -> {token_ids}")
                     
-                    # Show the individual tokens
                     token_texts = [tokenizer.decode([tid], skip_special_tokens=True) for tid in token_ids]
                     logging.info(f"  Tokens: {token_texts}")
         except:
@@ -1057,75 +838,6 @@ def generate_one_word_two_token_symbols(num_symbols, tokenizer):
     
     logging.info(f"Generated {len(two_token_words)} two-token words from {attempts} attempts")
     
-    # If we still don't have enough, try some manual patterns that work well
-    if len(two_token_words) < num_symbols:
-        logging.info("Adding manual patterns to reach target count...")
-        
-        # Patterns that often work in LLaMA tokenization:
-        # 1. Words starting with common prefixes
-        prefixes = ['re', 'un', 'in', 'de', 'pre', 'pro', 'sub', 'dis']
-        suffixes = ['ed', 'ing', 'er', 'ly', 'al', 'ic', 'ous', 'ful']
-        
-        for prefix in prefixes:
-            if len(two_token_words) >= num_symbols:
-                break
-            for suffix in suffixes:
-                if len(two_token_words) >= num_symbols:
-                    break
-                    
-                # Create word with prefix + random chars + suffix
-                middle_chars = ''.join(random.choice(chars) for _ in range(random.choice([1, 2])))
-                word = prefix + middle_chars + suffix
-                
-                if word not in used_words and len(word) <= 8:  # Keep reasonable length
-                    try:
-                        token_ids = tokenizer.encode(word, add_special_tokens=False)
-                        if len(token_ids) == 2:
-                            decoded = tokenizer.decode(token_ids, skip_special_tokens=True).strip()
-                            if decoded.lower() == word.lower():
-                                two_token_words.append(word)
-                                used_words.add(word)
-                                logging.info(f"Added manual pattern: '{word}' -> {token_ids}")
-                    except:
-                        continue
-    
-    # If still not enough, generate simple fallbacks
-    while len(two_token_words) < num_symbols:
-        # Simple pattern: 2-3 chars + 2-3 chars that should split
-        part1 = ''.join(random.choice(chars) for _ in range(random.choice([2, 3])))
-        part2 = ''.join(random.choice(chars) for _ in range(random.choice([2, 3])))
-        word = part1 + part2
-        
-        if word not in used_words:
-            try:
-                token_ids = tokenizer.encode(word, add_special_tokens=False)
-                if len(token_ids) == 2:
-                    two_token_words.append(word)
-                    used_words.add(word)
-                    logging.info(f"Added fallback: '{word}' -> {token_ids}")
-                elif len(token_ids) == 1:
-                    # Try adding a character to force split
-                    word_modified = word + 'x'
-                    token_ids = tokenizer.encode(word_modified, add_special_tokens=False)
-                    if len(token_ids) == 2:
-                        two_token_words.append(word_modified)
-                        used_words.add(word_modified)
-                        logging.info(f"Added modified fallback: '{word_modified}' -> {token_ids}")
-            except:
-                continue
-        
-        # Prevent infinite loop
-        if len(used_words) > max_attempts:
-            break
-    
-    # Pad with absolute fallbacks if needed
-    fallback_counter = 0
-    while len(two_token_words) < num_symbols:
-        fallback = f"sym{fallback_counter:02d}ab"  # Should tokenize as "sym" + "01ab" or similar
-        token_ids = tokenizer.encode(fallback, add_special_tokens=False)
-        two_token_words.append(fallback)
-        fallback_counter += 1
-        logging.warning(f"Used absolute fallback: '{fallback}' -> {token_ids}")
     
     return two_token_words[:num_symbols]
 
