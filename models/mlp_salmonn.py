@@ -137,6 +137,10 @@ class MLPSalmonn(nn.Module):
         self.bypass_mlp_during_lora = bypass
         logging.info(f"MLP bypass set to: {bypass}")
     
+    def apply_scaled_residual(self, original_embeddings, mlp_output, scale_factor=0.1):
+        """Apply scaled residual connection: output = original + scale * mlp_output"""
+        return original_embeddings + scale_factor * mlp_output
+    
     def apply_mlp_to_embeddings(self, embeddings, token_ids):
         """SIMPLIFIED: Apply MLP only if not bypassed"""
         if self.bypass_mlp_during_lora or not self.training:
@@ -218,9 +222,9 @@ class MLPSalmonn(nn.Module):
             if to_transform.dtype != mlp_dtype:
                 to_transform = to_transform.to(dtype=mlp_dtype)
             
-            # Apply MLP with residual connection
+            # Apply MLP with SCALED residual connection
             mlp_output = self.position_wise_mlp(to_transform)
-            transformed = to_transform + mlp_output  # old + residue
+            transformed = self.apply_scaled_residual(to_transform, mlp_output, scale_factor=0.1)
             
             # Convert back to original dtype
             if transformed.dtype != original_dtype:
@@ -714,86 +718,227 @@ class MLPSalmonn(nn.Module):
         logging.info("MLP weights reset with Xavier initialization")
 
     def find_closest_symbols(self):
-        """Symbol discovery with minimal logging"""
+        """Discover English symbols with original token exclusion"""
         if not self.training or not self.label_token_ids:
             logging.info("No label tokens to discover")
             return {}
         
-        logging.info("=== Simple Symbol Discovery ===")
-        logging.info(f"Finding closest symbols for {len(self.label_token_ids)} label tokens")
+        logging.info("=== Expanded English Symbol Discovery ===")
+        logging.info(f"Finding closest English symbols for {len(self.label_token_ids)} label tokens")
+        
+        # Get expanded English token range
+        start_idx, end_idx = self.get_english_token_range()
         
         with torch.no_grad():
-            # Get original embedding matrix
+            # Get original embeddings for label tokens
             label_token_tensor = torch.tensor(self.label_token_ids, device=self.device)
             original_embeds = self.embed_module(label_token_tensor)
             
+            # ✅ LOG: Original embedding norms
+            original_norms = torch.norm(original_embeds, dim=-1)
+            logging.info(f"Original embedding norms (mean): {original_norms.mean().item():.4f}")
+            
+            # Apply MLP transformation
             mlp_dtype = next(self.position_wise_mlp.parameters()).dtype
             if original_embeds.dtype != mlp_dtype:
                 original_embeds = original_embeds.to(dtype=mlp_dtype)
             
+            # Check if MLP was trained
             mlp_has_trained = any(param.abs().max().item() > 0.001 for param in self.position_wise_mlp.parameters())
-            transformed_embeds = self.position_wise_mlp(original_embeds) if mlp_has_trained else original_embeds
             
+            if mlp_has_trained:
+                # Apply MLP with SCALED residual connection
+                mlp_output = self.position_wise_mlp(original_embeds)
+                transformed_embeds = self.apply_scaled_residual(original_embeds, mlp_output, scale_factor=0.1)
+                
+                # ✅ LOG: Transformation statistics with scaling
+                mlp_norms = torch.norm(mlp_output, dim=-1)
+                transformed_norms = torch.norm(transformed_embeds, dim=-1)
+                
+                logging.info(f"MLP output norms (mean): {mlp_norms.mean().item():.4f}")
+                logging.info(f"Scaled transformation norms (mean): {(0.1 * mlp_norms).mean().item():.4f}")
+                logging.info(f"Final embedding norms (mean): {transformed_norms.mean().item():.4f}")
+                logging.info(f"Transformation ratio (scaled): {(0.1 * mlp_norms.mean() / original_norms.mean()).item():.4f}")
+                
+                logging.info("Applied MLP transformation with scaled residual connection (0.1x)")
+            else:
+                transformed_embeds = original_embeds
+                logging.info("MLP not trained, using original embeddings")
+            
+            # Convert back to original dtype
             original_dtype = self.embed_module.weight.dtype
             if transformed_embeds.dtype != original_dtype:
                 transformed_embeds = transformed_embeds.to(dtype=original_dtype)
             
-            full_embedding_matrix = self.embed_module.weight
+            # Get English token subset with better filtering
+            english_indices = []
+            for i in range(start_idx, end_idx):
+                if self.is_english_token(i):
+                    english_indices.append(i)
+            
+            # ✅ EXPAND: Use 20000 tokens instead of 5000
+            english_indices = english_indices[:20000]  # Expanded from 5000
+            logging.info(f"Found {len(english_indices)} English tokens to search (expanded from 5000)")
+            
+            english_tensor = torch.tensor(english_indices, device=self.device)
+            english_embeds = self.embed_module(english_tensor)  # [num_english, hidden_dim]
+            
             mappings = {}
             
             for i, original_token_id in enumerate(self.label_token_ids):
-                transformed_embed = transformed_embeds[i:i+1]
-                transformed_norm = F.normalize(transformed_embed, p=2, dim=1)
-                vocab_norm = F.normalize(full_embedding_matrix, p=2, dim=1)
-                similarities = torch.mm(transformed_norm, vocab_norm.t()).squeeze(0)
+                transformed_embed = transformed_embeds[i:i+1]  # [1, hidden_dim]
                 
-                top_similarities, top_indices = torch.topk(similarities, k=10, largest=True)
-                best_match_id = next((candidate_id for candidate_id in top_indices if candidate_id != original_token_id and candidate_id >= 100), original_token_id)
-                
-                mappings[original_token_id] = best_match_id
+                # ✅ SPECIAL CHECK: If this is the same token, log detailed comparison
                 original_text = self.llama_tokenizer.decode([original_token_id], skip_special_tokens=True)
-                best_match_text = self.llama_tokenizer.decode([best_match_id], skip_special_tokens=True)
-                logging.info(f"Mapping found: {original_token_id} ('{original_text}') -> {best_match_id} ('{best_match_text}')")
-        
-        logging.info(f"=== Discovery Complete: Found {len(mappings)} mappings ===")
-        return mappings
+                
+                # Check if original token is in our English search space
+                original_in_search = original_token_id in english_indices
+                if original_in_search:
+                    original_idx_in_search = english_indices.index(original_token_id)
+                    original_embed_from_search = english_embeds[original_idx_in_search:original_idx_in_search+1]
+                    
+                    # Compute similarity with itself
+                    self_similarity = F.cosine_similarity(transformed_embed, original_embed_from_search, dim=1).item()
+                    logging.info(f"Self-similarity for '{original_text}' (token {original_token_id}): {self_similarity:.4f}")
+                
+                # Compute cosine similarities with English tokens only
+                transformed_norm = F.normalize(transformed_embed, p=2, dim=1)
+                english_norm = F.normalize(english_embeds, p=2, dim=1)
+                similarities = torch.mm(transformed_norm, english_norm.t()).squeeze(0)  # [num_english]
+                
+                # Get top 10 candidates
+                top_similarities, top_indices = torch.topk(similarities, k=10, largest=True)
+                
+                # Find best English match (EXCLUDING original token)
+                best_match_id = None
+                best_similarity = -1
+                
+                for j in range(len(top_indices)):
+                    candidate_idx = top_indices[j].item()
+                    candidate_token_id = english_indices[candidate_idx]
+                    candidate_similarity = top_similarities[j].item()
+                    
+                    # ✅ EXCLUDE ORIGINAL TOKEN
+                    if candidate_token_id == original_token_id:
+                        original_text = self.llama_tokenizer.decode([original_token_id], skip_special_tokens=True)
+                        logging.info(f"Skipping original token {original_token_id} ('{original_text}') [sim: {candidate_similarity:.4f}]")
+                        continue
+                    
+                    # ✅ SIMILARITY THRESHOLD: Only accept if meaningful change
+                    if candidate_similarity > 0.3:  # Higher threshold for meaningful discovery
+                        # Double-check it's English
+                        if self.is_english_token(candidate_token_id):
+                            best_match_id = candidate_token_id
+                            best_similarity = candidate_similarity
+                            break
+                
+                if best_match_id is not None:
+                    mappings[original_token_id] = best_match_id
+                    
+                    # Log with similarity score
+                    original_text = self.llama_tokenizer.decode([original_token_id], skip_special_tokens=True)
+                    best_match_text = self.llama_tokenizer.decode([best_match_id], skip_special_tokens=True)
+                    
+                    logging.info(f"Discovery: {original_token_id} ('{original_text}') -> {best_match_id} ('{best_match_text}') [sim: {best_similarity:.4f}]")
+                else:
+                    # ✅ KEEP ORIGINAL if no good alternative found
+                    mappings[original_token_id] = original_token_id
+                    original_text = self.llama_tokenizer.decode([original_token_id], skip_special_tokens=True)
+                    logging.info(f"No alternative found for {original_token_id} ('{original_text}'), keeping original")
+            
+            logging.info(f"=== Discovery Complete: Found {len([k for k, v in mappings.items() if k != v])} actual discoveries ===")
+            return mappings
 
     def update_label_tokens(self, symbol_mappings):
         """Update with COMPLETE symbol mappings"""
         if not symbol_mappings:
             return
         
+        # ✅ FIX: Store the current mapping for discovery
         self.original_to_random_mapping = symbol_mappings.copy()
+        logging.info(f"Stored mapping for discovery: {self.original_to_random_mapping}")
         
+        # Get tokens for random symbols
         all_tokens = []
         for random_symbol in symbol_mappings.values():
             tokens = self.llama_tokenizer.encode(random_symbol, add_special_tokens=False)
             all_tokens.extend(tokens)
+            logging.info(f"Symbol '{random_symbol}' -> tokens {tokens}")
         
         self.label_token_ids = list(set(all_tokens))
         logging.info(f"Updated to track {len(self.label_token_ids)} tokens from {len(symbol_mappings)} symbols")
 
     def convert_token_mappings_to_text(self, token_mappings):
-        """Convert to ORIGINAL -> DISCOVERED mapping"""
+        """Convert to ORIGINAL -> DISCOVERED mapping (FIXED - no spaces)"""
         if not hasattr(self, 'original_to_random_mapping'):
             logging.warning("No original mapping available")
             return {}
         
         text_mappings = {}
         
-        for original_label, random_symbol in self.original_to_random_mapping.items():
-            random_tokens = self.llama_tokenizer.encode(random_symbol, add_special_tokens=False)
-            discovered_tokens = [token_mappings.get(token_id, token_id) for token_id in random_tokens]
+        for original_label, current_symbol in self.original_to_random_mapping.items():
+            logging.info(f"Processing mapping for '{original_label}' -> '{current_symbol}'")
+            
+            # Get tokens for the CURRENT SYMBOL
+            current_tokens = self.llama_tokenizer.encode(current_symbol, add_special_tokens=False)
+            logging.info(f"Current symbol '{current_symbol}' has tokens: {current_tokens}")
+            
+            # Find what these current tokens map to
+            discovered_tokens = []
+            any_changed = False
+            
+            for token_id in current_tokens:
+                if token_id in token_mappings and token_mappings[token_id] != token_id:
+                    # Token was discovered/changed
+                    discovered_tokens.append(token_mappings[token_id])
+                    any_changed = True
+                    logging.info(f"Token {token_id} mapped to {token_mappings[token_id]}")
+                else:
+                    # Keep original token
+                    discovered_tokens.append(token_id)
+                    logging.info(f"Token {token_id} kept as original")
             
             try:
-                discovered_text = self.llama_tokenizer.decode(discovered_tokens, skip_special_tokens=True).strip()
-                if discovered_text and discovered_text != random_symbol:
-                    text_mappings[original_label] = discovered_text
-                    logging.info(f"Discovered mapping: '{original_label}' -> '{discovered_text}'")
+                # Convert discovered tokens back to text
+                discovered_text = self.llama_tokenizer.decode(discovered_tokens, skip_special_tokens=True)
+                
+                # ✅ FIX: Remove all spaces to create compound word
+                discovered_text_no_spaces = discovered_text.replace(' ', '')
+                
+                if any_changed and discovered_text_no_spaces and discovered_text_no_spaces != current_symbol:
+                    # ✅ SUCCESS: We found a new mapping (without spaces)
+                    text_mappings[original_label] = discovered_text_no_spaces
+                    logging.info(f"✅ Discovered mapping: '{original_label}' -> '{discovered_text_no_spaces}' (was '{current_symbol}')")
+                else:
+                    # ✅ NO CHANGE: Keep current symbol
+                    text_mappings[original_label] = current_symbol
+                    logging.info(f"No change for '{original_label}', keeping current symbol '{current_symbol}'")
+                    
             except Exception as e:
                 logging.warning(f"Error converting tokens for {original_label}: {e}")
+                text_mappings[original_label] = current_symbol
         
         return text_mappings
+
+    def get_english_token_range(self):
+        """Get range of English tokens in vocabulary (expanded)"""
+        # Common English tokens are usually in range 100-32000 for LLaMA
+        vocab_size = self.embed_module.weight.shape[0]
+        start_idx = 100  # Skip special tokens
+        end_idx = min(30000, vocab_size - 1000)  # Expanded range
+        
+        logging.info(f"Using English token range: {start_idx} to {end_idx}")
+        return start_idx, end_idx
+
+    def is_english_token(self, token_id):
+        """Check if token contains only English characters"""
+        try:
+            token_text = self.llama_tokenizer.decode([token_id], skip_special_tokens=True)
+            # Check if contains only ASCII letters, numbers, and basic punctuation
+            allowed_chars = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?-_')
+            return all(c in allowed_chars for c in token_text) and len(token_text.strip()) > 0
+        except:
+            return False
 
 
 # SIMPLIFIED symbol generation functions

@@ -50,6 +50,7 @@ Guidelines:
     audio_lookup_paths={
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_train_audio_lookup",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_test_audio_lookup",
+        # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_test_20fewshots",
         DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_validation_audio_lookup_new",
     }
 )

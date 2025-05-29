@@ -54,9 +54,9 @@ def parse_args():
     parser.add_argument("--run_name", type=str, default="", help="Name for the run")
     
     # NEW: MLP training frequency options
-    parser.add_argument("--mlp_training_mode", type=str, default="first_only", 
+    parser.add_argument("--mlp_training_mode", type=str, default="first_and_second", 
                        choices=["every_cycle", "first_only", "first_and_last"],
-                       help="When to train MLP: every_cycle, first_only, or first_and_last")
+                       help="When to train MLP: every_cycle, first_only, or first_and_second")
     
     return parser.parse_args()
 
@@ -647,8 +647,8 @@ def main():
             return 1
         
         # Create simple mapping
-        initial_symbol_mapping = create_label_mapping(original_labels, random_symbols)
-        
+        # initial_symbol_mapping = create_label_mapping(original_labels, random_symbols)
+        initial_symbol_mapping = create_label_mapping(original_labels, original_labels)
         # Clean up temporary tokenizer
         del temp_tokenizer
         

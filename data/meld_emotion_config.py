@@ -6,7 +6,8 @@ MELD_EMOTION_CONFIG = DatasetConfig(
     paths={
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/meld_train",
         DatasetSplit.VAL: "/data2/neeraja/neeraja/data/meld_validation",
-        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/meld_test",
+        # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/meld_test",
+        DatasetSplit.TEST: "/data1/harshanj/data/meld/zrr1999-MELD_Text_Audio_test_embedding_topk5",
     },
     prompt_template="""You are an emotion recognition expert. Based on the input, respond with EXACTLY ONE WORD from these options: neutral, joy, sadness, anger, fear, disgust, or surprise.
 
@@ -24,7 +25,8 @@ Guidelines:
     audio_lookup_paths={
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/meld_train",
         DatasetSplit.VAL: "/data2/neeraja/neeraja/data/meld_validation",
-        DatasetSplit.TEST: "/data2/neeraja/neeraja/data/meld_train",
+        # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/meld_train",
+        DatasetSplit.TEST: "/data1/harshanj/data/meld/zrr1999-MELD_Text_Audio_test_audio_lookup",
     }
 )
 

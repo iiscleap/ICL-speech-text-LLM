@@ -109,12 +109,13 @@ class BaseMultiTaskDataset(Dataset):
                 DatasetType.SQA, 
                 DatasetType.VOXPOPULI_NEL,
                 DatasetType.MELD,
-                DatasetType.MELD_EMOTION,
+                # DatasetType.HVB,
+                # DatasetType.MELD_EMOTION,
                 DatasetType.MELD_GREEK,
                 DatasetType.MELD_EMOTION_GREEK,
                 # DatasetType.VOXPOPULI,
-                DatasetType.VOXPOPULI_GREEK,
-                DatasetType.VOXPOPULI_SWAP,
+                # DatasetType.VOXPOPULI_GREEK,
+                # DatasetType.VOXPOPULI_SWAP,
                 DatasetType.MELD_EMOTION_SWAP
             ]:
                 # For SQA and VP-NEL, just load the dataset
@@ -351,12 +352,13 @@ class BaseMultiTaskDataset(Dataset):
         
         if (self.dataset_type == DatasetType.VOXPOPULI_NEL or 
         self.dataset_type == DatasetType.MELD or 
-        self.dataset_type == DatasetType.MELD_EMOTION or
+        # self.DatasetType.HVB or
+        # self.dataset_type == DatasetType.MELD_EMOTION or
         self.dataset_type == DatasetType.MELD_GREEK or
         self.dataset_type == DatasetType.MELD_EMOTION_GREEK or 
         # self.dataset_type == DatasetType.VOXPOPULI or
-        self.dataset_type == DatasetType.VOXPOPULI_GREEK or
-        self.dataset_type == DatasetType.VOXPOPULI_SWAP or
+        # self.dataset_type == DatasetType.VOXPOPULI_GREEK or
+        # self.dataset_type == DatasetType.VOXPOPULI_SWAP or
         self.dataset_type == DatasetType.MELD_EMOTION_SWAP) and self.audio_lookup is not None and self.num_examples > 0:
             
             # Random sampling from audio_lookup

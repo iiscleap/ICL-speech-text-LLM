@@ -7,6 +7,7 @@ MELD_CONFIG = DatasetConfig(
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/meld_train",
         DatasetSplit.VAL: "/data2/neeraja/neeraja/data/meld_validation",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/meld_test",
+        
     },
     prompt_template="""You are a sentiment analysis expert. Based on the input, respond with EXACTLY ONE WORD from these options: positive, negative, or neutral.
 
@@ -21,6 +22,7 @@ Guidelines:
         DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/meld_train",
         DatasetSplit.VAL: "/data2/neeraja/neeraja/data/meld_train",
         DatasetSplit.TEST: "/data2/neeraja/neeraja/data/meld_train",
+        
     }
 )
 
