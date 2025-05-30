@@ -647,8 +647,8 @@ def main():
             return 1
         
         # Create simple mapping
-        # initial_symbol_mapping = create_label_mapping(original_labels, random_symbols)
-        initial_symbol_mapping = create_label_mapping(original_labels, original_labels)
+        initial_symbol_mapping = create_label_mapping(original_labels, random_symbols)
+        # initial_symbol_mapping = create_label_mapping(original_labels, original_labels)
         # Clean up temporary tokenizer
         del temp_tokenizer
         

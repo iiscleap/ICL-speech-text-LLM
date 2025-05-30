@@ -137,7 +137,7 @@ class MLPSalmonn(nn.Module):
         self.bypass_mlp_during_lora = bypass
         logging.info(f"MLP bypass set to: {bypass}")
     
-    def apply_scaled_residual(self, original_embeddings, mlp_output, scale_factor=0.1):
+    def apply_scaled_residual(self, original_embeddings, mlp_output, scale_factor=0.2):
         """Apply scaled residual connection: output = original + scale * mlp_output"""
         return original_embeddings + scale_factor * mlp_output
     
@@ -224,7 +224,7 @@ class MLPSalmonn(nn.Module):
             
             # Apply MLP with SCALED residual connection
             mlp_output = self.position_wise_mlp(to_transform)
-            transformed = self.apply_scaled_residual(to_transform, mlp_output, scale_factor=0.1)
+            transformed = self.apply_scaled_residual(to_transform, mlp_output)
             
             # Convert back to original dtype
             if transformed.dtype != original_dtype:
@@ -749,7 +749,7 @@ class MLPSalmonn(nn.Module):
             if mlp_has_trained:
                 # Apply MLP with SCALED residual connection
                 mlp_output = self.position_wise_mlp(original_embeds)
-                transformed_embeds = self.apply_scaled_residual(original_embeds, mlp_output, scale_factor=0.1)
+                transformed_embeds = self.apply_scaled_residual(original_embeds, mlp_output)
                 
                 # ✅ LOG: Transformation statistics with scaling
                 mlp_norms = torch.norm(mlp_output, dim=-1)
