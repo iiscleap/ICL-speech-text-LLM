@@ -3,8 +3,8 @@
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
 # dataset_type="meld_emotion_greek, voxpopuli_greek"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
-dataset_type="hvb_swap, voxceleb_swap"
-# dataset_type="voxceleb_greek, voxpopuli_greek"
+# dataset_type="hvb_swap, voxceleb_swap"
+dataset_type="meld_emotion_greek, hvb_greek"
 # dataset_type="meld_emotion,voxpopuli"  # Options: "voxceleb", "hvb", "voxpopuli", etc.
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
@@ -110,8 +110,8 @@ if [ "$use_gradient_checkpointing" = true ]; then
 fi
 
 # Submit job
-qsub -q gpu.q -V -cwd \
-    -l hostname=compute-0-9 \
+qsub -q longgpu.q -V -cwd \
+    -l hostname=compute-0-5 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
