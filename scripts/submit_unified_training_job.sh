@@ -3,13 +3,13 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxceleb_greek-hvb_greek"  # Dataset type(s) to use
+dataset_type="voxceleb_greek-voxpopuli_greek"  # Dataset type(s) to use
 # initial_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_1_loss_0.3191/model.pt"
 
 # Training parameters
 lora_lr=1e-5
 mlp_lr=1e-4
-lora_epochs=2
+lora_epochs=1
 mlp_epochs=1
 total_cycles=4
 hidden_dim=8
@@ -104,7 +104,7 @@ echo "=========================================="
 
 # Submit job
 qsub -q longgpu.q -V -cwd \
-    -l hostname=compute-0-9 \
+    -l hostname=compute-0-7 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \

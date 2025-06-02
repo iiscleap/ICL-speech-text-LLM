@@ -5,11 +5,11 @@ model_type="salmonn"  # Options: "salmonn" or "qwen2"
 # dataset_type="meld_emotion_greek,voxpopuli_greek, hvb,voxceleb"  # Options: "voxceleb", "hvb", "meld_emotion" "voxpopuli", etc., sqa, vp_nel
 # dataset_type="hvb_greek,voxceleb_greek,meld_emotion,voxpopuli"  # Options: "voxceleb", "hvb", "meld_emotion" "voxpopuli", etc., sqa, vp_nel
 # dataset_type="hvb,voxceleb,voxpopuli,meld_emotion"  # Options: "voxceleb", "hvb", "meld_emotion" "voxpopuli", etc., sqa, vp_nel
-# dataset_type="voxceleb,hvb,voxpopuli"
-dataset_type="meld_emotion,voxpopuli,voxceleb,hvb"
+dataset_type="voxceleb,meld_emotion"
+# dataset_type="meld_emotion_greek,voxpopuli,voxceleb,hvb_greek"
 input_mode="speech_only"  # Options: "speech_only", "text_only", "speech_and_text"
 fewshot_mode="text"  # Options: "text" or "speech"
-num_examples=2
+num_examples=1
 batch_size=1
 
 debug_samples=0  # Add debug_samples parameter (0 = use all samples)
@@ -18,7 +18,7 @@ debug_samples=0  # Add debug_samples parameter (0 = use all samples)
 randomize_swap=false  # Set to true to randomize swap configurations
 
 # Node configuration
-queue_name="med.q"      # Queue to submit job to (gpu.q, med.q, etc.)
+queue_name="gpu.q"      # Queue to submit job to (gpu.q, med.q, etc.)
 hostname="compute-0-7"  # Hostname to run on
 cuda_device=1         # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
@@ -104,13 +104,18 @@ peft_model_path=""
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2305_0334_ft_5ex_15e8b_salmonn_speech_only_text_hvb-voxceleb/checkpoints/epoch_10_loss_0.0005/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2405_1210_ft_5ex_10e8b_salmonn_speech_only_text_hvb_greek-voxceleb_greek/checkpoints/epoch_10_loss_0.0001/model.pt" 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2705_1542_ft_5ex_10e8b_salmonn_speech_only_text_hvb_swap-voxceleb_swap/checkpoints/epoch_10_loss_0.0256/model.pt"
-peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3005_1534_ft_5ex_10e8b_salmonn_speech_only_text_hvb_swap-voxceleb_swap/checkpoints/epoch_10_loss_0.0252/model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3005_1534_ft_5ex_10e8b_salmonn_speech_only_text_hvb_swap-voxceleb_swap/checkpoints/epoch_10_loss_0.0155/model.pt"
 
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/2905_1842_ft_5ex_10e8b_salmonn_speech_only_text_voxceleb-voxpopuli/checkpoints/epoch_10_loss_0.0001/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3005_0210_ft_5ex_10e8b_salmonn_speech_only_text_voxceleb_greek-voxpopuli_greek/checkpoints/epoch_10_loss_0.0001/model.pt"
 # randomsymbol
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3105_0059_ft_5ex_10e8b_salmonn_speech_only_text_voxceleb_swap-voxpopuli_swap/checkpoints/epoch_10_loss_0.0076/model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3105_1150_ft_5ex_10e8b_salmonn_speech_only_text_voxceleb_swap-voxpopuli_swap/checkpoints/epoch_10_loss_0.0033/model.pt"
+
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3105_1151_ft_5ex_10e8b_salmonn_speech_only_text_meld_emotion-hvb/checkpoints/epoch_10_loss_0.0000/model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3105_1848_ft_5ex_10e8b_salmonn_speech_only_text_meld_emotion_greek-hvb_greek/checkpoints/epoch_10_loss_0.0001/model.pt"
+
 
 
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/unified_training/2405_0313_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/2405_0313_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/cycle_2_lora_epoch_2/model.pt"
@@ -118,6 +123,8 @@ peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3005_15
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/unified_training/2805_0412_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/2805_0412_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/cycle_4_lora_epoch_2/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/unified_training/2805_0412_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/2805_0412_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/cycle_2_lora_epoch_2/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/unified_training/2905_1839_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/2905_1839_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/cycle_3_lora_epoch_2/model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/unified_training/3105_0053_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/3105_0053_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/cycle_4_lora_epoch_2/model.pt"
+peft_model_path="/data2/neeraja/neeraja/results/model_ICL/unified_training/3105_0053_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/3105_0053_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/cycle_3_lora_epoch_2/model.pt"
 
 # Clean dataset type for file names and Python
 if [[ $dataset_type == *","* ]]; then
@@ -266,7 +273,7 @@ JOB_ENTRY="{
 # First, read the current JSON array
 CURRENT_JOBS=$(cat "${JOB_LOG_FILE}")
 # Then append the new job and write back
-echo "${CURRENT_JOBS}" | jq ". += [${JOB_ENTRY}]" > "${JOB_LOG_FILE}"
+#echo "${CURRENT_JOBS}" | jq ". += [${JOB_ENTRY}]" > "${JOB_LOG_FILE}"
 
 echo "Submitted inference job for ${RUN_NAME} to queue ${queue_name}"
 echo "Job ID: ${JOB_ID_NUM}"
