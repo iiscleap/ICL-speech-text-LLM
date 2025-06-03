@@ -364,8 +364,8 @@ HVB_DESCRIPTIONS = [
 ]
 
 HVB_SWAP_CONFIGS = []
-#for perm in HVB_PERMUTATIONS:
-for perm in GREEK_PERMUTATIONS:
+for perm in HVB_PERMUTATIONS:
+# for perm in GREEK_PERMUTATIONS:
     mapping = {orig: swapped for orig, swapped in zip(HVB_CONFIG.valid_labels, perm)}
     descriptions = {label: desc for label, desc in zip(HVB_CONFIG.valid_labels, HVB_DESCRIPTIONS)}
     HVB_SWAP_CONFIGS.append(DatasetConfig(

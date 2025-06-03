@@ -169,8 +169,8 @@ MELD_EMOTION_GREEK_PERMUTATIONS = [
 
 # Create swap configurations using the permutations
 MELD_EMOTION_SWAP_CONFIGS = []
-#for perm in MELD_EMOTION_PERMUTATIONS:
-for perm in MELD_EMOTION_GREEK_PERMUTATIONS:
+for perm in MELD_EMOTION_PERMUTATIONS:
+# for perm in MELD_EMOTION_GREEK_PERMUTATIONS:
     mapping = {orig: swapped for orig, swapped in zip(MELD_EMOTION_CONFIG.valid_labels, perm)}
     descriptions = {label: desc for label, desc in zip(MELD_EMOTION_CONFIG.valid_labels, MELD_EMOTION_DESCRIPTIONS)}
     MELD_EMOTION_SWAP_CONFIGS.append(DatasetConfig(
