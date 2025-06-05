@@ -58,9 +58,7 @@ class CustomSALMONN(BaseModel):
         # Log low_resource setting
         logging.info(f"Low resource mode: {low_resource}")
         
-        # Initialize the processor for compatibility with the ICL framework
-        logging.info(f"Initializing WhisperFeatureExtractor from {whisper_path}")
-        self.input_processor = WhisperFeatureExtractor.from_pretrained(whisper_path)
+
         
         # Create config for SALMONN
         salmonn_config = {

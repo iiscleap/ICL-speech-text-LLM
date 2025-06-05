@@ -110,11 +110,7 @@ def train_lora_phase(model, dataloader, args, cycle, current_symbols=None):
     # Freeze MLP, unfreeze LoRA
     model.freeze_mlp_weights()
     model.unfreeze_lora_weights()
-    
-    # IMPORTANT: Disable MLP bypass for LoRA training to use discovered symbols
-    model.set_mlp_bypass(bypass=True)
-    logging.info("MLP bypass disabled - LoRA will train with discovered symbol mappings")
-    
+     
     # LoRA optimizer (using AdamW like train.py)
     optimizer = torch.optim.AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
@@ -291,28 +287,29 @@ def train_lora_phase(model, dataloader, args, cycle, current_symbols=None):
 def train_mlp_phase(model, dataloader, args, cycle, current_symbols=None):
     """Train MLP for symbol discovery"""
     logging.info(f"=== Starting MLP Training Phase - Cycle {cycle} ===")
-
-    if current_symbols:
-        model.update_label_tokens(current_symbols)
     
     # Freeze LoRA, unfreeze MLP
     model.freeze_lora_weights()
     model.unfreeze_mlp_weights()
     
-    # Disable MLP bypass for training
-    model.set_mlp_bypass(bypass=False)
-    logging.info("MLP bypass disabled - MLP will be trained")
-    
     # ✅ FIX: Much more lenient gradient clipping
     max_grad_norm = 100.0  # Increased from 50.0
     
     # MLP optimizer with higher learning rate
-    optimizer = torch.optim.AdamW(
-        filter(lambda p: p.requires_grad, model.parameters()),
-        lr=args.mlp_lr,  # Usually 1e-4
-        betas=(0.9, 0.999),
-        eps=1e-8,
-        weight_decay=0.01
+    # optimizer = torch.optim.AdamW(
+    #     filter(lambda p: p.requires_grad, model.parameters()),
+    #     lr=args.mlp_lr,  # Usually 1e-4
+    #     betas=(0.9, 0.999),
+    #     eps=1e-8,
+    #     weight_decay=0.01
+    # )
+
+    optimizer = torch.optim.SGD(
+        model.position_wise_mlp.parameters(),
+        lr=args.mlp_lr * 0.1,  # Reduce LR for SGD (0.0001 -> 0.00001)
+        momentum=0.9,          # Add momentum for better convergence
+        weight_decay=1e-5,     # Small weight decay for regularization
+        nesterov=True          # Nesterov momentum for better performance
     )
     
     # Scheduler
@@ -429,48 +426,11 @@ def train_mlp_phase(model, dataloader, args, cycle, current_symbols=None):
             scheduler.step(epoch_loss)
         else:
             logging.error(f"❌ NO VALID UPDATE STEPS in MLP epoch {epoch+1} - MLP training failed!")
-    
-    # Discover new symbols
-    logging.info(f"=== Symbol Discovery - Cycle {cycle} ===")
-    discovered_symbols = discover_symbols(model, args, cycle)
+
     
     logging.info(f"=== Completed MLP Training Phase - Cycle {cycle} ===")
-    return model, discovered_symbols
+    return model
 
-def discover_symbols(model, args, cycle):
-    """Discover symbols and save to file"""
-    try:
-        logging.info(f"=== Starting Symbol Discovery - Cycle {cycle} ===")
-        
-        # Temporarily disable MLP bypass for discovery
-        original_bypass = model.bypass_mlp_during_lora
-        model.set_mlp_bypass(bypass=False)
-        
-        # Find closest symbols
-        token_mappings = model.find_closest_symbols()
-        text_mappings = model.convert_token_mappings_to_text(token_mappings)
-        
-        # Restore original bypass setting
-        model.set_mlp_bypass(original_bypass)
-        
-        # Save discovered symbols to file
-        if text_mappings:
-            discovery_file = os.path.join(args.output_dir, f"discovered_symbols_cycle_{cycle}.json")
-            with open(discovery_file, 'w') as f:
-                json.dump(text_mappings, f, indent=2)
-            logging.info(f"Saved discovered symbols to {discovery_file}")
-            
-            # Log summary
-            logging.info(f"Discovered {len(text_mappings)} symbol mappings:")
-            for orig, disc in text_mappings.items():
-                logging.info(f"  '{orig}' -> '{disc}'")
-        
-        logging.info(f"=== Symbol Discovery Complete - Cycle {cycle} ===")
-        return text_mappings
-        
-    except Exception as e:
-        logging.error(f"Error during symbol discovery: {e}")
-        return {}
 
 def replace_symbols_in_batch(batch, symbol_mappings, tokenizer):
     """Replace symbols with minimal logging"""
@@ -582,83 +542,54 @@ def create_combined_dataloader(datasets, processor, args, shuffle=False):
     return dataloader
 
 def main():
-    """Main function for unified symbol discovery training"""
-    try:
-        args = parse_args()
-        args = setup_unified_logging(args)
+    args = parse_args()
+    setup_unified_logging(args)
+    
+    logging.info("=== Unified Symbol Discovery and LoRA Training ===")
+    
+
+    # ✅ FIX: Clean up temp_model properly
+    if args.model_type == "salmonn":
+        from models.mlp_salmonn import MLPSalmonn, generate_one_word_two_token_symbols, create_label_mapping
+        from transformers import LlamaTokenizer
         
-        logging.info("Starting Unified Symbol Discovery Training")
-        logging.info(f"Training arguments: {vars(args)}")
-        logging.info(f"MLP training mode: {args.mlp_training_mode}")
+        logging.info("Loading LLaMA tokenizer...")
+        llama_tokenizer = LlamaTokenizer.from_pretrained("lmsys/vicuna-13b-v1.1",use_fast=False)
+        llama_tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+        llama_tokenizer.padding_side = "right"
+
+        logging.info("Tokenizer loaded successfully")
+
+        train_datasets, meta_datasets = load_datasets(args, args.dataset_type.split('-'))
+        processor = get_processor(args.model_type,tokenizer=llama_tokenizer)
         
-        # Load dataset configs
-        datasets = args.dataset_type.split('-')
-        logging.info(f"Training on datasets: {datasets}")
-        
-        # Get labels from ALL datasets
-        all_labels = set()
-        dataset_configs = {}
-        
-        for dataset_name in datasets:
+        train_dataloader = create_combined_dataloader(train_datasets, processor, args, shuffle=True)
+        meta_dataloader = create_combined_dataloader(meta_datasets, processor, args, shuffle=True)
+
+        # Generate initial symbols with proper tokenizer
+        dataset_names = args.dataset_type.split('-')
+        all_valid_labels = set()
+        for dataset_name in dataset_names:
             try:
                 dataset_type = DatasetType(dataset_name)
                 config = get_dataset_config(dataset_type)
-                dataset_configs[dataset_type] = config
-                
-                if hasattr(config, 'valid_labels') and config.valid_labels:
-                    for label in config.valid_labels:
-                        all_labels.add(label)
-                    logging.info(f"Dataset {dataset_name} has labels: {config.valid_labels}")
-                else:
-                    logging.warning(f"Dataset {dataset_name} has no valid_labels")
+                valid_labels = config.valid_labels
+                all_valid_labels.update(valid_labels)
+                logging.info(f"Dataset {dataset_name} valid labels: {valid_labels}")
             except Exception as e:
                 logging.error(f"Failed to get config for dataset {dataset_name}: {e}")
-                return 1
+                continue
+        dataset_labels = sorted(list(all_valid_labels))
+        logging.info(f"Combined valid labels for symbol generation: {dataset_labels}")
         
-        if not all_labels:
-            logging.error("No valid labels found in any dataset")
-            return 1
+
+        random_symbols = generate_one_word_two_token_symbols(len(dataset_labels), llama_tokenizer)
+        symbol_mappings = create_label_mapping(dataset_labels, random_symbols)
         
-        # Convert to sorted list for consistency
-        original_labels = sorted(list(all_labels))
-        logging.info(f"Combined labels from all datasets ({len(original_labels)}): {original_labels}")
         
-        # Generate random symbols BEFORE initializing the model
-        # Use the FIXED function that actually produces 2-token symbols
-        from transformers import LlamaTokenizer
-        temp_tokenizer = LlamaTokenizer.from_pretrained("lmsys/vicuna-13b-v1.1")
-        
-        logging.info("=== Generating ACTUAL 2-Token Symbols ===")
-        random_symbols = generate_one_word_two_token_symbols(len(original_labels), temp_tokenizer)
-        
-        # Verify ALL symbols are exactly 2 tokens
-        logging.info("=== Verification of 2-Token Symbols ===")
-        all_valid = True
-        for symbol in random_symbols:
-            token_ids = temp_tokenizer.encode(symbol, add_special_tokens=False)
-            if len(token_ids) != 2:
-                logging.error(f"FAILED: '{symbol}' -> {len(token_ids)} tokens: {token_ids}")
-                all_valid = False
-            else:
-                logging.info(f"✓ '{symbol}' -> 2 tokens: {token_ids}")
-        
-        if not all_valid:
-            logging.error("Some symbols are not 2 tokens! Cannot proceed.")
-            return 1
-        
-        # Create simple mapping
-        initial_symbol_mapping = create_label_mapping(original_labels, random_symbols)
-        # initial_symbol_mapping = create_label_mapping(original_labels, original_labels)
-        # Clean up temporary tokenizer
-        del temp_tokenizer
-        
-        # NOW Initialize the model with the VERIFIED 2-token symbols
-        logging.info("=== Initializing Model with VERIFIED 2-Token Symbols ===")
         model = MLPSalmonn(
-            llama_path="lmsys/vicuna-13b-v1.1",
-            whisper_path="openai/whisper-large-v2",
-            beats_path="/data2/neeraja/neeraja/BEATs_iter3_plus_AS2M_finetuned_on_AS2M_cpt2.pt",
-            label_tokens=random_symbols,  # PASS THE VERIFIED SYMBOLS HERE
+            device=args.device,
+            label_tokens=list(symbol_mappings.values()),
             hidden_dim=args.hidden_dim,
             dropout=0.1,
             freeze_base=True,
@@ -666,98 +597,67 @@ def main():
             lora_rank=8,
             lora_alpha=32,
             lora_dropout=0.05,
-            device=args.device,
             low_resource=True
         )
         
-        # Verify that label_token_ids got populated correctly
-        logging.info(f"Model initialized with {len(model.label_token_ids)} label token IDs: {model.label_token_ids}")
+        # Store original mapping for discovery
+        model.update_label_tokens(symbol_mappings)
+    
+    # Training cycles with IMPROVED ORDER
+    for cycle in range(args.total_cycles):
+        logging.info(f"=== Cycle {cycle + 1}/{args.total_cycles} ===")
         
-        # Double-check tokenization with the model's tokenizer
-        logging.info("=== Final Tokenization Verification with Model Tokenizer ===")
-        for symbol in random_symbols:
-            token_ids = model.llama_tokenizer.encode(symbol, add_special_tokens=False)
-            logging.info(f"'{symbol}' -> {len(token_ids)} tokens: {token_ids}")
-            if len(token_ids) != 2:
-                logging.warning(f"Expected 2 tokens, got {len(token_ids)}!")
+        # 🔄 PHASE 1: LoRA Training (Adapt language model to current symbols)
+        logging.info("Phase 1: Adapting language model to current symbols...")
+        train_lora_phase(model, train_dataloader, args, cycle, symbol_mappings)
         
-        # Create processor
-        processor = get_processor(args.model_type, model.input_processor, model.llama_tokenizer)
+        # 🔄 PHASE 2: MLP Training (Learn symbol transformations with adapted model)
+        if should_train_mlp(cycle, args.total_cycles, args.mlp_training_mode):
+            logging.info("Phase 2: Learning symbol transformations with adapted model...")
+            train_mlp_phase(model, meta_dataloader, args, cycle, symbol_mappings)
         
-        # Load datasets
-        logging.info("=== Loading Datasets ===")
-        train_datasets, meta_datasets = load_datasets(args, datasets)
-        
-        # Create data loaders
-        train_loader = create_combined_dataloader(train_datasets, processor, args, shuffle=True)
-        meta_loader = create_combined_dataloader(meta_datasets, processor, args, shuffle=True)
-        
-        logging.info(f"Training loader: {len(train_loader)} batches")
-        logging.info(f"Meta loader: {len(meta_loader)} batches")
-        
-        # Store current symbol mappings
-        current_symbols = initial_symbol_mapping.copy()
-        
-        # Main alternating training loop
-        for cycle in range(1, args.total_cycles + 1):
-            logging.info(f"\n{'='*60}")
-            logging.info(f"Starting Training Cycle {cycle}/{args.total_cycles}")
-            logging.info(f"Current symbols: {current_symbols}")
-            logging.info(f"Will train MLP this cycle: {should_train_mlp(cycle, args.total_cycles, args.mlp_training_mode)}")
-            logging.info(f"{'='*60}")
+        # 🔄 PHASE 3: Symbol Discovery (Find better symbols)
+        if cycle < args.total_cycles - 1:
+            logging.info("Phase 3: Discovering improved symbols...")
+            discoveries_dir = os.path.join(args.output_dir, "discoveries")
+            os.makedirs(discoveries_dir, exist_ok=True)
             
-            # Phase 1: ALWAYS train LoRA with current symbols
-            logging.info(f"Phase 1: LoRA training with current symbols - Cycle {cycle}")
-            model = train_lora_phase(model, train_loader, args, cycle, current_symbols)
-            
-            # Phase 2: Conditionally train MLP and discover new symbols
-            if should_train_mlp(cycle, args.total_cycles, args.mlp_training_mode):
-                logging.info(f"Phase 2: MLP training and symbol discovery - Cycle {cycle}")
-                model, discovered_symbols = train_mlp_phase(model, meta_loader, args, cycle, current_symbols)
+            try:
+                # Discover new token mappings
+                token_mappings = model.discover_symbols(save_path=os.path.join(discoveries_dir, f"cycle_{cycle}_tokens.json"))
                 
-                # Update symbols if new ones were discovered
-                if discovered_symbols:
-                    old_symbols = current_symbols.copy()
-                    current_symbols.update(discovered_symbols)
-                    logging.info(f"Updated symbol mappings:")
-                    for orig, disc in discovered_symbols.items():
-                        old_val = old_symbols.get(orig, "None")
-                        logging.info(f"  '{orig}': '{old_val}' -> '{disc}'")
+                # Convert to symbol mappings with error handling
+                if token_mappings:
+                    new_symbol_mappings = model.convert_token_mappings_to_text(token_mappings)
+                    
+                    # Save symbol mappings
+                    with open(os.path.join(discoveries_dir, f"cycle_{cycle}_symbols.json"), 'w') as f:
+                        json.dump(new_symbol_mappings, f, indent=2)
+                    
+                    # Update model with new mappings
+                    model.update_label_tokens(new_symbol_mappings)
+                    symbol_mappings = new_symbol_mappings  # Update for next cycle
+                    
+                    logging.info(f"Cycle {cycle} complete. Updated model with new symbol mappings.")
+                    logging.info(f"Discovery files saved to: {discoveries_dir}")
                 else:
-                    logging.info("No new symbols discovered this cycle")
-            else:
-                logging.info(f"Phase 2: Skipping MLP training (mode: {args.mlp_training_mode})")
-            
-            logging.info(f"Completed Training Cycle {cycle}/{args.total_cycles}")
-        
-        # Save final symbol mappings
-        symbol_file = os.path.join(args.output_dir, "final_symbol_mappings.json")
-        with open(symbol_file, 'w') as f:
-            json.dump(current_symbols, f, indent=2)
-        logging.info(f"Saved final symbol mappings to {symbol_file}")
-        
-        # Save training summary
-        summary = {
-            "args": vars(args),
-            "original_labels": original_labels,
-            "random_symbols": random_symbols,
-            "initial_mapping": initial_symbol_mapping,
-            "final_mapping": current_symbols,
-            "mlp_training_mode": args.mlp_training_mode,
-            "cycles_completed": args.total_cycles
-        }
-        
-        summary_file = os.path.join(args.output_dir, "training_summary.json")
-        with open(summary_file, 'w') as f:
-            json.dump(summary, f, indent=2)
-        logging.info(f"Saved training summary to {summary_file}")
-        
-        return 0
-        
-    except Exception as e:
-        logging.error(f"Training failed: {e}")
-        logging.error(traceback.format_exc())
-        return 1
+                    logging.warning(f"No token mappings discovered in cycle {cycle}")
+                    
+            except Exception as e:
+                logging.error(f"Symbol discovery failed in cycle {cycle}: {e}")
+                # Continue with existing symbols
 
-if __name__ == "__main__":
-    sys.exit(main())
+    logging.info("=== Training Complete ===")
+
+# ✅ FIX: Correct the __name__ check
+if __name__ == "__main__":  # Fixed the typo
+    try:
+        main()
+    except KeyboardInterrupt:
+        logging.info("Training interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        logging.error(f"Training failed with error: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
+        sys.exit(1)

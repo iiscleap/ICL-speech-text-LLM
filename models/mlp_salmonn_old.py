@@ -23,7 +23,7 @@ class MLPSalmonn(nn.Module):
         self,
         llama_path="lmsys/vicuna-13b-v1.1",
         whisper_path="openai/whisper-large-v2",
-        beats_path="/data2/neeraja/neeraja/BEATs_iter3_plus_AS2M_finetuned_on_AS2M_cpt2.pt",
+        beats_path=None,
         label_tokens=None,
         hidden_dim=None,
         dropout=0.1,
@@ -65,7 +65,6 @@ class MLPSalmonn(nn.Module):
         # Initialize SALMONN
         logging.info("Loading base SALMONN model...")
         self.salmonn = SALMONN.from_config(salmonn_config)
-        logging.info("Base SALMONN model loaded successfully")
         self.salmonn.to(self.device)
         
         # SIMPLIFIED attributes
@@ -133,85 +132,119 @@ class MLPSalmonn(nn.Module):
         self.original_embed_matrix.requires_grad = False
         self.symbol_mappings = {}
     
+    def set_mlp_bypass(self, bypass=True):
+        """Enable/disable MLP bypass"""
+        self.bypass_mlp_during_lora = bypass
+        logging.info(f"MLP bypass set to: {bypass}")
     
-    def apply_mlp_to_embeddings(self, embeddings, token_ids, scale_factor=0.2, temperature=0.1):
-        # ✅ EMERGENCY FIX: Force dtype consistency
-        target_dtype = embeddings.dtype
-        target_device = embeddings.device
+    def apply_scaled_residual(self, original_embeddings, mlp_output, scale_factor=0.2):
+        """Apply scaled residual connection: output = original + scale * mlp_output"""
+        return original_embeddings + scale_factor * mlp_output
+    
+    def apply_mlp_to_embeddings(self, embeddings, token_ids):
+        """SIMPLIFIED: Apply MLP only if not bypassed"""
+        if self.bypass_mlp_during_lora or not self.training:
+            return embeddings
         
-        # Ensure MLP matches input dtype
-        if next(self.position_wise_mlp.parameters()).dtype != target_dtype:
-            logging.info(f"Converting MLP from {next(self.position_wise_mlp.parameters()).dtype} to {target_dtype}")
-            self.position_wise_mlp = self.position_wise_mlp.to(dtype=target_dtype)
+        return self.transform_text_embeddings(embeddings, token_ids)
+    
+    def transform_text_embeddings(self, embeddings, token_ids):
+        """Transform embeddings with MLP - reduced logging"""
+        if not self.training or not self.label_token_ids:
+            return embeddings
         
-        # Ensure all computations use the same dtype
+        # Convert token_ids to tensor if needed
+        if isinstance(token_ids, list):
+            token_ids = torch.tensor(token_ids, device=embeddings.device)
+        elif token_ids.dim() > 1:
+            token_ids = token_ids.squeeze()
+        
+        # LOG: Only for first few batches
+        if self.batch_counter < 3:
+            logging.info(f"=== MLP Transform Debug ===")
+            logging.info(f"Input embeddings shape: {embeddings.shape}")
+            logging.info(f"Token sequence length: {len(token_ids)}")
+            logging.info(f"Looking for {len(self.label_token_ids)} label tokens: {self.label_token_ids}")
+        
+        # Find positions where label tokens appear
         positions_to_transform = []
+        tokens_found = {}
+        
         for label_token_id in self.label_token_ids:
             positions = (token_ids == label_token_id).nonzero(as_tuple=True)[0]
-            positions_to_transform.extend(positions.tolist())
+            if len(positions) > 0:
+                positions_to_transform.extend(positions.tolist())
+                if self.batch_counter < 3:  # Only log for first few batches
+                    token_text = self.llama_tokenizer.decode([label_token_id], skip_special_tokens=True)
+                    tokens_found[label_token_id] = {
+                        'text': token_text,
+                        'positions': positions.tolist(),
+                        'count': len(positions)
+                    }
+                    logging.info(f"✓ Found label token {label_token_id} ('{token_text}') at positions: {positions.tolist()}")
         
+        # Return early if no tokens found
         if not positions_to_transform:
             return embeddings
         
-        positions_tensor = torch.tensor(positions_to_transform, device=target_device)
-        to_transform = embeddings[positions_tensor].to(dtype=target_dtype)
+        # Only log summary for first few batches
+        if self.batch_counter < 3:
+            total_transformations = len(positions_to_transform)
+            unique_positions = len(set(positions_to_transform))
+            logging.info(f"📊 TRANSFORMATION SUMMARY:")
+            logging.info(f"   • Total label tokens found: {total_transformations}")
+            logging.info(f"   • Unique positions to transform: {unique_positions}")
+            
+            for token_id, info in tokens_found.items():
+                logging.info(f"   • Token '{info['text']}' (ID: {token_id}): {info['count']} occurrences")
         
-        # Apply MLP with error handling
         try:
-            with torch.cuda.amp.autocast(enabled=False):  # Disable autocast for this operation
-                mlp_output = self.position_wise_mlp(to_transform)
-                transformed = to_transform + scale_factor * mlp_output
-        except Exception as e:
-            logging.error(f"MLP transformation failed: {e}")
-            return embeddings  # Return original embeddings on failure
-        
-        # Continue with quantization...
-        try:
-            # Normalize transformed embeddings
-            transformed_norm = F.normalize(transformed, p=2, dim=-1)
+            positions_tensor = torch.tensor(positions_to_transform, device=embeddings.device)
             
-            # Get vocabulary embeddings (normalized)
-            vocab_embeds = self.embed_module.weight
-            vocab_norm = F.normalize(vocab_embeds, p=2, dim=-1)
+            # Check bounds
+            max_pos = positions_tensor.max().item()
+            seq_len = embeddings.shape[-2]
+            if max_pos >= seq_len:
+                logging.error(f"❌ BOUNDS ERROR: Max position {max_pos} >= sequence length {seq_len}")
+                return embeddings
             
-            # Compute cosine similarities
-            similarities = torch.mm(transformed_norm, vocab_norm.t())
-            
-            if self.training:
-                # ✅ TRAINING: Use soft quantization (differentiable)
-                soft_weights = F.softmax(similarities / temperature, dim=-1)
-                final_embeddings = torch.mm(soft_weights, vocab_embeds)
-                
-                if self.batch_counter < 3:
-                    logging.info(f"Training mode: Using soft quantization (temp={temperature})")
-            else:
-                # ✅ INFERENCE: Use hard quantization (argmax)
-                hard_indices = torch.argmax(similarities, dim=-1)  # [num_positions]
-                final_embeddings = vocab_embeds[hard_indices]  # Direct lookup
-                
-                if self.batch_counter < 3:
-                    logging.info(f"Inference mode: Using hard quantization (argmax)")
-                    # Log the discovered tokens
-                    for i, pos_idx in enumerate(positions_to_transform[:2]):
-                        orig_token_id = token_ids[positions_tensor[i]].item()
-                        discovered_token_id = hard_indices[i].item()
-                        orig_text = self.llama_tokenizer.decode([orig_token_id], skip_special_tokens=True)
-                        discovered_text = self.llama_tokenizer.decode([discovered_token_id], skip_special_tokens=True)
-                        similarity = similarities[i, discovered_token_id].item()
-                        logging.info(f"Hard quantization: {orig_token_id}('{orig_text}') -> {discovered_token_id}('{discovered_text}') [sim: {similarity:.4f}]")
-            
-            # Update embeddings
-            output_embeds = embeddings.clone()
+            # Extract embeddings to transform
             if len(embeddings.shape) == 2:
-                output_embeds[positions_tensor] = final_embeddings
+                to_transform = embeddings[positions_tensor]
             else:
                 batch_indices = torch.zeros_like(positions_tensor)
-                output_embeds[batch_indices, positions_tensor] = final_embeddings
+                to_transform = embeddings[batch_indices, positions_tensor]
+            
+            # Convert to MLP's dtype if needed
+            original_dtype = to_transform.dtype
+            mlp_dtype = next(self.position_wise_mlp.parameters()).dtype
+            
+            if to_transform.dtype != mlp_dtype:
+                to_transform = to_transform.to(dtype=mlp_dtype)
+            
+            # Apply MLP with SCALED residual connection
+            mlp_output = self.position_wise_mlp(to_transform)
+            transformed = self.apply_scaled_residual(to_transform, mlp_output)
+            
+            # Convert back to original dtype
+            if transformed.dtype != original_dtype:
+                transformed = transformed.to(dtype=original_dtype)
+            
+            # Create output
+            output_embeds = embeddings.clone()
+            if len(embeddings.shape) == 2:
+                output_embeds[positions_tensor] = transformed
+            else:
+                output_embeds[batch_indices, positions_tensor] = transformed
+            
+            # Only log success for first few batches
+            if self.batch_counter < 3:
+                logging.info(f"✅ Successfully applied MLP transformation to {len(positions_tensor)} token positions")
             
             return output_embeds
             
         except Exception as e:
-            logging.error(f"Error in MLP transformation: {e}")
+            logging.error(f"❌ Error in MLP transformation: {e}")
             return embeddings
     
     def forward(self, samples):
@@ -239,6 +272,28 @@ class MLPSalmonn(nn.Module):
         
         # Get target embeddings
         target_embeds = self.embed_module(target_tokens.input_ids)
+        
+        # # Apply MLP if training and not bypassed
+        # if self.training and self.label_token_ids and not self.bypass_mlp_during_lora:
+        #     target_sequence = target_tokens.input_ids[0] if target_tokens.input_ids.dim() > 1 else target_tokens.input_ids
+            
+        #     # Only log target info for first few batches
+        #     if self.batch_counter < 3:
+        #         target_text = self.llama_tokenizer.decode(target_sequence, skip_special_tokens=True)
+        #         logging.info(f"=== TARGET TRANSFORMATION ===")
+        #         logging.info(f"Target text: '{target_text}'")
+        #         logging.info(f"Target sequence: {target_sequence.tolist()}")
+        #         logging.info(f"Target embeddings shape: {target_embeds.shape}")
+            
+        #     original_target_norm = torch.norm(target_embeds, dim=-1).mean().item()
+        #     target_embeds = self.apply_mlp_to_embeddings(target_embeds, target_sequence)
+        #     new_target_norm = torch.norm(target_embeds, dim=-1).mean().item()
+            
+        #     if self.batch_counter < 3:
+        #         logging.info(f"Target transformation complete:")
+        #         logging.info(f"   Original norm: {original_target_norm:.4f}")
+        #         logging.info(f"   New norm: {new_target_norm:.4f}")
+        #         logging.info(f"   Change ratio: {new_target_norm/original_target_norm:.4f}")
         
         # Create labels
         prompt_length = wrapped_embeds.size(1)
@@ -539,6 +594,17 @@ class MLPSalmonn(nn.Module):
         else:
             return nullcontext()
     
+    def find_symbol_mappings(self):
+        """SIMPLIFIED symbol discovery"""
+        if not self.label_token_ids:
+            return {}
+        
+        # Simplified random mapping for now
+        mappings = {}
+        for token_id in self.label_token_ids:
+            mappings[token_id] = token_id  # Identity mapping for simplicity
+        
+        return mappings
     
     def freeze_mlp_weights(self):
         """Freeze MLP weights"""
@@ -651,7 +717,137 @@ class MLPSalmonn(nn.Module):
         
         logging.info("MLP weights reset with Xavier initialization")
 
-    
+    def find_closest_symbols(self):
+        """Discover English symbols with original token exclusion"""
+        if not self.training or not self.label_token_ids:
+            logging.info("No label tokens to discover")
+            return {}
+        
+        logging.info("=== Expanded English Symbol Discovery ===")
+        logging.info(f"Finding closest English symbols for {len(self.label_token_ids)} label tokens")
+        
+        # Get expanded English token range
+        start_idx, end_idx = self.get_english_token_range()
+        
+        with torch.no_grad():
+            # Get original embeddings for label tokens
+            label_token_tensor = torch.tensor(self.label_token_ids, device=self.device)
+            original_embeds = self.embed_module(label_token_tensor)
+            
+            # ✅ LOG: Original embedding norms
+            original_norms = torch.norm(original_embeds, dim=-1)
+            logging.info(f"Original embedding norms (mean): {original_norms.mean().item():.4f}")
+            
+            # Apply MLP transformation
+            mlp_dtype = next(self.position_wise_mlp.parameters()).dtype
+            if original_embeds.dtype != mlp_dtype:
+                original_embeds = original_embeds.to(dtype=mlp_dtype)
+            
+            # Check if MLP was trained
+            mlp_has_trained = any(param.abs().max().item() > 0.001 for param in self.position_wise_mlp.parameters())
+            
+            if mlp_has_trained:
+                # Apply MLP with SCALED residual connection
+                mlp_output = self.position_wise_mlp(original_embeds)
+                transformed_embeds = self.apply_scaled_residual(original_embeds, mlp_output)
+                
+                # ✅ LOG: Transformation statistics with scaling
+                mlp_norms = torch.norm(mlp_output, dim=-1)
+                transformed_norms = torch.norm(transformed_embeds, dim=-1)
+                
+                logging.info(f"MLP output norms (mean): {mlp_norms.mean().item():.4f}")
+                logging.info(f"Scaled transformation norms (mean): {(0.1 * mlp_norms).mean().item():.4f}")
+                logging.info(f"Final embedding norms (mean): {transformed_norms.mean().item():.4f}")
+                logging.info(f"Transformation ratio (scaled): {(0.1 * mlp_norms.mean() / original_norms.mean()).item():.4f}")
+                
+                logging.info("Applied MLP transformation with scaled residual connection (0.1x)")
+            else:
+                transformed_embeds = original_embeds
+                logging.info("MLP not trained, using original embeddings")
+            
+            # Convert back to original dtype
+            original_dtype = self.embed_module.weight.dtype
+            if transformed_embeds.dtype != original_dtype:
+                transformed_embeds = transformed_embeds.to(dtype=original_dtype)
+            
+            # Get English token subset with better filtering
+            english_indices = []
+            for i in range(start_idx, end_idx):
+                if self.is_english_token(i):
+                    english_indices.append(i)
+            
+            # ✅ EXPAND: Use 20000 tokens instead of 5000
+            english_indices = english_indices[:20000]  # Expanded from 5000
+            logging.info(f"Found {len(english_indices)} English tokens to search (expanded from 5000)")
+            
+            english_tensor = torch.tensor(english_indices, device=self.device)
+            english_embeds = self.embed_module(english_tensor)  # [num_english, hidden_dim]
+            
+            mappings = {}
+            
+            for i, original_token_id in enumerate(self.label_token_ids):
+                transformed_embed = transformed_embeds[i:i+1]  # [1, hidden_dim]
+                
+                # ✅ SPECIAL CHECK: If this is the same token, log detailed comparison
+                original_text = self.llama_tokenizer.decode([original_token_id], skip_special_tokens=True)
+                
+                # Check if original token is in our English search space
+                original_in_search = original_token_id in english_indices
+                if original_in_search:
+                    original_idx_in_search = english_indices.index(original_token_id)
+                    original_embed_from_search = english_embeds[original_idx_in_search:original_idx_in_search+1]
+                    
+                    # Compute similarity with itself
+                    self_similarity = F.cosine_similarity(transformed_embed, original_embed_from_search, dim=1).item()
+                    logging.info(f"Self-similarity for '{original_text}' (token {original_token_id}): {self_similarity:.4f}")
+                
+                # Compute cosine similarities with English tokens only
+                transformed_norm = F.normalize(transformed_embed, p=2, dim=1)
+                english_norm = F.normalize(english_embeds, p=2, dim=1)
+                similarities = torch.mm(transformed_norm, english_norm.t()).squeeze(0)  # [num_english]
+                
+                # Get top 10 candidates
+                top_similarities, top_indices = torch.topk(similarities, k=10, largest=True)
+                
+                # Find best English match (EXCLUDING original token)
+                best_match_id = None
+                best_similarity = -1
+                
+                for j in range(len(top_indices)):
+                    candidate_idx = top_indices[j].item()
+                    candidate_token_id = english_indices[candidate_idx]
+                    candidate_similarity = top_similarities[j].item()
+                    
+                    # ✅ EXCLUDE ORIGINAL TOKEN
+                    if candidate_token_id == original_token_id:
+                        original_text = self.llama_tokenizer.decode([original_token_id], skip_special_tokens=True)
+                        logging.info(f"Skipping original token {original_token_id} ('{original_text}') [sim: {candidate_similarity:.4f}]")
+                        continue
+                    
+                    # ✅ SIMILARITY THRESHOLD: Only accept if meaningful change
+                    if candidate_similarity > 0.3:  # Higher threshold for meaningful discovery
+                        # Double-check it's English
+                        if self.is_english_token(candidate_token_id):
+                            best_match_id = candidate_token_id
+                            best_similarity = candidate_similarity
+                            break
+                
+                if best_match_id is not None:
+                    mappings[original_token_id] = best_match_id
+                    
+                    # Log with similarity score
+                    original_text = self.llama_tokenizer.decode([original_token_id], skip_special_tokens=True)
+                    best_match_text = self.llama_tokenizer.decode([best_match_id], skip_special_tokens=True)
+                    
+                    logging.info(f"Discovery: {original_token_id} ('{original_text}') -> {best_match_id} ('{best_match_text}') [sim: {best_similarity:.4f}]")
+                else:
+                    # ✅ KEEP ORIGINAL if no good alternative found
+                    mappings[original_token_id] = original_token_id
+                    original_text = self.llama_tokenizer.decode([original_token_id], skip_special_tokens=True)
+                    logging.info(f"No alternative found for {original_token_id} ('{original_text}'), keeping original")
+            
+            logging.info(f"=== Discovery Complete: Found {len([k for k, v in mappings.items() if k != v])} actual discoveries ===")
+            return mappings
 
     def update_label_tokens(self, symbol_mappings):
         """Update with COMPLETE symbol mappings"""
@@ -743,126 +939,6 @@ class MLPSalmonn(nn.Module):
             return all(c in allowed_chars for c in token_text) and len(token_text.strip()) > 0
         except:
             return False
-
-    def discover_symbols(self, save_path=None):
-        """Simplified symbol discovery using apply_mlp_to_embeddings in inference mode"""
-        if not self.training or not self.label_token_ids:
-            logging.info("No label tokens to discover")
-            return {}
-        
-        logging.info("=== Symbol Discovery ===")
-        logging.info(f"Discovering symbols for {len(self.label_token_ids)} label tokens")
-        
-        # Temporarily set to eval mode for hard quantization
-        was_training = self.training
-        self.eval()
-        
-        with torch.no_grad():
-            # Get original embeddings for label tokens
-            label_token_tensor = torch.tensor(self.label_token_ids, device=self.device)
-            original_embeds = self.embed_module(label_token_tensor)
-            
-            # ✅ USE apply_mlp_to_embeddings in inference mode (hard quantization)
-            transformed_embeds = self.apply_mlp_to_embeddings(
-                original_embeds, 
-                label_token_tensor, 
-                scale_factor=0.2, 
-                temperature=0.1
-            )
-            
-            # Get English token range for filtering
-            start_idx, end_idx = self.get_english_token_range()
-            
-            mappings = {}
-            discovery_log = []
-            
-            for i, original_token_id in enumerate(self.label_token_ids):
-                original_text = self.llama_tokenizer.decode([original_token_id], skip_special_tokens=True)
-                
-                # Get the transformed embedding
-                transformed_embed = transformed_embeds[i:i+1]  # [1, hidden_dim]
-                
-                # Find closest vocabulary tokens
-                vocab_embeds = self.embed_module.weight
-                vocab_norm = F.normalize(vocab_embeds, p=2, dim=-1)
-                transformed_norm = F.normalize(transformed_embed, p=2, dim=-1)
-                
-                similarities = torch.mm(transformed_norm, vocab_norm.t()).squeeze(0)
-                top_similarities, top_indices = torch.topk(similarities, k=20, largest=True)
-                
-                # Find best English match (excluding original)
-                best_match_id = None
-                best_similarity = -1
-                
-                for j in range(len(top_indices)):
-                    candidate_id = top_indices[j].item()
-                    candidate_sim = top_similarities[j].item()
-                    
-                    # Skip original token
-                    if candidate_id == original_token_id:
-                        continue
-                    
-                    # Check if it's in English range and meets threshold
-                    if (start_idx <= candidate_id <= end_idx and 
-                        candidate_sim > 0.3 and 
-                        self.is_english_token(candidate_id)):
-                        
-                        best_match_id = candidate_id
-                        best_similarity = candidate_sim
-                        break
-                
-                # Record discovery
-                if best_match_id is not None:
-                    best_match_text = self.llama_tokenizer.decode([best_match_id], skip_special_tokens=True)
-                    mappings[original_token_id] = best_match_id
-                    
-                    discovery_info = {
-                        'original_token_id': original_token_id,
-                        'original_text': original_text,
-                        'discovered_token_id': best_match_id,
-                        'discovered_text': best_match_text,
-                        'similarity': best_similarity
-                    }
-                    discovery_log.append(discovery_info)
-                    
-                    logging.info(f"Discovery: {original_token_id}('{original_text}') -> {best_match_id}('{best_match_text}') [sim: {best_similarity:.4f}]")
-                else:
-                    # Keep original
-                    mappings[original_token_id] = original_token_id
-                    discovery_info = {
-                        'original_token_id': original_token_id,
-                        'original_text': original_text,
-                        'discovered_token_id': original_token_id,
-                        'discovered_text': original_text,
-                        'similarity': 1.0
-                    }
-                    discovery_log.append(discovery_info)
-                    
-                    logging.info(f"No change: {original_token_id}('{original_text}') kept")
-            
-            # Restore training mode
-            if was_training:
-                self.train()
-            
-            # Save discovery log if path provided
-            if save_path:
-                import json
-                from datetime import datetime
-                
-                save_data = {
-                    'timestamp': datetime.now().isoformat(),
-                    'total_tokens': len(self.label_token_ids),
-                    'changed_tokens': len([d for d in discovery_log if d['original_token_id'] != d['discovered_token_id']]),
-                    'discoveries': discovery_log
-                }
-                
-                with open(save_path, 'w') as f:
-                    json.dump(save_data, f, indent=2)
-                
-                logging.info(f"Discovery log saved to: {save_path}")
-                logging.info(f"Total discoveries: {save_data['changed_tokens']}/{save_data['total_tokens']}")
-            
-            return mappings
 
 
 # SIMPLIFIED symbol generation functions

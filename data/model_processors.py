@@ -478,7 +478,7 @@ class SalmonProcessor(ModelProcessor):
     Handles processing of inputs and targets for the model.
     """
     
-    def __init__(self, processor, tokenizer, max_length=128):
+    def __init__(self, tokenizer, max_length=128):
         """
         Initialize the SALMONN processor.
         
@@ -486,7 +486,14 @@ class SalmonProcessor(ModelProcessor):
             processor: The SALMONN processor (contains tokenizer and feature extractor)
             max_length: Maximum sequence length for tokenization
         """
-        self.processor = processor
+
+        # Initialize the processor for compatibility with the ICL framework
+
+        from transformers import WhisperFeatureExtractor
+        whisper_path = "openai/whisper-large-v2"
+        logging.info(f"Initializing WhisperFeatureExtractor from {whisper_path}")
+        self.processor = WhisperFeatureExtractor.from_pretrained(whisper_path)
+
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.batch_counter = 0
@@ -1002,7 +1009,7 @@ class SalmonProcessor(ModelProcessor):
         return batch
 
 
-def get_processor(model_type: str, processor, tokenizer=None) -> ModelProcessor:
+def get_processor(model_type: str, processor=None, tokenizer=None) -> ModelProcessor:
     """
     Factory function to get the appropriate processor for a model type.
     
@@ -1016,7 +1023,7 @@ def get_processor(model_type: str, processor, tokenizer=None) -> ModelProcessor:
     model_type = model_type.lower()
     
     if model_type == "salmonn":
-        return SalmonProcessor(processor, tokenizer)
+        return SalmonProcessor(tokenizer)
     elif model_type == "qwen2":
         return QwenProcessor(processor)
     else:

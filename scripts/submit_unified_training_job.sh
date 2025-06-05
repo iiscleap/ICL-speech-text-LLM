@@ -3,7 +3,7 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxceleb_greek-voxpopuli_greek"  # Dataset type(s) to use
+dataset_type="voxceleb_greek"  # Dataset type(s) to use
 # initial_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_1_loss_0.3191/model.pt"
 
 # Training parameters
@@ -17,7 +17,7 @@ batch_size=1
 gradient_accumulation_steps=8
 max_grad_norm=1.0
 warmup_steps=100
-max_samples=0  # Set to 0 for full dataset, or >0 for limited samples
+max_samples=10  # Set to 0 for full dataset, or >0 for limited samples
 
 # Performance optimization options
 use_fp16=true  # Enable mixed precision training with FP16
@@ -104,11 +104,11 @@ echo "=========================================="
 
 # Submit job
 qsub -q longgpu.q -V -cwd \
-    -l hostname=compute-0-7 \
+    -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=1,\
+    -v CUDA_VISIBLE_DEVICES=0,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

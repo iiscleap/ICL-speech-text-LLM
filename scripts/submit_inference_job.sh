@@ -18,9 +18,9 @@ debug_samples=0  # Add debug_samples parameter (0 = use all samples)
 randomize_swap=false  # Set to true to randomize swap configurations
 
 # Node configuration
-queue_name="med.q"      # Queue to submit job to (gpu.q, med.q, etc.)
+queue_name="longgpu.q"      # Queue to submit job to (gpu.q, med.q, etc.)
 hostname="compute-0-8"  # Hostname to run on
-cuda_device=1         # CUDA device to use
+cuda_device=0         # CUDA device to use
 hold_job_id=""          # Job ID to wait for (empty = don't wait)
 
 
@@ -121,9 +121,9 @@ peft_model_path=""
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3105_1151_ft_5ex_10e8b_salmonn_speech_only_text_meld_emotion-hvb/checkpoints/epoch_10_loss_0.0000/model.pt"
 # peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/3105_1848_ft_5ex_10e8b_salmonn_speech_only_text_meld_emotion_greek-hvb_greek/checkpoints/epoch_10_loss_0.0001/model.pt"
 #random
-
+peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/0306_1614_ft_5ex_10e8b_salmonn_speech_only_text_meld_emotion_swap-hvb_swap/checkpoints/epoch_10_loss_0.0307/model.pt"
 #random symbol
-peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/0106_1636_ft_5ex_10e8b_salmonn_speech_only_text_meld_emotion_swap-hvb_swap/final_model.pt"
+# peft_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/0106_1636_ft_5ex_10e8b_salmonn_speech_only_text_meld_emotion_swap-hvb_swap/final_model.pt"
 
 
 
