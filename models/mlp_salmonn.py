@@ -182,8 +182,8 @@ class MLPSalmonn(nn.Module):
                 soft_weights = F.softmax(similarities / temperature, dim=-1)
                 final_embeddings = torch.mm(soft_weights, vocab_embeds)
                 
-                if self.batch_counter < 3:
-                    logging.info(f"Training mode: Using soft quantization (temp={temperature})")
+                # if self.batch_counter < 3:
+                logging.info(f"Training mode: Using soft quantization (temp={temperature})")
             else:
                 # ✅ INFERENCE: Use hard quantization (argmax)
                 hard_indices = torch.argmax(similarities, dim=-1)  # [num_positions]
