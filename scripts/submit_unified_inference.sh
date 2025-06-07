@@ -2,18 +2,19 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxceleb_greek-hvb_greek"  # Dataset(s) to use for inference
+dataset_type="voxceleb"  # Dataset(s) to use for inference
 split="test"  # Dataset split: train, validation, test
-checkpoint_path="/data2/neeraja/neeraja/results/model_ICL/unified_training/3105_0053_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/cycle_3_lora_epoch_2/model.pt"  # Path to trained model checkpoint
+
+
+checkpoint_path="/data2/neeraja/neeraja/results/model_ICL/unified_training/3105_0053_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/3105_0053_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/cycle_4_lora_epoch_2/model.pt"  # Path to trained model checkpoint
 
 # Inference parameters
 batch_size=1
-max_samples=0 
- # 0 = use all samples
+
+max_samples=10  # 0 = use all samples
 max_length=512
 temperature=0.7
 top_p=0.9
-
 
 # Node configuration
 queue_name="longgpu.q"      # Queue to submit job to
@@ -80,7 +81,7 @@ split=${split},\
 max_samples=${max_samples},\
 max_length=${max_length},\
 temperature=${temperature},\
-top_p=${top_p},
+top_p=${top_p}"
 
 # Submit job (SAME AS INFERENCE)
 if [ -n "$hold_job_id" ]; then

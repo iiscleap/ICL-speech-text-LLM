@@ -27,63 +27,58 @@ from torch.utils.data import DataLoader
 from data.model_processors import get_processor
 from transformers import LlamaTokenizer, WhisperFeatureExtractor
 
+# ✅ CORRECT IMPORTS from evaluation_utils
+from utils.evaluation_utils import evaluate_predictions, save_evaluation_results, clean_prediction
+
+# ✅ IMPORT the exact same function from training
+from models.unified_symbol_training import replace_symbols_in_batch
+
 def parse_args():
+    """Parse command line arguments - SAME AS INFERENCE.PY"""
     parser = argparse.ArgumentParser(description="Unified Symbol Discovery Inference")
     
-    # Model parameters
-    parser.add_argument("--model_type", type=str, default="salmonn", help="Model type (salmonn or qwen2)")
-    parser.add_argument("--device", type=str, default="cuda:0", help="Device to use for inference")
+    # SAME ARGS AS INFERENCE.PY
+    parser.add_argument("--model_type", type=str, default="salmonn", help="Type of model to use")
     parser.add_argument("--checkpoint_path", type=str, required=True, help="Path to trained model checkpoint")
+    parser.add_argument("--run_name", type=str, required=True, help="Name of the run")
+    parser.add_argument("--dataset_type", type=str, required=True, help="Dataset type(s) to use")
+    parser.add_argument("--split", type=str, default="test", choices=["train", "val", "test"], help="Dataset split")
     parser.add_argument("--batch_size", type=int, default=1, help="Batch size for inference")
-    
-    # Dataset parameters
-    parser.add_argument("--dataset_type", type=str, default="voxceleb_greek-hvb_greek", 
-                      help="Dataset type(s) to use, hyphen-separated for multi-dataset")
-    parser.add_argument("--max_samples", type=int, default=0, 
-                      help="Maximum number of samples to process (0 = use all samples)")
-    parser.add_argument("--split", type=str, default="test", choices=["train", "validation", "test"],
-                      help="Dataset split to use for inference")
-    
-    # Generation parameters
+    parser.add_argument("--max_samples", type=int, default=0, help="Max samples (0 = all)")
     parser.add_argument("--max_length", type=int, default=512, help="Maximum generation length")
     parser.add_argument("--temperature", type=float, default=0.7, help="Generation temperature")
     parser.add_argument("--top_p", type=float, default=0.9, help="Top-p sampling parameter")
     parser.add_argument("--do_sample", action="store_true", help="Use sampling for generation")
-    
-    # Output parameters
-    parser.add_argument("--output_dir", type=str, default="/data2/neeraja/neeraja/results/model_ICL/unified_inference", 
-                      help="Output directory for results")
-    parser.add_argument("--run_name", type=str, default="", help="Name for the inference run")
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Device to run inference on")
     
     return parser.parse_args()
 
 def setup_inference_logging(args):
-    """Setup logging for unified inference"""
-    timestamp = datetime.now().strftime("%m%d_%H%M")
-    if not args.run_name:
-        args.run_name = f"unified_inference_{timestamp}_{args.dataset_type.replace('-', '_')}"
+    """Setup logging - SAME AS INFERENCE.PY"""
+    today = datetime.now().strftime("%Y-%m-%d")
     
-    args.output_dir = os.path.join(args.output_dir, args.run_name)
-    os.makedirs(args.output_dir, exist_ok=True)
+    # SAVE IN METRICS FOLDER (SAME AS INFERENCE.PY)
+    results_dir = f"/data2/neeraja/neeraja/results/model_ICL/metrics/{today}"
+    os.makedirs(results_dir, exist_ok=True)
     
-    log_file = os.path.join(args.output_dir, "unified_inference.log")
+    # Log file in the results directory
+    # log_file = os.path.join(results_dir, f"{args.run_name}_unified_inference.log")
+    
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(levelname)s - %(message)s",
         handlers=[
-            logging.FileHandler(log_file),
+            # logging.FileHandler(log_file),
             logging.StreamHandler()
         ],
         force=True
     )
     
-    logging.info(f"Arguments: {args}")
+    args.output_dir = results_dir  # SET OUTPUT DIR TO METRICS FOLDER
     return args
 
 def load_inference_datasets(args, datasets):
     """Load inference datasets"""
-    from utils.data_utils import load_dataset
-    
     inference_datasets = {}
     
     for dataset_name in datasets:
@@ -96,7 +91,7 @@ def load_inference_datasets(args, datasets):
             # Apply sample limiting if specified
             if args.max_samples > 0:
                 logging.info(f"Limiting to {args.max_samples} samples for dataset {dataset_name}")
-                inference_datasets[dataset_type] = dataset.select(range(args.max_samples))
+                inference_datasets[dataset_type] = dataset.select(range(min(args.max_samples, len(dataset))))
             else:
                 inference_datasets[dataset_type] = dataset
             
@@ -111,8 +106,6 @@ def load_inference_datasets(args, datasets):
 
 def create_inference_dataloader(datasets, processor, args):
     """Create inference dataloader"""
-    from torch.utils.data import DataLoader
-    
     if not datasets:
         raise ValueError("No datasets provided")
     
@@ -151,93 +144,35 @@ def create_inference_dataloader(datasets, processor, args):
     
     return dataloader
 
-def generate_responses(model, batch, args):
-    """Generate responses using the model (copied from custom_salmon.py pattern)"""
-    try:
-        # Move batch to device
-        batch = {k: v.to(args.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
-        
-        # Set model to eval mode for generation
-        model.eval()
-        
-        with torch.no_grad():
-            # Get model inputs
-            if hasattr(model, 'salmonn'):
-                # Use SALMONN's generate method
-                generated_outputs = model.salmonn.generate(
-                    batch,
-                    max_length=args.max_length,
-                    temperature=args.temperature,
-                    top_p=args.top_p,
-                    do_sample=args.do_sample,
-                    pad_token_id=model.llama_tokenizer.pad_token_id,
-                    eos_token_id=model.llama_tokenizer.eos_token_id,
-                )
-            else:
-                # Fallback generation
-                outputs = model(batch)
-                generated_outputs = outputs.get("generated_text", [""])
-        
-        return generated_outputs
-        
-    except Exception as e:
-        logging.error(f"Generation failed: {e}")
-        return [""] * len(batch.get("prompt", [""]))
-
-def replace_symbols_in_batch_inference(batch, symbol_mappings):
-    """Replace discovered symbols in inference batch"""
-    if not symbol_mappings:
-        return batch
+def convert_symbols_back(text, reverse_mappings):
+    """Convert random symbols back to original labels - handles multi-label outputs"""
+    logging.info(f"Converting text: '{text}' using mappings: {reverse_mappings}")
     
-    updated_batch = batch.copy()
+    converted = text
+    conversions_made = []
     
-    # Replace in prompts
-    if "prompt" in batch:
-        updated_prompts = []
-        for prompt in batch["prompt"]:
-            updated_prompt = prompt
-            for original, discovered in symbol_mappings.items():
-                updated_prompt = updated_prompt.replace(original, discovered)
-            updated_prompts.append(updated_prompt)
-        updated_batch["prompt"] = updated_prompts
+    for random_symbol, original_label in reverse_mappings.items():
+        # Check if the symbol is in the text (case-insensitive for robustness)
+        if random_symbol in converted:
+            logging.info(f"Found '{random_symbol}' in text, replacing with '{original_label}'")
+            converted = converted.replace(random_symbol, original_label)
+            conversions_made.append(f"'{random_symbol}' -> '{original_label}'")
+        elif random_symbol.lower() in converted.lower():
+            # Case-insensitive fallback
+            import re
+            pattern = re.compile(re.escape(random_symbol), re.IGNORECASE)
+            if pattern.search(converted):
+                logging.info(f"Found '{random_symbol}' (case-insensitive) in text, replacing with '{original_label}'")
+                converted = pattern.sub(original_label, converted)
+                conversions_made.append(f"'{random_symbol}' -> '{original_label}' (case-insensitive)")
     
-    return updated_batch
-
-def evaluate_predictions(predictions, references, dataset_types):
-    """Evaluate predictions using the same logic as inference.py"""
-    from sklearn.metrics import accuracy_score, precision_recall_fscore_support, classification_report
+    if conversions_made:
+        logging.info(f"Conversions made: {', '.join(conversions_made)}")
+    else:
+        logging.info(f"No symbols found to convert in text")
     
-    # Simple accuracy calculation for classification tasks
-    correct = 0
-    total = 0
-    
-    detailed_results = []
-    
-    for pred, ref in zip(predictions, references):
-        total += 1
-        # Simple exact match for now (can be enhanced based on task)
-        if pred.strip().lower() == ref.strip().lower():
-            correct += 1
-            result = "correct"
-        else:
-            result = "incorrect"
-        
-        detailed_results.append({
-            "prediction": pred,
-            "reference": ref,
-            "result": result
-        })
-    
-    accuracy = correct / total if total > 0 else 0.0
-    
-    metrics = {
-        "accuracy": accuracy,
-        "correct": correct,
-        "total": total,
-        "detailed_results": detailed_results
-    }
-    
-    return metrics
+    logging.info(f"Final converted text: '{converted}'")
+    return converted
 
 def main():
     args = parse_args()
@@ -311,70 +246,128 @@ def main():
         # Update model with initial random symbols
         model.update_label_tokens(initial_symbol_mappings)
         
-        # Discover symbols using trained MLP
+        # Discover symbols using trained MLP (ONLY FIRST ITERATION)
         logging.info("Discovering symbols using trained MLP...")
-        model.eval()  # Set to eval mode for hard quantization
-        
+        model.eval()
+
+        # ✅ Enable discovery collection for first iteration only
+        model.store_discoveries = True
+        model.discovered_mappings = {}
+
         discoveries_dir = os.path.join(args.output_dir, "discoveries")
         os.makedirs(discoveries_dir, exist_ok=True)
-        
-        try:
-            # Use the same discovery logic as training
-            token_mappings = model.discover_symbols(save_path=os.path.join(discoveries_dir, "inference_tokens.json"))
-            
-            if token_mappings:
-                discovered_symbol_mappings = model.convert_token_mappings_to_text(token_mappings)
-                
-                # Save discovered symbols
-                with open(os.path.join(discoveries_dir, "inference_symbols.json"), 'w') as f:
-                    json.dump(discovered_symbol_mappings, f, indent=2)
-                
-                logging.info("=== Discovered Symbol Mappings ===")
-                for original, discovered in discovered_symbol_mappings.items():
-                    logging.info(f"'{original}' -> '{discovered}'")
-                
-                # Use discovered symbols for inference
-                final_symbol_mappings = discovered_symbol_mappings
-            else:
-                logging.warning("No symbols discovered, using random symbols")
-                final_symbol_mappings = initial_symbol_mappings
-                
-        except Exception as e:
-            logging.error(f"Symbol discovery failed: {e}")
-            logging.info("Using random symbols for inference")
-            final_symbol_mappings = initial_symbol_mappings
-        
-        # Perform inference with discovered symbols
-        logging.info("Starting inference with discovered symbols...")
-        
-        predictions = []
-        references = []
-        all_prompts = []
-        all_responses = []
-        
-        model.eval()
-        total_samples = len(inference_dataloader.dataset)
-        
+
+        results = []
+        reverse_symbol_mappings = {}
+        for original_label, random_symbol in initial_symbol_mappings.items():
+            reverse_symbol_mappings[random_symbol.lower()] = original_label
+            reverse_symbol_mappings[random_symbol] = original_label  # Also exact case
+
+        logging.info("=== Reverse Mapping (random symbol -> original label) ===")
+        for symbol, original in reverse_symbol_mappings.items():
+            logging.info(f"'{symbol}' -> '{original}'")
+
+        # Perform inference 
+        logging.info("Starting inference with symbol discovery...")
+
         with torch.no_grad():
             for batch_idx, batch in enumerate(tqdm(inference_dataloader, desc="Inference")):
                 try:
-                    # Apply discovered symbol mappings to batch
-                    updated_batch = replace_symbols_in_batch_inference(batch, final_symbol_mappings)
+                    # ✅ Use RANDOM symbols for prompts (same as training)
+                    updated_batch = replace_symbols_in_batch(batch, initial_symbol_mappings)
                     
                     # Log first batch for debugging
                     if batch_idx == 0:
                         logging.info("=== Sample Inference Batch ===")
                         logging.info(f"Original prompt: {batch['prompt'][0]}")
-                        logging.info(f"Updated prompt: {updated_batch['prompt'][0]}")
+                        logging.info(f"Updated prompt (with random symbols): {updated_batch['prompt'][0]}")
                     
-                    # Generate responses
-                    generated_responses = generate_responses(model, updated_batch, args)
+                    # ✅ DISCOVERY HAPPENS AUTOMATICALLY during first iteration
+                    outputs = model.generate_output(updated_batch)
+
+                    # ✅ DEBUG: Check discovery status after first batch
+                    if batch_idx == 0:
+                        logging.info(f"DEBUG: After first batch, discovered_mappings: {getattr(model, 'discovered_mappings', {})}")
+                        logging.info(f"DEBUG: store_discoveries flag: {getattr(model, 'store_discoveries', False)}")
+                        logging.info(f"DEBUG: Has discovery_similarities: {hasattr(model, 'discovery_similarities')}")
+                        
+                        # ✅ ALWAYS process discovery data (even if empty)
+                        logging.info("=== Symbol Discovery Status After First Iteration ===")
+                        
+                        if hasattr(model, 'discovered_mappings') and model.discovered_mappings:
+                            logging.info("✓ Discoveries found!")
+                            discovered_symbol_mappings = model.convert_token_mappings_to_text(model.discovered_mappings)
+                            
+                            # Save discoveries with similarities
+                            discovery_data = {
+                                'token_mappings': model.discovered_mappings,
+                                'text_mappings': discovered_symbol_mappings,
+                                'similarities': getattr(model, 'discovery_similarities', {}),
+                                'timestamp': datetime.now().isoformat()
+                            }
+                            
+                            with open(os.path.join(discoveries_dir, f"{args.run_name}_symbols.json"), 'w') as f:
+                                json.dump(discovery_data, f, indent=2)
+                            
+                            for original, discovered in discovered_symbol_mappings.items():
+                                similarity = model.discovery_similarities.get(original, 0.0)
+                                logging.info(f"Discovery: '{original}' -> '{discovered}' [similarity: {similarity:.4f}]")
+                        else:
+                            logging.warning("✗ No discoveries found - using random symbols for conversion")
+                            
+                            # Save empty discovery data for debugging
+                            discovery_data = {
+                                'token_mappings': {},
+                                'text_mappings': {},
+                                'similarities': {},
+                                'timestamp': datetime.now().isoformat(),
+                                'note': 'No discoveries made during first iteration'
+                            }
+                            
+                            with open(os.path.join(discoveries_dir, f"{args.run_name}_no_discoveries.json"), 'w') as f:
+                                json.dump(discovery_data, f, indent=2)
+                        
+                        # ✅ Disable discovery for remaining iterations
+                        model.store_discoveries = False
+                        logging.info("Discovery phase complete - continuing with normal inference")
                     
-                    # Store results
-                    predictions.extend(generated_responses)
-                    references.extend(batch.get("completion", [""] * len(generated_responses)))
-                    all_prompts.extend(updated_batch["prompt"])
-                    all_responses.extend(generated_responses)
+                    # ✅ Convert outputs using the convert_symbols_back function
+                    for i, (output, true_label) in enumerate(zip(outputs, batch.get("completion", [""] * len(outputs)))):
+                        
+                        # ✅ USE THE FUNCTION instead of inline conversion
+                        converted_output = convert_symbols_back(output, reverse_symbol_mappings)
+                        
+                        # Get dataset type for this sample
+                        if isinstance(batch.get("dataset_type"), list):
+                            dataset_type = batch["dataset_type"][i]
+                        else:
+                            dataset_type = batch.get("dataset_type", list(inference_datasets.keys())[0])
+                        
+                        # Clean the converted output
+                        cleaned_output = clean_prediction(converted_output, dataset_type)
+                        
+                        # Log first few samples like inference.py
+                        if batch_idx < 2:
+                            logging.info(f"Batch {batch_idx+1}, Sample {i+1}:")
+                            logging.info(f"Predicted (original): {output}")
+                            logging.info(f"Predicted (converted): {converted_output}")
+                            logging.info(f"Predicted (cleaned): {cleaned_output}")
+                            logging.info(f"True: {true_label}")
+                            logging.info("-" * 50)
+
+                        # ✅ SAME FORMAT AS INFERENCE.PY - but store converted output
+                        prediction = {
+                            "text": batch.get("text", [""])[i] if isinstance(batch.get("text"), list) else batch.get("text", ""),
+                            "true_label": true_label,
+                            "predicted_label_cleaned": cleaned_output,  # This is the final cleaned version
+                            "predicted_label": converted_output.strip(),  # This is the converted version
+                            "predicted_label_raw": output.strip(),  # Keep the raw output for debugging
+                            "dataset_type": dataset_type.value if hasattr(dataset_type, 'value') else str(dataset_type),
+                            "original_prompt": batch["prompt"][i],
+                            "updated_prompt": updated_batch["prompt"][i]
+                        }
+                        
+                        results.append(prediction)
                     
                     # Log progress
                     if (batch_idx + 1) % 10 == 0:
@@ -382,38 +375,75 @@ def main():
                     
                 except Exception as e:
                     logging.error(f"Error in inference batch {batch_idx}: {e}")
+                    import traceback
+                    logging.error(traceback.format_exc())
                     continue
         
-        # Evaluate results
+        # ✅ FOLLOW INFERENCE.PY PATTERN: Evaluate by dataset type
         logging.info("Evaluating results...")
-        metrics = evaluate_predictions(predictions, references, list(inference_datasets.keys()))
         
-        # Save results (same format as inference.py)
-        results = {
-            "metrics": metrics,
+        # Group results by dataset type and evaluate each separately
+        dataset_metrics = {}
+        for dataset_type in inference_datasets.keys():
+            # Filter results for this dataset
+            dataset_results = [r for r in results if r["dataset_type"] == dataset_type.value]
+            
+            if dataset_results:
+                logging.info(f"Evaluating {len(dataset_results)} samples for dataset {dataset_type.value}")
+                
+                # ✅ USE evaluate_predictions from evaluation_utils (same as inference.py)
+                metrics = evaluate_predictions(dataset_results, dataset_type)
+                dataset_metrics[dataset_type.value] = metrics
+                
+                logging.info(f"Dataset {dataset_type.value} metrics: {metrics}")
+            else:
+                logging.warning(f"No results found for dataset {dataset_type.value}")
+                dataset_metrics[dataset_type.value] = {"error": "No results"}
+        
+        # Calculate overall metrics
+        overall_accuracy = 0.0
+        total_correct = 0
+        total_samples = len(results)
+        
+        if total_samples > 0:
+            for result in results:
+                if result["predicted_label_cleaned"].lower() == result["true_label"].lower():
+                    total_correct += 1
+            overall_accuracy = total_correct / total_samples
+        
+        # ✅ SAME STRUCTURE AS INFERENCE.PY
+        final_results = {
+            "dataset_metrics": dataset_metrics,
+            "overall_metrics": {
+                "accuracy": overall_accuracy,
+                "correct": total_correct,
+                "total": total_samples
+            },
             "symbol_mappings": {
                 "initial_random": initial_symbol_mappings,
-                "discovered": final_symbol_mappings
+                "discovered": reverse_symbol_mappings
             },
-            "predictions": predictions,
-            "references": references,
-            "prompts": all_prompts,
-            "responses": all_responses
+            "detailed_results": results,
+            "summary": {
+                "total_samples": total_samples,
+                "dataset_types": [str(dt) for dt in inference_datasets.keys()],
+                "num_datasets": len(inference_datasets)
+            }
         }
         
-        # Save metrics
-        metrics_file = os.path.join(args.output_dir, "metrics.json")
-        with open(metrics_file, 'w') as f:
-            json.dump(metrics, f, indent=2)
-        
-        # Save full results
-        results_file = os.path.join(args.output_dir, "results.json")
-        with open(results_file, 'w') as f:
-            json.dump(results, f, indent=2)
-        
+        # ✅ SAVE RESULTS with run_name in filename
+        save_evaluation_results(final_results, args.output_dir, f"{args.run_name}_unified_inference_results.json")
+        save_evaluation_results(dataset_metrics, args.output_dir, f"{args.run_name}_metrics.json")
+
         logging.info(f"Results saved to: {args.output_dir}")
-        logging.info(f"Accuracy: {metrics['accuracy']:.4f}")
-        logging.info(f"Correct: {metrics['correct']}/{metrics['total']}")
+        logging.info(f"Main results: {args.run_name}_unified_inference_results.json")
+        logging.info(f"Metrics: {args.run_name}_metrics.json")
+        logging.info(f"Discoveries: {args.run_name}_symbols.json (if any)")
+        
+        # Log per-dataset results
+        for dataset_name, metrics in dataset_metrics.items():
+            if "accuracy" in metrics:
+                logging.info(f"Dataset {dataset_name}: Accuracy = {metrics['accuracy']:.4f}")
         
     logging.info("=== Inference Complete ===")
 

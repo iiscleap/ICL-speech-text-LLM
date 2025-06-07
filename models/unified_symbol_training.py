@@ -89,9 +89,9 @@ def should_train_mlp(cycle, total_cycles, mlp_training_mode):
     if mlp_training_mode == "every_cycle":
         return True
     elif mlp_training_mode == "first_only":
-        return cycle == 1
+        return cycle == 0
     elif mlp_training_mode == "first_and_second":
-        return cycle == 1 or cycle == 2
+        return cycle == 0 or cycle == 1
     else:
         return True  # Default to every cycle
 
@@ -163,7 +163,7 @@ def train_lora_phase(model, dataloader, args, cycle, current_symbols=None):
             try:
                 # Apply symbol mappings to batch data
                 if current_symbols:
-                    batch = replace_symbols_in_batch(batch, current_symbols, model.llama_tokenizer)
+                    batch = replace_symbols_in_batch(batch, current_symbols)
                 
                 # Move batch to device
                 batch = {k: v.to(args.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
@@ -432,7 +432,7 @@ def train_mlp_phase(model, dataloader, args, cycle, current_symbols=None):
     return model
 
 
-def replace_symbols_in_batch(batch, symbol_mappings, tokenizer):
+def replace_symbols_in_batch(batch, symbol_mappings):
     """Replace symbols with minimal logging"""
     if not symbol_mappings:
         return batch
