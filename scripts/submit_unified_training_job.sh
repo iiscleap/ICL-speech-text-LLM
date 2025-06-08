@@ -3,38 +3,25 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxceleb_greek"  # Dataset type(s) to use
-# initial_model_path="/data2/neeraja/neeraja/results/model_ICL/trained_models/ft_5ex_20e8b_salmonn_speech_only_voxceleb_greek-hvb_greek/checkpoints/epoch_1_loss_0.3191/model.pt"
+dataset_type="voxceleb"  # Dataset type(s) to use
+device="cuda:0"  # GPU device
 
 # Training parameters
 lora_lr=1e-5
 mlp_lr=1e-4
 lora_epochs=2
+lora_final_epochs=1 
 mlp_epochs=2
-total_cycles=5
+
+total_cycles=2
+ 
+
 hidden_dim=8
 batch_size=1
 gradient_accumulation_steps=8
 max_grad_norm=1.0
-warmup_steps=100
-max_samples=0  # Set to 0 for full dataset, or >0 for limited samples
+max_samples=500  # ✅ Set reasonable default instead of 0
 
-# Performance optimization options
-use_fp16=true  # Enable mixed precision training with FP16
-use_bf16=false  # Enable mixed precision training with BF16
-
-# Debug options
-debug_samples=0  # Set to 0 to use full dataset, or >0 for limited samples
-
-# If in debug mode, override parameters for faster iteration
-if [ "$debug_samples" -gt 0 ]; then
-    echo "Debug mode enabled with ${debug_samples} samples"
-    total_cycles=1
-    lora_epochs=1
-    mlp_epochs=1
-    max_samples=16
-    warmup_steps=10
-fi
 
 # Set conda environment
 export CONDA_ENV="salmon"
@@ -61,12 +48,11 @@ SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/models/unified_symbol_training.py"
 TODAY=$(date +"%Y-%m-%d")
 
 # Directory setup
-OUTPUT_DIR="/data2/neeraja/neeraja/results/model_ICL"
-LOG_DIR="${OUTPUT_DIR}/logs/unified_training/${TODAY}"
-MODEL_DIR="${OUTPUT_DIR}/unified_training/${RUN_NAME}"
+OUTPUT_DIR="/data2/neeraja/neeraja/results/model_ICL/unified_training"  # ✅ Fixed path
+LOG_DIR="/data2/neeraja/neeraja/results/model_ICL/logs/unified_training/${TODAY}"
 
 # Create directories
-for dir in "$LOG_DIR" "$MODEL_DIR"; do
+for dir in "$LOG_DIR" "$OUTPUT_DIR"; do
     if ! mkdir -p "$dir"; then
         echo "Error: Cannot create directory $dir"
         exit 1
@@ -76,34 +62,25 @@ done
 # Remove old log file if it exists
 rm -f "${LOG_DIR}/${RUN_NAME}.log"
 
-# Build optimization flags
-OPTIMIZATION_FLAGS=""
-if [ "$use_fp16" = true ]; then
-    OPTIMIZATION_FLAGS="${OPTIMIZATION_FLAGS} --fp16"
-fi
-if [ "$use_bf16" = true ]; then
-    OPTIMIZATION_FLAGS="${OPTIMIZATION_FLAGS} --bf16"
-fi
-
 # Print configuration
 echo "=========================================="
 echo "Unified Symbol Training Job Configuration"
 echo "=========================================="
 echo "Run Name: ${RUN_NAME}"
-echo "Initial Model: ${initial_model_path}"
 echo "Dataset: ${dataset_type}"
+echo "Device: ${device}"
 echo "Cycles: ${total_cycles}"
 echo "LoRA Epochs/Cycle: ${lora_epochs}"
 echo "MLP Epochs/Cycle: ${mlp_epochs}"
 echo "LoRA LR: ${lora_lr}"
 echo "MLP LR: ${mlp_lr}"
 echo "Max Samples: ${max_samples}"
-echo "Output Dir: ${MODEL_DIR}"
+echo "Output Dir: ${OUTPUT_DIR}"
 echo "Log File: ${LOG_DIR}/${RUN_NAME}.log"
 echo "=========================================="
 
 # Submit job
-qsub -q longgpu.q -V -cwd \
+qsub -q gpu.q -V -cwd \
     -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
@@ -113,21 +90,21 @@ TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\
 SCRIPT_PATH=${SCRIPT_PATH},\
-initial_model_path=${initial_model_path},\
 dataset_type=${dataset_type},\
 model_type=${model_type},\
+device=${device},\
 lora_lr=${lora_lr},\
 mlp_lr=${mlp_lr},\
 lora_epochs=${lora_epochs},\
 mlp_epochs=${mlp_epochs},\
 total_cycles=${total_cycles},\
+lora_final_epochs=${lora_final_epochs},\
 hidden_dim=${hidden_dim},\
 batch_size=${batch_size},\
 gradient_accumulation_steps=${gradient_accumulation_steps},\
 max_grad_norm=${max_grad_norm},\
-warmup_steps=${warmup_steps},\
 max_samples=${max_samples},\
-OPTIMIZATION_FLAGS="${OPTIMIZATION_FLAGS}" \
+OUTPUT_DIR=${OUTPUT_DIR} \
     -S /bin/bash /data2/neeraja/neeraja/code/ICL/scripts/unified_training.sh
 
 echo "Submitted unified symbol training job: ${RUN_NAME}"
