@@ -89,21 +89,23 @@ def train_mlp_phase_adaptive(model, dataloader, args, cycle, num_epochs, current
         model.discovered_mappings.clear()
     
     # ✅ Progressive learning rate strategy
-    base_mlp_lr = args.mlp_lr
+    # base_mlp_lr = args.mlp_lr
     
     # Increase learning rate for early cycles to encourage exploration
-    if cycle == 0:
-        # First cycle: Higher LR for breaking identity mappings
-        mlp_lr = base_mlp_lr * 3.0  # 3x higher for initial exploration
-        logging.info(f"Cycle {cycle}: Using exploration LR = {mlp_lr:.2e} (3x base)")
-    elif cycle == 1:
-        # Second cycle: Medium LR for continued exploration
-        mlp_lr = base_mlp_lr * 2.0  # 2x higher
-        logging.info(f"Cycle {cycle}: Using medium LR = {mlp_lr:.2e} (2x base)")
-    else:
-        # Later cycles: Gradual decay for refinement
-        mlp_lr = base_mlp_lr * (0.8 ** (cycle - 2))
-        logging.info(f"Cycle {cycle}: Using refinement LR = {mlp_lr:.2e} (decay)")
+    # if cycle == 0:
+    #     # First cycle: Higher LR for breaking identity mappings
+    #     mlp_lr = base_mlp_lr * 3.0  # 3x higher for initial exploration
+    #     logging.info(f"Cycle {cycle}: Using exploration LR = {mlp_lr:.2e} (3x base)")
+    # elif cycle == 1:
+    #     # Second cycle: Medium LR for continued exploration
+    #     mlp_lr = base_mlp_lr * 2.0  # 2x higher
+    #     logging.info(f"Cycle {cycle}: Using medium LR = {mlp_lr:.2e} (2x base)")
+    # else:
+    #     # Later cycles: Gradual decay for refinement
+    #     mlp_lr = base_mlp_lr * (0.8 ** (cycle - 2))
+    #     logging.info(f"Cycle {cycle}: Using refinement LR = {mlp_lr:.2e} (decay)")
+
+    mlp_lr = args.mlp_lr
     
     # ✅ Use SGD with higher momentum for exploration
     optimizer = torch.optim.SGD(
@@ -137,11 +139,46 @@ def train_mlp_phase_adaptive(model, dataloader, args, cycle, num_epochs, current
         
         for step, batch in enumerate(progress_bar):
             try:
+                # ✅ ADD LOGGING FOR STEP 1 ONLY
+                if step == 0:  # Log only for step 1
+                    logging.info("=== STEP 1 BATCH CONTENT ===")
+                    
+                    # Log ORIGINAL batch content
+                    if "prompt" in batch:
+                        logging.info("ORIGINAL PROMPTS:")
+                        for i, prompt in enumerate(batch["prompt"]):  # Show first 2
+                            logging.info(f"  [{i}] {prompt}")
+                    
+                    if "completion" in batch:
+                        logging.info("ORIGINAL COMPLETIONS:")
+                        for i, completion in enumerate(batch["completion"]):  # Show first 2
+                            logging.info(f"  [{i}] {completion}")
+                    
+                    logging.info(f"SYMBOL MAPPINGS: {current_mappings}")
+                
+                # Apply symbol replacement
+                batch = replace_symbols_in_batch(batch, current_mappings)
+                
+                # ✅ LOG UPDATED BATCH CONTENT FOR STEP 1
+                if step == 0:
+                    logging.info("UPDATED AFTER SYMBOL REPLACEMENT:")
+                    
+                    if "prompt" in batch:
+                        logging.info("UPDATED PROMPTS:")
+                        for i, prompt in enumerate(batch["prompt"]):  # Show first 2
+                            logging.info(f"  [{i}] {prompt}")
+                    
+                    if "completion" in batch:
+                        logging.info("UPDATED COMPLETIONS:")
+                        for i, completion in enumerate(batch["completion"]):  # Show first 2
+                            logging.info(f"  [{i}] {completion}")
+                    
+                    logging.info("=== END STEP 1 BATCH CONTENT ===")
+                
                 # ✅ Clear cache every 3 steps to prevent OOM
                 if step % 3 == 0 and torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 
-                batch = replace_symbols_in_batch(batch, current_mappings)
                 batch = {k: v.to(args.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
                 
                 outputs = model(batch)
@@ -307,8 +344,42 @@ def train_lora_phase_adaptive(model, dataloader, args, cycle, current_mappings, 
         
         for step, batch in enumerate(progress_bar):
             try:
+
+                if step == 0:  # Log only for step 1
+                    logging.info("=== STEP 1 BATCH CONTENT ===")
+                    
+                    # Log ORIGINAL batch content
+                    if "prompt" in batch:
+                        logging.info("ORIGINAL PROMPTS:")
+                        for i, prompt in enumerate(batch["prompt"]):  # Show first 2
+                            logging.info(f"  [{i}] {prompt}")
+                    
+                    if "completion" in batch:
+                        logging.info("ORIGINAL COMPLETIONS:")
+                        for i, completion in enumerate(batch["completion"]):  # Show first 2
+                            logging.info(f"  [{i}] {completion}")
+                    
+                    logging.info(f"SYMBOL MAPPINGS: {current_mappings}")
+                
+                # Apply symbol replacement
                 if current_mappings:
                     batch = replace_symbols_in_batch(batch, current_mappings)
+                
+                # ✅ LOG UPDATED BATCH CONTENT FOR STEP 1
+                if step == 0:
+                    logging.info("UPDATED AFTER SYMBOL REPLACEMENT:")
+                    
+                    if "prompt" in batch:
+                        logging.info("UPDATED PROMPTS:")
+                        for i, prompt in enumerate(batch["prompt"]):  # Show first 2
+                            logging.info(f"  [{i}] {prompt}")
+                    
+                    if "completion" in batch:
+                        logging.info("UPDATED COMPLETIONS:")
+                        for i, completion in enumerate(batch["completion"]):  # Show first 2
+                            logging.info(f"  [{i}] {completion}")
+                    
+                    logging.info("=== END STEP 1 BATCH CONTENT ===")
                 
                 batch = {k: v.to(args.device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
                 
@@ -540,6 +611,9 @@ def main():
     random_symbols = generate_one_word_two_token_symbols(len(dataset_labels), llama_tokenizer)
     current_symbol_mappings = create_label_mapping(dataset_labels, random_symbols)
     
+    # ✅ ADD THIS ONE LINE
+    
+    
     # Initialize model
     model = MLPSalmonn(
         device=args.device,
@@ -553,6 +627,8 @@ def main():
         lora_dropout=0.05,
         low_resource=True
     )
+
+    model.original_to_random_mapping = current_symbol_mappings.copy()
     
     # Apply initial random symbol mappings to model
     logging.info(f"Initial random symbol mappings: {current_symbol_mappings}")
