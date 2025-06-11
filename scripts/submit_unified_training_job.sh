@@ -11,9 +11,9 @@ lora_lr=1e-5
 mlp_lr=1e-4
 lora_epochs=1
 lora_final_epochs=1 
-mlp_epochs=4
+mlp_epochs=1
 
-total_cycles=2
+total_cycles=1
  
 
 hidden_dim=8
