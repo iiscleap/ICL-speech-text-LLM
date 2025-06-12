@@ -156,14 +156,15 @@ class MLPSalmonn(nn.Module):
                     torch.nn.init.constant_(layer.bias, 0.0)
 
     def apply_input_mlp_transformation(self, embeddings, token_ids):
-        """Apply Input MLP to specific token positions (ALWAYS applied)"""
+        """Apply Input MLP to specific token positions (can be bypassed for inference)"""
         
-        # MLPs are ALWAYS applied (but may be frozen)
-        if not self.label_token_ids:
+        # NEW: Check if MLP should be bypassed for inference
+        if hasattr(self, 'bypass_mlp_for_inference') and self.bypass_mlp_for_inference:
+            if self.batch_counter == 0:  # Log only for first batch
+                logging.info("BYPASSING Input MLP transformation for inference")
             return embeddings
         
-        logging.info("MLP mode: APPLYING Input MLP transformation")
-        
+        # MLPs are ALWAYS applied during training (but may be frozen)
         if not self.label_token_ids:
             return embeddings
         
@@ -187,19 +188,48 @@ class MLPSalmonn(nn.Module):
         
         # Apply Input MLP transformation
         try:
+            # FIXED: Ensure dtype compatibility
+            to_transform = to_transform.to(dtype=self.input_mlp[0].weight.dtype)
             mlp_output = self.input_mlp(to_transform)
             
             # CONTINUOUS EMBEDDINGS: Use MLP output directly (not quantized)
             transformed = mlp_output  # Direct MLP output for training
             
+            # IMPROVED: More flexible logging conditions
+            should_log = False
+            
+            # Log if it's the very first batch of training
+            if self.batch_counter == 0:
+                should_log = True
+                log_reason = "first batch"
+            
+            # Log every 100 steps during any phase
+            elif hasattr(self, 'step_counter') and self.step_counter % 100 == 0:
+                should_log = True
+                log_reason = f"step {self.step_counter}"
+            
+            # Log if this is an MLP training phase and it's the end of epoch
+            elif hasattr(self, 'is_mlp_training') and self.is_mlp_training and hasattr(self, 'is_epoch_end') and self.is_epoch_end:
+                should_log = True
+                log_reason = "end of MLP epoch"
+            
+            # Log periodically during MLP training (every 50 steps)
+            elif hasattr(self, 'is_mlp_training') and self.is_mlp_training and hasattr(self, 'step_counter') and self.step_counter % 50 == 0:
+                should_log = True
+                log_reason = f"MLP training step {self.step_counter}"
+            
             # HARD QUANTIZATION FOR LOGGING ONLY
-            if self.batch_counter == 0 and len(positions_to_transform) > 0:
+            if should_log and len(positions_to_transform) > 0:
                 # Hard quantization just for logging symbol changes
                 mlp_norm = F.normalize(mlp_output, p=2, dim=-1)
-                vocab_norm = F.normalize(self.embed_module.weight, p=2, dim=-1)
+                
+                # FIXED: Ensure vocab embeddings have same dtype
+                vocab_embeddings = self.embed_module.weight.to(dtype=mlp_norm.dtype)
+                vocab_norm = F.normalize(vocab_embeddings, p=2, dim=-1)
                 similarities = torch.mm(mlp_norm, vocab_norm.t())
                 hard_indices = torch.argmax(similarities, dim=-1)
                 
+                logging.info(f"=== Input MLP Transformation Log ({log_reason}) ===")
                 for i in range(min(3, len(positions_to_transform))):
                     orig_id = token_ids[positions_tensor[i]].item()
                     new_id = hard_indices[i].item()
@@ -208,10 +238,12 @@ class MLPSalmonn(nn.Module):
                     orig_text = self.llama_tokenizer.decode([orig_id], skip_special_tokens=True)
                     new_text = self.llama_tokenizer.decode([new_id], skip_special_tokens=True)
                     
-                    logging.info(f"Input MLP (logging): '{orig_text}' (id:{orig_id}) -> '{new_text}' (id:{new_id}) [sim: {similarity:.4f}]")
+                    logging.info(f"  '{orig_text}' (id:{orig_id}) -> '{new_text}' (id:{new_id}) [sim: {similarity:.4f}]")
             
             # Update embeddings with CONTINUOUS transformed embeddings
             output_embeds = embeddings.clone()
+            # FIXED: Ensure transformed embeddings match original dtype
+            transformed = transformed.to(dtype=output_embeds.dtype)
             output_embeds[positions_tensor] = transformed
             
             # Reshape back if needed
@@ -222,7 +254,23 @@ class MLPSalmonn(nn.Module):
             
         except Exception as e:
             logging.error(f"Input MLP transformation failed: {e}")
+            logging.error(f"Embeddings dtype: {embeddings.dtype}, MLP weight dtype: {self.input_mlp[0].weight.dtype}")
             return embeddings.view(original_shape) if len(original_shape) == 3 else embeddings
+
+    def _ensure_dtype_compatibility(self, tensor, target_module):
+        """Helper function to ensure tensor has compatible dtype with target module"""
+        if target_module is None:
+            return tensor
+        
+        # Get the target dtype from the first parameter of the module
+        target_dtype = next(target_module.parameters()).dtype
+        
+        # Convert if necessary
+        if tensor.dtype != target_dtype:
+            logging.debug(f"Converting tensor from {tensor.dtype} to {target_dtype}")
+            tensor = tensor.to(dtype=target_dtype)
+        
+        return tensor
 
     def compute_mlp_loss(self, wrapped_embeds, wrapped_atts, target_tokens):
         """UNIFIED: Input MLP → LLaMA → [Optional Output MLP] → Cross-entropy"""
@@ -256,10 +304,14 @@ class MLPSalmonn(nn.Module):
                 prompt_length = wrapped_embeds.size(1)
                 target_output_hiddens = outputs.hidden_states[-1][:, prompt_length:, :]
                 
-                # 5. Apply Output MLP transformation (ALWAYS applied)
+                # 5. Apply Output MLP transformation with dtype fix
+                # FIXED: Ensure dtype compatibility before Output MLP
+                target_output_hiddens = self._ensure_dtype_compatibility(target_output_hiddens, self.output_mlp)
                 reconstructed_embeds = self.output_mlp(target_output_hiddens)
                 
-                # 6. Project to vocab space using lm_head
+                # 6. Project to vocab space using lm_head with dtype fix
+                # FIXED: Ensure dtype compatibility before lm_head
+                reconstructed_embeds = self._ensure_dtype_compatibility(reconstructed_embeds, self.lm_head)
                 logits = self.lm_head(reconstructed_embeds)
                 
             else:
@@ -298,6 +350,7 @@ class MLPSalmonn(nn.Module):
             
         except Exception as e:
             logging.error(f"MLP loss computation failed: {e}")
+            logging.error(f"Error details: {type(e).__name__}: {str(e)}")
             return {"loss": torch.tensor(0.0, device=self.device, requires_grad=True)}
 
     def compute_standard_loss(self, wrapped_embeds, wrapped_atts, target_tokens):
@@ -689,12 +742,16 @@ class MLPSalmonn(nn.Module):
         """Set model to MLP training mode"""
         self.freeze_lora_weights()  # Freeze everything except MLPs
         self.unfreeze_mlp_weights()  # Keep MLPs trainable
+        self.is_mlp_training = True  # NEW: Track MLP training mode
+        self.step_counter = 0  # NEW: Reset step counter
         logging.info("✓ Set to MLP training mode - Only MLPs unfrozen")
 
     def set_lora_training_mode(self):
         """Set model to LoRA training mode"""
         self.freeze_mlp_weights()  # Freeze MLPs
         self.unfreeze_lora_weights()  # Unfreeze LoRA and trainable components
+        self.is_mlp_training = False  # NEW: Track not MLP training
+        self.step_counter = 0  # NEW: Reset step counter
         logging.info("✓ Set to LoRA training mode - LoRA and trainable components unfrozen, MLPs frozen")
 
     def update_label_tokens(self, symbol_mappings):
@@ -717,6 +774,218 @@ class MLPSalmonn(nn.Module):
             self.label_tokens = new_label_tokens
             self.label_token_ids = list(set(valid_token_ids))
             logging.info(f"Updated to track {len(valid_token_ids)} tokens from {len(new_label_tokens)} symbols")
+
+    def set_bypass_mlp(self, bypass=True):
+        """Set whether to bypass MLP transformations"""
+        self.bypass_mlp_for_inference = bypass
+        if bypass:
+            logging.info("✓ MLP transformations will be BYPASSED")
+        else:
+            logging.info("✓ MLP transformations will be APPLIED")
+
+    def generate_output(self, samples):
+        """Generate predictions with MLP transformations applied"""
+        start_time = time.time()
+        
+        # Process speech embeddings
+        speech_embeds, speech_atts, example_embeds, example_atts = self.get_speech_embeddings(samples)
+        
+        if self.batch_counter == 0:
+            logging.info(f"Prompt example:\n{samples['prompt'][0]}")
+        
+        # Get number of examples per sample
+        num_examples = samples.get("num_examples", torch.zeros(len(samples["prompt"]), dtype=torch.long))
+        
+        # Wrap embeddings with prompts (Input MLP is applied here in custom_prompt_wrap)
+        wrapped_embeds, wrapped_atts = self.custom_prompt_wrap(
+            speech_embeds, speech_atts, samples["prompt"],
+            num_examples, example_embeds, example_atts
+        )
+        
+        # Check if MLPs should be bypassed
+        bypass_mlp = hasattr(self, 'bypass_mlp_for_inference') and self.bypass_mlp_for_inference
+        
+        # Extract generation parameters (SAME FOR BOTH MODES)
+        generation_kwargs = {
+            "max_new_tokens": samples.get("max_new_tokens", 10),
+            "num_beams": samples.get("num_beams", 1),
+            "do_sample": samples.get("do_sample", False),
+            "min_length": samples.get("min_length", 1),
+            "top_p": samples.get("top_p", 0.9),
+            "repetition_penalty": samples.get("repetition_penalty", 1.0),
+            "length_penalty": samples.get("length_penalty", 1.0),
+            "temperature": samples.get("temperature", 0.8),
+            "pad_token_id": self.llama_tokenizer.pad_token_id,
+            "eos_token_id": self.llama_tokenizer.eos_token_id,
+            "return_dict_in_generate": False,
+            "output_scores": False,
+        }
+        
+        if bypass_mlp or not self.use_output_mlp:
+            logging.info("BYPASSING Output MLP - using standard generation")
+            
+            # Standard generation without Output MLP (EXACT SAME PARAMETERS)
+            with torch.inference_mode():
+                outputs = self.llama_model.generate(
+                    inputs_embeds=wrapped_embeds,
+                    attention_mask=wrapped_atts,
+                    **generation_kwargs  # USE SAME PARAMETERS
+                )
+        
+        else:
+            logging.info("APPLYING Output MLP during generation - using custom generation loop")
+            
+            # Custom generation loop with Output MLP (SAME PARAMETERS)
+            outputs = self._generate_with_output_mlp(
+                wrapped_embeds, 
+                wrapped_atts, 
+                generation_kwargs  # PASS SAME PARAMETERS
+            )
+        
+        # Decode predictions
+        predictions = self.llama_tokenizer.batch_decode(outputs, skip_special_tokens=True)
+        
+        self.batch_counter += 1
+        logging.info(f"Generation took {time.time() - start_time:.2f} seconds")
+        return predictions
+
+    def _generate_with_output_mlp(self, input_embeds, attention_mask, generation_kwargs):
+        """Custom generation loop that applies Output MLP at each step with dtype fixes"""
+        
+        batch_size = input_embeds.shape[0]
+        
+        # Extract parameters (SAME AS STANDARD GENERATION)
+        max_new_tokens = generation_kwargs.get("max_new_tokens", 10)
+        temperature = generation_kwargs.get("temperature", 0.8)
+        top_p = generation_kwargs.get("top_p", 0.9)
+        do_sample = generation_kwargs.get("do_sample", False)
+        repetition_penalty = generation_kwargs.get("repetition_penalty", 1.0)
+        num_beams = generation_kwargs.get("num_beams", 1)
+        pad_token_id = generation_kwargs.get("pad_token_id", self.llama_tokenizer.pad_token_id)
+        eos_token_id = generation_kwargs.get("eos_token_id", self.llama_tokenizer.eos_token_id)
+        
+        # For beam search, we'd need more complex logic, so for now only support greedy/sampling
+        if num_beams > 1:
+            logging.warning("Beam search not supported with Output MLP, falling back to greedy/sampling")
+        
+        # Initialize generation
+        generated_tokens = []
+        current_embeds = input_embeds
+        current_attention = attention_mask
+        finished = torch.zeros(batch_size, dtype=torch.bool, device=input_embeds.device)
+        
+        with torch.inference_mode():
+            for step in range(max_new_tokens):
+                try:
+                    # Forward pass through LLaMA to get hidden states
+                    outputs = self.llama_model(
+                        inputs_embeds=current_embeds,
+                        attention_mask=current_attention,
+                        output_hidden_states=True,
+                        return_dict=True,
+                        use_cache=False
+                    )
+                    
+                    # Get last hidden state (batch_size, seq_len, hidden_size)
+                    last_hidden_state = outputs.hidden_states[-1]
+                    
+                    # Get the last token's hidden state for each sample in batch
+                    last_token_hidden = last_hidden_state[:, -1:, :]  # (batch_size, 1, hidden_size)
+                    
+                    # Apply Output MLP transformation with dtype fix
+                    if self.output_mlp is not None:
+                        # FIXED: Ensure dtype compatibility before Output MLP
+                        last_token_hidden = self._ensure_dtype_compatibility(last_token_hidden, self.output_mlp)
+                        transformed_hidden = self.output_mlp(last_token_hidden)
+                    else:
+                        transformed_hidden = last_token_hidden
+                    
+                    # Apply lm_head to get vocabulary logits with dtype fix
+                    # FIXED: Ensure dtype compatibility before lm_head
+                    transformed_hidden = self._ensure_dtype_compatibility(transformed_hidden, self.lm_head)
+                    logits = self.lm_head(transformed_hidden)  # (batch_size, 1, vocab_size)
+                    logits = logits.squeeze(1)  # (batch_size, vocab_size)
+                    
+                    # Apply repetition penalty (SAME AS STANDARD)
+                    if repetition_penalty != 1.0 and step > 0:
+                        # Simple repetition penalty on previously generated tokens
+                        for i in range(batch_size):
+                            if len(generated_tokens) > 0:
+                                prev_tokens = generated_tokens[i] if len(generated_tokens) > i else []
+                                for token_id in prev_tokens:
+                                    if logits[i, token_id] < 0:
+                                        logits[i, token_id] *= repetition_penalty
+                                    else:
+                                        logits[i, token_id] /= repetition_penalty
+                    
+                    # Apply temperature scaling (SAME AS STANDARD)
+                    if temperature != 1.0:
+                        logits = logits / temperature
+                    
+                    # Sample next token (SAME LOGIC AS STANDARD)
+                    if do_sample:
+                        # Top-p sampling (SAME AS STANDARD)
+                        if top_p < 1.0:
+                            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                            cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+                            
+                            # Remove tokens with cumulative probability above the threshold
+                            sorted_indices_to_remove = cumulative_probs > top_p
+                            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+                            sorted_indices_to_remove[..., 0] = 0
+                            
+                            indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+                            logits = logits.masked_fill(indices_to_remove, float('-inf'))
+                        
+                        # Sample from the filtered distribution
+                        probs = torch.softmax(logits, dim=-1)
+                        next_token = torch.multinomial(probs, num_samples=1)
+                    else:
+                        # Greedy sampling (SAME AS STANDARD)
+                        next_token = torch.argmax(logits, dim=-1, keepdim=True)
+                    
+                    # Mask finished sequences
+                    next_token = next_token.masked_fill(finished.unsqueeze(-1), pad_token_id)
+                    
+                    # Store generated token
+                    if step == 0:
+                        generated_tokens = next_token
+                    else:
+                        generated_tokens = torch.cat([generated_tokens, next_token], dim=1)
+                    
+                    # Check for EOS token
+                    finished = finished | (next_token.squeeze(-1) == eos_token_id)
+                    if torch.all(finished):
+                        break
+                    
+                    # Prepare for next iteration
+                    # Convert next_token to embeddings
+                    next_token_embeds = self.embed_module(next_token)  # (batch_size, 1, hidden_size)
+                    
+                    # Apply Input MLP to next token embeddings if they are label tokens
+                    next_token_embeds = self.apply_input_mlp_transformation(
+                        next_token_embeds, 
+                        next_token.squeeze(-1)
+                    )
+                    
+                    # Concatenate to current embeddings
+                    current_embeds = torch.cat([current_embeds, next_token_embeds], dim=1)
+                    
+                    # Update attention mask
+                    next_attention = torch.ones(batch_size, 1, dtype=current_attention.dtype, device=current_attention.device)
+                    current_attention = torch.cat([current_attention, next_attention], dim=1)
+                    
+                except Exception as e:
+                    logging.error(f"Error in generation step {step}: {e}")
+                    logging.error(f"Error details: {type(e).__name__}: {str(e)}")
+                    # Return what we have so far
+                    if step == 0:
+                        # If first step fails, return empty tokens
+                        return torch.zeros((batch_size, 1), dtype=torch.long, device=input_embeds.device)
+                    else:
+                        break
+        
+        return generated_tokens
 
 # SIMPLIFIED helper functions
 def generate_one_word_two_token_symbols(num_symbols, tokenizer):

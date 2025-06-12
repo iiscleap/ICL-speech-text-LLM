@@ -1,26 +1,30 @@
 #!/bin/bash
 
 # Configuration - Edit these values as needed
-model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxceleb"  # Dataset(s) to use for inference
-split="test"  # Dataset split: train, validation, test
+model_type="salmonn"
+dataset_type="voxceleb"
+split="test"
 
-
-checkpoint_path="/data2/neeraja/neeraja/results/model_ICL/unified_training/3105_0053_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/3105_0053_unified_4c_2le_1me_salmonn_voxceleb_greek_hvb_greek/cycle_4_lora_epoch_2/model.pt"  # Path to trained model checkpoint
+checkpoint_path="/data2/neeraja/neeraja/results/model_ICL/unified_training/1106_1801_unified_2c_2le_2me_salmonn_voxceleb/1106_1801_unified_2c_2le_2me_salmonn_voxceleb_step_5_checkpoint/model.pt"
 
 # Inference parameters
 batch_size=1
-
-max_samples=10  # 0 = use all samples
+max_samples=10
 max_length=512
 temperature=0.7
 top_p=0.9
+num_examples=5  # ADDED: Number of few-shot examples
+
+# NEW: MLP control parameters (BOOLEAN VALUES)
+use_mlp="True"              # Set to "True" or "False"
+compare_modes="True"        # Set to "True" or "False"
+symbol_mode="random"      # Set to "random" or "original"
 
 # Node configuration
-queue_name="longgpu.q"      # Queue to submit job to
-hostname="compute-0-8"      # Hostname to run on
-cuda_device=0              # CUDA device to use
-hold_job_id=""              # Job ID to wait for (empty = don't wait)
+queue_name="longgpu.q"
+hostname="compute-0-9"
+cuda_device=0
+hold_job_id=""
 
 # Clean dataset type for file names
 CLEAN_DATASET_TYPE=$(echo $dataset_type | tr ',' '-' | tr -d ' ')
@@ -49,25 +53,25 @@ conda activate $CONDA_ENV
 # Get current date and time
 CURRENT_DATETIME=$(date +"%d%m_%H%M")
 
-# Generate run name (same logic as inference script)
+# Generate run name
 RUN_NAME="unified_${CURRENT_DATETIME}_${CLEAN_DATASET_TYPE}"
 
-# Set script path - THIS IS THE ONLY DIFFERENCE
+# Set script path
 SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/models/unified_inference.py"
 TODAY=$(date +"%Y-%m-%d")
 
-# Create output directories (SAME AS INFERENCE)
+# Create output directories
 mkdir -p "/data2/neeraja/neeraja/results/model_ICL/logs/test/${TODAY}"
 mkdir -p "/data2/neeraja/neeraja/results/model_ICL/metrics/${TODAY}"
 
 # Remove old log file
 rm -f "/data2/neeraja/neeraja/results/model_ICL/logs/test/${TODAY}/${RUN_NAME}.log"
 
-# Common qsub arguments (SAME AS INFERENCE)
+# Common qsub arguments
 QSUB_ARGS="-q ${queue_name} -V -cwd -l hostname=${hostname} -l h_rt=72:00:00"
 LOG_PATH="/data2/neeraja/neeraja/results/model_ICL/logs/test/${TODAY}/${RUN_NAME}.log"
 
-# Common variables for qsub (ADAPTED FOR UNIFIED INFERENCE)
+# Common variables for qsub (ALL PARAMETERS)
 COMMON_VARS="CUDA_VISIBLE_DEVICES=${cuda_device},\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
@@ -81,9 +85,13 @@ split=${split},\
 max_samples=${max_samples},\
 max_length=${max_length},\
 temperature=${temperature},\
-top_p=${top_p}"
+top_p=${top_p},\
+num_examples=${num_examples},\
+use_mlp=${use_mlp},\
+compare_modes=${compare_modes},\
+symbol_mode=${symbol_mode}"
 
-# Submit job (SAME AS INFERENCE)
+# Submit job
 if [ -n "$hold_job_id" ]; then
     echo "Submitting job to queue ${queue_name} with dependency on job ID: ${hold_job_id}"
     JOB_ID=$(qsub ${QSUB_ARGS} -hold_jid ${hold_job_id} -o "${LOG_PATH}" -j y \
@@ -101,3 +109,5 @@ JOB_ID_NUM=$(echo $JOB_ID | cut -d' ' -f3)
 
 echo "Submitted unified inference job for ${RUN_NAME} to queue ${queue_name}"
 echo "Job ID: ${JOB_ID_NUM}"
+echo "Log file: ${LOG_PATH}"
+echo "Results will be saved to: /data2/neeraja/neeraja/results/model_ICL/metrics/${TODAY}/"
