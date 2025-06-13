@@ -93,8 +93,8 @@ echo "Log File: ${LOG_DIR}/${RUN_NAME}.log"
 echo "=========================================="
 
 # Submit job (UPDATED WITH NEW PARAMETERS)
-qsub -q gpu.q -V -cwd \
-    -l hostname=compute-0-7 \
+qsub -q longgpu.q -V -cwd \
+    -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \

@@ -53,7 +53,7 @@ def parse_args():
     parser.add_argument("--run_name", type=str, default="")
     
     # NEW: Schedule type parameter
-    parser.add_argument("--schedule_type", type=str, default="mlp_first", 
+    parser.add_argument("--schedule_type", type=str, default="bypass_mlp", 
                        choices=["simplified", "mlp_first", "bypass_mlp"],
                        help="Training schedule type")
     

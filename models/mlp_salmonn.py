@@ -1024,3 +1024,25 @@ def generate_one_word_two_token_symbols(num_symbols, tokenizer):
 def create_label_mapping(original_labels, random_symbols):
     """Create simple label to symbol mapping"""
     return {orig: rand for orig, rand in zip(original_labels, random_symbols)}
+
+# code/ICL/models/
+# ├── mlp_salmonn.py                     # ✅ EXISTING (keep as is)
+# ├── unified_symbol_training.py         # ✅ EXISTING (keep as is)  
+# ├── unified_inference.py               # ✅ EXISTING (keep as is)
+# └── symbolAdapter/                     # 🆕 NEW FOLDER
+#     ├── __init__.py                    # 🆕 Empty init
+#     ├── symbol_manager.py              # 🆕 START HERE
+#     ├── training/
+#     │   ├── __init__.py
+#     │   ├── symbol_training.py         # Main training entry point
+#     │   ├── mlp_trainer.py            
+#     │   ├── lora_trainer.py           
+#     │   ├── joint_trainer.py          
+#     │   ├── validation.py             
+#     │   └── schedulers.py             
+#     ├── utils/
+#     │   ├── __init__.py
+#     │   ├── data_utils.py             
+#     │   └── checkpoint_utils.py       
+#     └── configs/
+#         └── training_configs.py  
