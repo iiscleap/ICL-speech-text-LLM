@@ -27,19 +27,20 @@ class MLPSalmonn(nn.Module):
         label_tokens=None,
         hidden_dim=None,
         dropout=0.1,
-        freeze_base=True,
         lora=True,
         lora_rank=8,
         lora_alpha=32,
         lora_dropout=0.05,
         device=None,
         low_resource=False,
-        use_output_mlp=True  # New parameter to control output MLP usage
+        use_output_mlp=True,  # Control output MLP usage
+        bypass_mlp=False      # NEW: If True, don't create any MLP layers
     ):
         super().__init__()
         
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.use_output_mlp = use_output_mlp
+        self.bypass_mlp = bypass_mlp  # NEW: Store bypass flag
         
         # SALMONN config
         salmonn_config = {
@@ -92,56 +93,61 @@ class MLPSalmonn(nn.Module):
         self.embed_dim = self.embed_module.weight.shape[1]
         self.hidden_dim = hidden_dim or self.embed_dim
         
-        # INPUT MLP (for transforming input embeddings)
-        self.input_mlp = nn.Sequential(
-            nn.Linear(self.embed_dim, self.hidden_dim),
-            nn.LayerNorm(self.hidden_dim),
-            nn.GELU(),
-            nn.Linear(self.hidden_dim, self.embed_dim)
-        )
-
-        # OUTPUT MLP (for transforming LLaMA output embeddings) - optional
-        if self.use_output_mlp:
-            self.output_mlp = nn.Sequential(
+        # CREATE MLP LAYERS ONLY IF NOT BYPASSED
+        if not self.bypass_mlp:
+            # INPUT MLP (for transforming input embeddings)
+            self.input_mlp = nn.Sequential(
                 nn.Linear(self.embed_dim, self.hidden_dim),
                 nn.LayerNorm(self.hidden_dim),
                 nn.GELU(),
                 nn.Linear(self.hidden_dim, self.embed_dim)
             )
+
+            # OUTPUT MLP (for transforming LLaMA output embeddings) - optional
+            if self.use_output_mlp:
+                self.output_mlp = nn.Sequential(
+                    nn.Linear(self.embed_dim, self.hidden_dim),
+                    nn.LayerNorm(self.hidden_dim),
+                    nn.GELU(),
+                    nn.Linear(self.hidden_dim, self.embed_dim)
+                )
+            else:
+                self.output_mlp = None
+                logging.info("Output MLP disabled")
+
+            # Xavier initialization for MLPs
+            self._initialize_mlp_weights(self.input_mlp)
+            if self.output_mlp is not None:
+                self._initialize_mlp_weights(self.output_mlp)
+            
+            self.input_mlp.to(self.device)
+            if self.output_mlp is not None:
+                self.output_mlp.to(self.device)
+                
+            logging.info(f"MLPs created: Input MLP=True, Output MLP={self.use_output_mlp}")
         else:
+            # NO MLP LAYERS CREATED
+            self.input_mlp = None
             self.output_mlp = None
-            logging.info("Output MLP disabled")
-
-        # Get lm_head - DON'T CREATE, THROW ERROR IF NOT FOUND
-        if hasattr(self.llama_model, 'lm_head'):
-            self.lm_head = self.llama_model.lm_head
-            logging.info("Found lm_head at llama_model.lm_head")
-        elif hasattr(self.llama_model, 'model') and hasattr(self.llama_model.model, 'lm_head'):
-            self.lm_head = self.llama_model.model.lm_head
-            logging.info("Found lm_head at llama_model.model.lm_head")
+            logging.info("🚫 BYPASS_MLP=True: No MLP layers created")
+        
+        # Get lm_head - only needed for MLP architecture
+        if not self.bypass_mlp:
+            # Get lm_head - only needed for MLP architecture
+            if hasattr(self.llama_model, 'lm_head'):
+                self.lm_head = self.llama_model.lm_head
+                logging.info("Found lm_head at llama_model.lm_head")
+            elif hasattr(self.llama_model, 'model') and hasattr(self.llama_model.model, 'lm_head'):
+                self.lm_head = self.llama_model.model.lm_head
+                logging.info("Found lm_head at llama_model.model.lm_head")
+            else:
+                raise RuntimeError("lm_head not found in LLaMA model! Cannot proceed without output projection layer.")
         else:
-            raise RuntimeError("lm_head not found in LLaMA model! Cannot proceed without output projection layer.")
+            # For bypass mode, we don't extract lm_head separately
+            # The model will use the built-in lm_head through standard forward calls
+            self.lm_head = None
+            logging.info("🚫 BYPASS_MLP=True: Not extracting lm_head separately")
 
-        # Xavier initialization for MLPs
-        self._initialize_mlp_weights(self.input_mlp)
-        if self.output_mlp is not None:
-            self._initialize_mlp_weights(self.output_mlp)
-        
-        self.input_mlp.to(self.device)
-        if self.output_mlp is not None:
-            self.output_mlp.to(self.device)
-        
-        self.input_processor = WhisperFeatureExtractor.from_pretrained(whisper_path)
-        
-        # Convert label tokens to token IDs
-        if self.label_tokens:
-            self.label_token_ids = self._get_label_token_ids()
-        
-        # FIXED: Proper freeze logic
-        if freeze_base:
-            self.freeze_lora_weights()  # Freeze LoRA and other components
-            self.unfreeze_mlp_weights()  # Keep MLPs trainable
-            logging.info("✓ Base model frozen - Only MLPs trainable")
     
     def _initialize_mlp_weights(self, mlp):
         """Xavier initialization for MLP layers"""
@@ -156,7 +162,13 @@ class MLPSalmonn(nn.Module):
                     torch.nn.init.constant_(layer.bias, 0.0)
 
     def apply_input_mlp_transformation(self, embeddings, token_ids):
-        """Apply Input MLP to specific token positions (can be bypassed for inference)"""
+        """Apply Input MLP to specific token positions (can be bypassed)"""
+        
+        # NEW: Return unchanged if MLP is bypassed
+        if self.bypass_mlp or self.input_mlp is None:
+            if self.batch_counter == 0:  # Log only for first batch
+                logging.info("BYPASSING Input MLP transformation (bypass_mlp=True)")
+            return embeddings
         
         # NEW: Check if MLP should be bypassed for inference
         if hasattr(self, 'bypass_mlp_for_inference') and self.bypass_mlp_for_inference:
@@ -275,10 +287,15 @@ class MLPSalmonn(nn.Module):
     def compute_mlp_loss(self, wrapped_embeds, wrapped_atts, target_tokens):
         """UNIFIED: Input MLP → LLaMA → [Optional Output MLP] → Cross-entropy"""
         
+        # NEW: If MLP is bypassed, use standard loss
+        if self.bypass_mlp:
+            logging.info("BYPASS_MLP=True: Using standard loss function")
+            return self.compute_standard_loss(wrapped_embeds, wrapped_atts, target_tokens)
+        
         logging.info(f"=== MLP Architecture Loss (Input MLP → LLaMA → {'Output MLP → ' if self.use_output_mlp else ''}Cross-entropy) ===")
         
         try:
-            # 1. Apply Input MLP to target embeddings (ALWAYS applied)
+            # 1. Apply Input MLP to target embeddings (ALWAYS applied when not bypassed)
             target_embeds = self.embed_module(target_tokens.input_ids)
             transformed_target_embeds = self.apply_input_mlp_transformation(
                 target_embeds, target_tokens.input_ids
@@ -677,10 +694,15 @@ class MLPSalmonn(nn.Module):
     # FIXED: Training mode methods
     def freeze_mlp_weights(self):
         """Freeze both input and output MLP weights"""
+        if self.bypass_mlp:
+            logging.info("BYPASS_MLP=True: No MLP weights to freeze")
+            return
+            
         frozen_count = 0
-        for param in self.input_mlp.parameters():
-            param.requires_grad = False
-            frozen_count += 1
+        if self.input_mlp is not None:
+            for param in self.input_mlp.parameters():
+                param.requires_grad = False
+                frozen_count += 1
         if self.output_mlp is not None:
             for param in self.output_mlp.parameters():
                 param.requires_grad = False
@@ -689,10 +711,15 @@ class MLPSalmonn(nn.Module):
 
     def unfreeze_mlp_weights(self):
         """Unfreeze both input and output MLP weights"""
+        if self.bypass_mlp:
+            logging.info("BYPASS_MLP=True: No MLP weights to unfreeze")
+            return
+            
         unfrozen_count = 0
-        for param in self.input_mlp.parameters():
-            param.requires_grad = True
-            unfrozen_count += 1
+        if self.input_mlp is not None:
+            for param in self.input_mlp.parameters():
+                param.requires_grad = True
+                unfrozen_count += 1
         if self.output_mlp is not None:
             for param in self.output_mlp.parameters():
                 param.requires_grad = True
@@ -740,6 +767,10 @@ class MLPSalmonn(nn.Module):
 
     def set_mlp_training_mode(self):
         """Set model to MLP training mode"""
+        if self.bypass_mlp:
+            logging.warning("BYPASS_MLP=True: Cannot set MLP training mode, no MLPs exist")
+            return
+            
         self.freeze_lora_weights()  # Freeze everything except MLPs
         self.unfreeze_mlp_weights()  # Keep MLPs trainable
         self.is_mlp_training = True  # NEW: Track MLP training mode
@@ -803,7 +834,10 @@ class MLPSalmonn(nn.Module):
         )
         
         # Check if MLPs should be bypassed
-        bypass_mlp = hasattr(self, 'bypass_mlp_for_inference') and self.bypass_mlp_for_inference
+        bypass_mlp = (
+            self.bypass_mlp or  # NEW: Architecture-level bypass
+            (hasattr(self, 'bypass_mlp_for_inference') and self.bypass_mlp_for_inference)
+        )
         
         # Extract generation parameters (SAME FOR BOTH MODES)
         generation_kwargs = {
@@ -821,7 +855,7 @@ class MLPSalmonn(nn.Module):
             "output_scores": False,
         }
         
-        if bypass_mlp or not self.use_output_mlp:
+        if bypass_mlp or not self.use_output_mlp or self.output_mlp is None:
             logging.info("BYPASSING Output MLP - using standard generation")
             
             # Standard generation without Output MLP (EXACT SAME PARAMETERS)
@@ -851,6 +885,16 @@ class MLPSalmonn(nn.Module):
 
     def _generate_with_output_mlp(self, input_embeds, attention_mask, generation_kwargs):
         """Custom generation loop that applies Output MLP at each step with dtype fixes"""
+        
+        # NEW: Safety check
+        if self.bypass_mlp or self.output_mlp is None:
+            logging.warning("Output MLP generation called but MLP is bypassed or None, falling back to standard")
+            with torch.inference_mode():
+                return self.llama_model.generate(
+                    inputs_embeds=input_embeds,
+                    attention_mask=attention_mask,
+                    **generation_kwargs
+                )
         
         batch_size = input_embeds.shape[0]
         
@@ -1000,7 +1044,7 @@ def generate_one_word_two_token_symbols(num_symbols, tokenizer):
     attempts = 0
     max_attempts = 10000
     
-    while len(two_token_words) < num_symbols and attempts < max_attempts:
+    while (len(two_token_words) < num_symbols) and (attempts < max_attempts):
         attempts += 1
         word_length = random.choice([4, 5])
         word = ''.join(random.choice(chars) for _ in range(word_length))
@@ -1045,4 +1089,4 @@ def create_label_mapping(original_labels, random_symbols):
 #     │   ├── data_utils.py             
 #     │   └── checkpoint_utils.py       
 #     └── configs/
-#         └── training_configs.py  
+#         └── training_configs.py

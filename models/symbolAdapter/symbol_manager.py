@@ -86,7 +86,7 @@ class SymbolManager:
         else:
             return self.epoch_mappings_history.get(self.current_epoch, {})
     
-    def get_reverse_mappings(self, epoch: Optional[int] = None) -> Dict[str, str]:
+    def get_reverse_mappings(self, epoch: Optional[int] = None,mappings: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         """
         Get reverse mappings (symbol -> original label) for symbol conversion
         
@@ -96,7 +96,9 @@ class SymbolManager:
         Returns:
             Dictionary mapping symbols to original labels
         """
-        if epoch is not None:
+        if mappings:
+            mappings = mappings
+        elif epoch is not None:
             mappings = self.get_symbols_for_epoch(epoch)
         else:
             mappings = self.get_current_symbols()
@@ -152,20 +154,27 @@ class SymbolManager:
         
         return two_token_words[:num_symbols]
     
-    def replace_symbols_in_batch(self, batch: Dict[str, Any], epoch: Optional[int] = None) -> Dict[str, Any]:
+    def replace_symbols_in_batch(self, batch: Dict[str, Any], epoch: Optional[int] = None, mappings: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
-        Replace symbols in batch data (extracted from existing code)
+        Replace symbols in batch data
         
         Args:
             batch: Batch dictionary with 'prompt' and 'completion' keys
             epoch: Specific epoch mappings to use (if None, uses current)
+            mappings: Custom mappings to use (if provided, overrides epoch-based mappings)
             
         Returns:
             Updated batch with symbols replaced
         """
-        mappings = self.get_symbols_for_epoch(epoch) if epoch is not None else self.get_current_symbols()
+        # Use custom mappings if provided, otherwise get epoch-based mappings
+        if mappings is not None:
+            symbol_mappings = mappings
+        elif epoch is not None:
+            symbol_mappings = self.get_symbols_for_epoch(epoch)
+        else:
+            symbol_mappings = self.get_current_symbols()
         
-        if not mappings:
+        if not symbol_mappings:
             return batch
         
         updated_batch = batch.copy()
@@ -175,7 +184,7 @@ class SymbolManager:
             updated_prompts = []
             for prompt in batch["prompt"]:
                 updated_prompt = prompt
-                for original, symbol in mappings.items():
+                for original, symbol in symbol_mappings.items():
                     updated_prompt = updated_prompt.replace(original, symbol)
                 updated_prompts.append(updated_prompt)
             updated_batch["prompt"] = updated_prompts
@@ -185,25 +194,33 @@ class SymbolManager:
             updated_completions = []
             for completion in batch["completion"]:
                 updated_completion = completion
-                for original, symbol in mappings.items():
+                for original, symbol in symbol_mappings.items():
                     updated_completion = updated_completion.replace(original, symbol)
                 updated_completions.append(updated_completion)
             updated_batch["completion"] = updated_completions
         
         return updated_batch
     
-    def convert_symbols_back(self, text: str, epoch: Optional[int] = None) -> str:
+    def convert_symbols_back(self, text: str, epoch: Optional[int] = None, mappings: Optional[Dict[str, str]] = None) -> str:
         """
         Convert symbols back to original labels in text
         
         Args:
             text: Text with symbols to convert
             epoch: Specific epoch mappings to use (if None, uses current)
+            mappings: Custom mappings to use (if provided, overrides epoch-based mappings)
             
         Returns:
             Text with symbols converted back to original labels
         """
-        reverse_mappings = self.get_reverse_mappings(epoch)
+        # Use custom mappings if provided, otherwise get epoch-based mappings
+        if mappings is not None:
+            # Create reverse mappings from custom mappings
+            reverse_mappings = self.get_reverse_mappings(mappings=mappings)
+        elif epoch is not None:
+            reverse_mappings = self.get_reverse_mappings(epoch)
+        else:
+            reverse_mappings = self.get_reverse_mappings()
         
         if not reverse_mappings:
             return text

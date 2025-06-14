@@ -11,7 +11,7 @@ from ..configs.training_configs import TrainingConfig, TrainingMode
 @dataclass
 class TrainingStep:
     """Represents a single training step in the schedule"""
-    phase: str                    # "lora", "mlp", "joint", "lora_initial","lora_final", "mlp_initial","bypass_mlp_sym","bypass_mlp_org"
+    phase: str                    # "lora", "mlp", "joint", "lora_initial","lora_final", "mlp_initial"
     epochs: int                   # Number of epochs for this step
     cycle: int                    # Which cycle this step belongs to (0-indexed)
     step_id: int                  # Step number in overall schedule (0-indexed)
@@ -40,10 +40,12 @@ class TrainingStep:
             self.freeze_mlp = False
             self.freeze_lora = False
             self.dynamic_symbols = True
+        else:
+            self.freeze_mlp = True
+            self.freeze_lora = True
+            self.use_symbols = False
+            self.dynamic_symbols = False
         
-        # Dynamic symbols for bypass_mlp mode
-        if self.phase in ["bypass_mlp_sym"]:
-            self.dynamic_symbols = True
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization"""
@@ -78,7 +80,7 @@ class TrainingScheduler:
             self.schedule = self._generate_mlp_first_schedule()
         elif self.config.mode == TrainingMode.JOINT_TRAINING:
             self.schedule = self._generate_joint_training_schedule()
-        elif (self.config.mode == TrainingMode.BYPASS_MLP_SYM) 
+        elif self.config.mode == TrainingMode.BYPASS_MLP_SYM:
             self.schedule = self._generate_bypass_mlp_sym_schedule()
         elif self.config.mode == TrainingMode.BYPASS_MLP_ORG:
             self.schedule = self._generate_bypass_mlp_org_schedule()
@@ -233,8 +235,8 @@ class TrainingScheduler:
                 step_id=step_id,
                 description=f"Cycle {cycle+1} Joint MLP+LoRA training",
                 learning_rate=None,  # Will use separate optimizers
-                gradient_accumulation_steps=self.config.mlp_config.gradient_accumulation_steps,
-                max_grad_norm=self.config.mlp_config.max_grad_norm,
+                gradient_accumulation_steps=self.config.lora_config.gradient_accumulation_steps,
+                max_grad_norm=self.config.lora_config.max_grad_norm,
             ))
             step_id += 1
         
@@ -251,7 +253,7 @@ class TrainingScheduler:
         # Dynamic LoRA training cycles
         for cycle in range(self.config.total_cycles):
             schedule.append(TrainingStep(
-                phase="bypass_mlp_sym",
+                phase="lora",
                 epochs=self.config.lora_config.epochs,
                 cycle=cycle,
                 step_id=step_id,
@@ -259,7 +261,10 @@ class TrainingScheduler:
                 learning_rate=self.config.lora_config.learning_rate,
                 gradient_accumulation_steps=self.config.lora_config.gradient_accumulation_steps,
                 max_grad_norm=self.config.lora_config.max_grad_norm,
-                dynamic_symbols=True,
+                freeze_mlp=True,  # MLPs don't exist anyway
+                freeze_lora=False,
+                use_symbols=True,
+                dynamic_symbols=True
             ))
             step_id += 1
         
@@ -276,7 +281,7 @@ class TrainingScheduler:
         # Dynamic LoRA training cycles
         for cycle in range(self.config.total_cycles):
             schedule.append(TrainingStep(
-                phase="bypass_mlp_org",
+                phase="lora",
                 epochs=self.config.lora_config.epochs,
                 cycle=cycle,
                 step_id=step_id,
@@ -284,7 +289,10 @@ class TrainingScheduler:
                 learning_rate=self.config.lora_config.learning_rate,
                 gradient_accumulation_steps=self.config.lora_config.gradient_accumulation_steps,
                 max_grad_norm=self.config.lora_config.max_grad_norm,
-                dynamic_symbols=False,
+                freeze_mlp=True,  # MLPs don't exist anyway
+                freeze_lora=False,
+                use_symbols=False,
+                dynamic_symbols=False
             ))
             step_id += 1
         
@@ -402,72 +410,72 @@ class TrainingScheduler:
 
 
 # Convenience functions for backwards compatibility
-def generate_training_schedule(config: TrainingConfig) -> List[TrainingStep]:
-    """Generate training schedule from configuration"""
-    scheduler = TrainingScheduler(config)
-    return scheduler.generate_schedule()
+# def generate_training_schedule(config: TrainingConfig) -> List[TrainingStep]:
+#     """Generate training schedule from configuration"""
+#     scheduler = TrainingScheduler(config)
+#     return scheduler.generate_schedule()
 
-def create_scheduler(config: TrainingConfig) -> TrainingScheduler:
-    """Create training scheduler"""
-    return TrainingScheduler(config)
+# def create_scheduler(config: TrainingConfig) -> TrainingScheduler:
+#     """Create training scheduler"""
+#     return TrainingScheduler(config)
 
-# Legacy function names for backwards compatibility
-def generate_simplified_schedule(args) -> List[Dict[str, Any]]:
-    """Backwards compatibility function"""
-    from ..configs.training_configs import TrainingConfig
+# # Legacy function names for backwards compatibility
+# def generate_simplified_schedule(args) -> List[Dict[str, Any]]:
+#     """Backwards compatibility function"""
+#     from ..configs.training_configs import TrainingConfig
     
-    config = TrainingConfig.from_args(args)
-    config.mode = TrainingMode.LORA_FIRST
+#     config = TrainingConfig.from_args(args)
+#     config.mode = TrainingMode.LORA_FIRST
     
-    scheduler = TrainingScheduler(config)
-    steps = scheduler.generate_schedule()
+#     scheduler = TrainingScheduler(config)
+#     steps = scheduler.generate_schedule()
     
-    # Convert to old format
-    return [
-        {
-            "phase": step.phase,
-            "epochs": step.epochs,
-            "description": step.description
-        }
-        for step in steps
-    ]
+#     # Convert to old format
+#     return [
+#         {
+#             "phase": step.phase,
+#             "epochs": step.epochs,
+#             "description": step.description
+#         }
+#         for step in steps
+#     ]
 
-def generate_mlp_first_schedule(args) -> List[Dict[str, Any]]:
-    """Backwards compatibility function"""
-    from ..configs.training_configs import TrainingConfig
+# def generate_mlp_first_schedule(args) -> List[Dict[str, Any]]:
+#     """Backwards compatibility function"""
+#     from ..configs.training_configs import TrainingConfig
     
-    config = TrainingConfig.from_args(args)
-    config.mode = TrainingMode.MLP_FIRST
+#     config = TrainingConfig.from_args(args)
+#     config.mode = TrainingMode.MLP_FIRST
     
-    scheduler = TrainingScheduler(config)
-    steps = scheduler.generate_schedule()
+#     scheduler = TrainingScheduler(config)
+#     steps = scheduler.generate_schedule()
     
-    # Convert to old format
-    return [
-        {
-            "phase": step.phase,
-            "epochs": step.epochs,
-            "description": step.description
-        }
-        for step in steps
-    ]
+#     # Convert to old format
+#     return [
+#         {
+#             "phase": step.phase,
+#             "epochs": step.epochs,
+#             "description": step.description
+#         }
+#         for step in steps
+#     ]
 
-def generate_bypass_mlp_schedule(args) -> List[Dict[str, Any]]:
-    """Backwards compatibility function"""
-    from ..configs.training_configs import TrainingConfig
+# def generate_bypass_mlp_schedule(args) -> List[Dict[str, Any]]:
+#     """Backwards compatibility function"""
+#     from ..configs.training_configs import TrainingConfig
     
-    config = TrainingConfig.from_args(args)
-    config.mode = TrainingMode.BYPASS_MLP
+#     config = TrainingConfig.from_args(args)
+#     config.mode = TrainingMode.BYPASS_MLP
     
-    scheduler = TrainingScheduler(config)
-    steps = scheduler.generate_schedule()
+#     scheduler = TrainingScheduler(config)
+#     steps = scheduler.generate_schedule()
     
-    # Convert to old format
-    return [
-        {
-            "phase": step.phase,
-            "epochs": step.epochs,
-            "description": step.description
-        }
-        for step in steps
-    ]
+#     # Convert to old format
+#     return [
+#         {
+#             "phase": step.phase,
+#             "epochs": step.epochs,
+#             "description": step.description
+#         }
+#         for step in steps
+#     ]

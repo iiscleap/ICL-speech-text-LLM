@@ -13,6 +13,14 @@ import re
 
 from ..symbol_manager import SymbolManager
 from ..configs.training_configs import TrainingConfig, SymbolMode
+from ..training.schedulers import TrainingStep
+
+# Import the evaluation functions from utils.evaluation_utils
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))
+from utils.evaluation_utils import evaluate_predictions, clean_prediction
+from data.master_config import DatasetType
 
 
 class ValidationManager:
@@ -43,29 +51,15 @@ class ValidationManager:
     ) -> Dict[str, float]:
         """
         Comprehensive validation function that handles all training modes
-        
-        Args:
-            model: The model to validate
-            val_dataloader: Validation data loader
-            epoch: Current epoch
-            phase: Training phase ("lora", "mlp", "joint", etc.)
-            cycle: Current training cycle
-            bypass_mlp: Whether to bypass MLP during validation
-            use_original_labels: Whether to use original labels instead of symbols
-            use_dynamic_symbols: Whether to generate fresh symbols for this validation
-            
-        Returns:
-            Dictionary with validation metrics
+        Uses utils.evaluation_utils for evaluation
         """
         model.eval()
         
-        # Configure model for validation
-        if bypass_mlp:
-            model.set_lora_training_mode()
-        else:
-            model.set_mlp_training_mode()
+        # Set bypass flag for this validation run
+        original_bypass_state = getattr(model, 'bypass_mlp_for_inference', False)
+        model.bypass_mlp_for_inference = bypass_mlp
         
-        # Get symbols for validation
+        # Get symbols for validation using SymbolManager methods
         if use_original_labels:
             symbol_mappings = {}  # No symbol replacement
             mode_name = "Original"
@@ -86,16 +80,18 @@ class ValidationManager:
         if symbol_mappings:
             logging.info(f"Using symbols: {symbol_mappings}")
         
-        # Run validation
+        # Run validation using utils.evaluation_utils
         try:
             with torch.no_grad():
-                metrics = self._run_validation_loop(
+                metrics = self._run_validation_with_utils(
                     model=model,
                     val_dataloader=val_dataloader,
                     symbol_mappings=symbol_mappings,
                     mode_name=full_mode_name,
                     epoch=epoch,
-                    phase=phase
+                    phase=phase,
+                    use_original_labels=use_original_labels,
+                    use_dynamic_symbols=use_dynamic_symbols
                 )
             
             logging.info(f"✓ {full_mode_name} Validation Score: {metrics['accuracy']:.4f}")
@@ -106,23 +102,30 @@ class ValidationManager:
             return {"accuracy": 0.0, "loss": float('inf'), "total_samples": 0}
         
         finally:
+            # Restore original bypass state
+            model.bypass_mlp_for_inference = original_bypass_state
             model.train()  # Reset to training mode
-    
-    def _run_validation_loop(
+
+    def _run_validation_with_utils(
         self,
         model,
         val_dataloader,
         symbol_mappings: Dict[str, str],
         mode_name: str,
         epoch: int,
-        phase: str
+        phase: str,
+        use_original_labels: bool = False,
+        use_dynamic_symbols: bool = False
     ) -> Dict[str, float]:
-        """Run the actual validation loop"""
+        """Run validation using utils.evaluation_utils functions"""
         
-        correct_predictions = 0
-        total_predictions = 0
-        total_loss = 0.0
+        all_results = {}
         processed_samples = 0
+        
+        # Initialize results dict based on dataset types
+        dataset_names = [self.config.data_config.dataset_type.value] if hasattr(self.config.data_config.dataset_type, 'value') else [str(self.config.data_config.dataset_type)]
+        for dataset_name in dataset_names:
+            all_results[dataset_name] = []
         
         # Create progress bar
         progress_bar = tqdm(
@@ -137,41 +140,73 @@ class ValidationManager:
                 if processed_samples >= self.max_val_samples:
                     break
                 
-                # Apply symbol replacement if needed
-                if symbol_mappings:
-                    batch = self.symbol_manager.replace_symbols_in_batch(batch, epoch)
-                
-                # Move batch to device
-                batch = self._move_batch_to_device(batch)
-                
-                # Forward pass
                 try:
-                    outputs = model(**batch)
-                    loss = outputs.get("loss", 0.0)
+                    # Apply symbol replacement using SymbolManager methods
+                    if use_original_labels:
+                        # Use original batch without symbol replacement
+                        updated_batch = batch
+                    elif use_dynamic_symbols:
+                        # For dynamic symbols, use the fresh mappings directly
+                        updated_batch = self.symbol_manager.replace_symbols_in_batch(batch, mappings=symbol_mappings)
+                    else:
+                        # Use SymbolManager's method with the epoch
+                        updated_batch = self.symbol_manager.replace_symbols_in_batch(batch, epoch=epoch)
                     
-                    if loss is not None and not torch.isnan(loss):
-                        total_loss += loss.item()
+                    # Generate outputs using the model's generate_output method
+                    predictions = model.generate_output(updated_batch)
                     
-                    # Extract predictions and targets
-                    batch_correct, batch_total = self._compute_accuracy(
-                        outputs=outputs,
-                        batch=batch,
-                        symbol_mappings=symbol_mappings
-                    )
-                    
-                    correct_predictions += batch_correct
-                    total_predictions += batch_total
-                    processed_samples += batch_total
+                    # Process results using SymbolManager and evaluation_utils
+                    for i, pred in enumerate(predictions):
+                        dt = batch["dataset_type"][i] if isinstance(batch["dataset_type"], list) else batch["dataset_type"]
+                        dt_key = dt.value if hasattr(dt, 'value') else str(dt)
+                        true_label = batch["completion"][i] if isinstance(batch["completion"], list) else batch["completion"]
+                        
+                        # Convert symbols back to original labels using SymbolManager
+                        converted_pred = pred
+                        if not use_original_labels and symbol_mappings:
+                            if use_dynamic_symbols:
+                                # For fresh symbols, use the fresh mappings directly
+                                converted_pred = self.symbol_manager.convert_symbols_back(pred, mappings=symbol_mappings)
+                            else:
+                                # For training symbols, use SymbolManager's method with epoch
+                                converted_pred = self.symbol_manager.convert_symbols_back(pred, epoch=epoch)
+                        
+                        # Clean the prediction using utils.evaluation_utils
+                        try:
+                            dataset_type = DatasetType(dt_key)
+                            cleaned_pred = clean_prediction(converted_pred, dataset_type)
+                        except:
+                            cleaned_pred = converted_pred.strip()
+                        
+                        result = {
+                            "text": batch["text"][i] if isinstance(batch["text"], list) else batch["text"],
+                            "true_label": true_label,
+                            "predicted_label": str(cleaned_pred).strip(),
+                            "dataset_type": dt_key
+                        }
+                        
+                        # Add to results
+                        if dt_key in all_results:
+                            all_results[dt_key].append(result)
+                        
+                        processed_samples += 1
+                        
+                        # Log first few samples for debugging
+                        if batch_idx < 10 and i < 2:
+                            logging.info(f"Original pred: {pred}")
+                            logging.info(f"Converted pred: {converted_pred}")
+                            logging.info(f"Cleaned pred: {cleaned_pred}")
+                            logging.info(f"True label: {true_label}")
+                            logging.info(f"Dataset type: {dt_key}")
+                            logging.info("=" * 50)
                     
                     # Update progress bar
-                    current_acc = correct_predictions / max(total_predictions, 1)
                     progress_bar.set_postfix({
-                        'acc': f'{current_acc:.3f}',
                         'samples': processed_samples
                     })
-                    
+                        
                 except Exception as e:
-                    logging.warning(f"Batch {batch_idx} failed: {str(e)}")
+                    logging.error(f"Error during validation batch {batch_idx}: {str(e)}")
                     continue
                     
         except KeyboardInterrupt:
@@ -180,204 +215,157 @@ class ValidationManager:
         finally:
             progress_bar.close()
         
-        # Compute final metrics
-        accuracy = correct_predictions / max(total_predictions, 1)
-        avg_loss = total_loss / max(len(val_dataloader), 1)
+        # Calculate metrics using utils.evaluation_utils.evaluate_predictions
+        main_metric_value = 0.0
+        
+        for dataset_name in dataset_names:
+            dt_results = all_results.get(dataset_name, [])
+            
+            if dt_results:
+                try:
+                    dataset_type = DatasetType(dataset_name)
+                    dt_metrics = evaluate_predictions(dt_results, dataset_type)
+                    
+                    # Log metrics
+                    logging.info(f"Metrics for {dataset_name} ({mode_name}):")
+                    for metric, value in dt_metrics.items():
+                        if isinstance(value, (float, int)):
+                            logging.info(f"  {metric}: {value:.4f}")
+                        else:
+                            logging.info(f"  {metric}: {value}")
+                    
+                    # Extract main metric for return value (same logic as unified_symbol_training.py)
+                    if dataset_name.lower() == 'voxceleb':
+                        main_metric_value = dt_metrics.get('macro_f1_with_invalid', 0.0)
+                    elif dataset_name.lower() == 'hvb':
+                        main_metric_value = dt_metrics.get('macro_f1', 0.0)
+                    elif dataset_name.lower() == 'meld_emotion':
+                        main_metric_value = dt_metrics.get('macro_f1_filtered', 0.0)
+                    else:
+                        main_metric_value = dt_metrics.get('macro_f1', 0.0)
+                        
+                except Exception as e:
+                    logging.error(f"Error evaluating predictions for {dataset_name}: {str(e)}")
+                    main_metric_value = 0.0
         
         return {
-            "accuracy": accuracy,
-            "loss": avg_loss,
-            "correct_predictions": correct_predictions,
-            "total_predictions": total_predictions,
-            "total_samples": processed_samples
+            "accuracy": main_metric_value,
+            "loss": 0.0,  # Not calculated in this implementation
+            "total_samples": len(all_results.get(dataset_names[0], []))
         }
-    
-    def _move_batch_to_device(self, batch: Dict[str, Any]) -> Dict[str, Any]:
-        """Move batch tensors to the correct device"""
-        device_batch = {}
-        
-        for key, value in batch.items():
-            if isinstance(value, torch.Tensor):
-                device_batch[key] = value.to(self.config.device)
-            elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], torch.Tensor):
-                device_batch[key] = [v.to(self.config.device) for v in value]
-            else:
-                device_batch[key] = value
-        
-        return device_batch
-    
-    def _compute_accuracy(
-        self,
-        outputs: Dict[str, Any],
-        batch: Dict[str, Any],
-        symbol_mappings: Dict[str, str]
-    ) -> Tuple[int, int]:
-        """
-        Compute accuracy from model outputs
-        
-        Returns:
-            Tuple of (correct_predictions, total_predictions)
-        """
-        try:
-            # Get logits from outputs
-            if "logits" in outputs:
-                logits = outputs["logits"]
-            elif "prediction_scores" in outputs:
-                logits = outputs["prediction_scores"]
-            else:
-                # Try to get from loss computation
-                return self._compute_accuracy_from_generation(outputs, batch, symbol_mappings)
-            
-            # Get predictions
-            predictions = torch.argmax(logits, dim=-1)
-            
-            # Get targets
-            if "labels" in batch:
-                targets = batch["labels"]
-            elif "target_ids" in batch:
-                targets = batch["target_ids"]
-            else:
-                logging.warning("No targets found in batch")
-                return 0, 1
-            
-            # Mask out padding tokens (-100)
-            mask = targets != -100
-            
-            if mask.sum() == 0:
-                return 0, 1
-            
-            # Compute accuracy
-            correct = (predictions == targets) & mask
-            return correct.sum().item(), mask.sum().item()
-            
-        except Exception as e:
-            logging.warning(f"Accuracy computation failed: {str(e)}")
-            return 0, 1
-    
-    def _compute_accuracy_from_generation(
-        self,
-        outputs: Dict[str, Any],
-        batch: Dict[str, Any],
-        symbol_mappings: Dict[str, str]
-    ) -> Tuple[int, int]:
-        """
-        Compute accuracy for generation-based models
-        """
-        try:
-            # This is for models that generate text outputs
-            if "generated_text" in outputs:
-                generated_texts = outputs["generated_text"]
-            else:
-                # Try to generate text from model
-                return 0, len(batch.get("prompt", []))
-            
-            # Get expected completions
-            expected_completions = batch.get("completion", [])
-            
-            if len(generated_texts) != len(expected_completions):
-                return 0, len(expected_completions)
-            
-            correct = 0
-            
-            for generated, expected in zip(generated_texts, expected_completions):
-                # Convert symbols back to original labels if needed
-                if symbol_mappings:
-                    generated = self.symbol_manager.convert_symbols_back(generated)
-                    expected = self.symbol_manager.convert_symbols_back(expected)
-                
-                # Simple exact match (can be made more sophisticated)
-                if self._is_correct_prediction(generated, expected):
-                    correct += 1
-            
-            return correct, len(expected_completions)
-            
-        except Exception as e:
-            logging.warning(f"Generation accuracy computation failed: {str(e)}")
-            return 0, len(batch.get("prompt", []))
-    
-    def _is_correct_prediction(self, generated: str, expected: str) -> bool:
-        """
-        Check if generated text is correct
-        Can be customized for different accuracy criteria
-        """
-        # Clean and normalize text
-        generated_clean = generated.strip().lower()
-        expected_clean = expected.strip().lower()
-        
-        # Exact match
-        if generated_clean == expected_clean:
-            return True
-        
-        # Check if expected answer is contained in generated text
-        if expected_clean in generated_clean:
-            return True
-        
-        # For classification tasks, extract the label
-        generated_label = self._extract_label(generated_clean)
-        expected_label = self._extract_label(expected_clean)
-        
-        return generated_label == expected_label
-    
-    def _extract_label(self, text: str) -> str:
-        """Extract classification label from text"""
-        # Remove common prefixes/suffixes
-        text = re.sub(r'^(the answer is|answer:|prediction:|label:)\s*', '', text)
-        text = re.sub(r'\s*(\.|\!|\?)$', '', text)
-        
-        # Extract first word that could be a label
-        words = text.split()
-        if words:
-            return words[0]
-        
-        return text
-    
+
+    # Keep all the existing methods unchanged
     def run_comprehensive_validation(
         self,
         model,
         val_dataloader,
         epoch: int,
-        phase: str,
-        cycle: int = 0
+        phase: str,  # This comes from TrainingStep.phase: "lora", "mlp", "joint"
+        cycle: int = 0,
+        step: Optional[TrainingStep] = None  # Add step parameter
     ) -> Dict[str, float]:
         """
         Run comprehensive validation with all modes (MLP+Symbols, NoMLP+Symbols, etc.)
-        
-        Returns:
-            Dictionary with all validation metrics
         """
         validation_results = {}
         
-        # Determine which validation modes to run based on training phase
-        if phase in ["bypass_mlp_sym"]:
-            # For bypass MLP mode, only test with fresh symbols and original labels
-            modes = [
-                ("fresh_symbols", True, False, True),    # NoMLP + Fresh Symbols
-                ("original_labels", True, True, False),  # NoMLP + Original Labels
-            ]
-        elif phase in ["bypass_mlp_org"]:
-            # For bypass MLP original mode, only test without symbols
-            modes = [
-                ("original_labels", True, True, False),  # NoMLP + Original Labels
-            ]
+        # Check model state
+        bypass_mlp = getattr(model, 'bypass_mlp', False)
+        use_symbols = step.use_symbols if step else True  # Default to True if no step provided
+        
+        # Determine validation modes based on phase + model state + step config
+        if phase == "lora":
+            if bypass_mlp and use_symbols:
+                # LoRA training with bypass_mlp=True and symbols
+                modes = [
+                    ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols (from training)
+                    ("no_mlp_fresh", True, False, True),      # NoMLP + Fresh Symbols
+                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+                ]
+            elif bypass_mlp and not use_symbols:
+                # LoRA training with bypass_mlp=True and no symbols
+                modes = [
+                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+                ]
+            elif not bypass_mlp and use_symbols:
+                # LoRA training with MLP enabled and symbols
+                modes = [
+                    ("mlp_symbols", False, False, False),     # MLP + Fixed Symbols
+                    ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols
+                    ("mlp_original", False, True, False),     # MLP + Original Labels
+                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+                    ("mlp_fresh", False, False, True),     # MLP + Fresh Labels
+                    ("no_mlp_fresh", True, False, True),   # NoMLP + Fresh Labels
+
+                ]
+            else:
+                # LoRA training with MLP enabled and no symbols
+                modes = [
+                    ("mlp_original", False, True, False),     # MLP + Original Labels
+                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+                ]
+        
+        elif phase == "mlp":
+            if bypass_mlp:
+                # This should not happen - MLP training with bypass_mlp=True
+                logging.error("Cannot run MLP validation when bypass_mlp=True")
+                return {"error": 0.0}
+            else:
+                # Normal MLP training - always uses symbols
+                modes = [
+                    ("mlp_symbols", False, False, False),     # MLP + Fixed Symbols (main focus)
+                    ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols (comparison)
+                    ("mlp_original", False, True, False),     # MLP + Original Labels (baseline)
+                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels (baseline)
+                    ("mlp_fresh", False, False, True),     # MLP + Fresh Labels
+                    ("no_mlp_fresh", True, False, True),   # NoMLP + Fresh Labels
+                ]
+        
         elif phase == "joint":
-            # For joint training, test all combinations
-            modes = [
-                ("mlp_symbols", False, False, False),     # MLP + Fixed Symbols
-                ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols
-                ("mlp_original", False, True, False),     # MLP + Original Labels
-                ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
-            ]
+            if bypass_mlp and use_symbols:
+                # Joint training with bypass_mlp=True (effectively LoRA-only)
+                modes = [
+                    ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols
+                    ("no_mlp_fresh", True, False, True),      # NoMLP + Fresh Symbols
+                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+                ]
+            elif bypass_mlp and not use_symbols:
+                # Joint training with bypass_mlp=True and no symbols
+                modes = [
+                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+                ]
+            elif not bypass_mlp and use_symbols:
+                # Normal joint training with symbols
+                modes = [
+                    ("mlp_symbols", False, False, False),     # MLP + Fixed Symbols
+                    ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols
+                    ("mlp_original", False, True, False),     # MLP + Original Labels
+                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+                    ("mlp_fresh", False, False, True),     # MLP + Fresh Labels
+                    ("no_mlp_fresh", True, False, True),   # NoMLP + Fresh Labels
+                ]
+            else:
+                # Joint training without symbols
+                modes = [
+                    ("mlp_original", False, True, False),     # MLP + Original Labels
+                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+                ]
+        
         else:
-            # Standard validation modes
+            # Default fallback
             modes = [
-                ("mlp_symbols", False, False, False),     # MLP + Fixed Symbols
-                ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols
-                ("mlp_original", False, True, False),     # MLP + Original Labels
-                ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+                ("mlp_symbols", False, False, False),
+                ("no_mlp_symbols", True, False, False),
+                ("mlp_original", False, True, False),
+                ("no_mlp_original", True, True, False),
             ]
         
+        logging.info(f"Validation modes for {phase.upper()} (bypass_mlp={bypass_mlp}, use_symbols={use_symbols}):")
+        for mode_name, bypass, orig, fresh in modes:
+            logging.info(f"  - {mode_name}")
+        
         # Run each validation mode
-        for mode_key, bypass_mlp, use_original, use_dynamic in modes:
+        for mode_key, bypass_mlp_val, use_original, use_dynamic in modes:
             try:
                 metrics = self.validate_model(
                     model=model,
@@ -385,7 +373,7 @@ class ValidationManager:
                     epoch=epoch,
                     phase=phase,
                     cycle=cycle,
-                    bypass_mlp=bypass_mlp,
+                    bypass_mlp=bypass_mlp_val,
                     use_original_labels=use_original,
                     use_dynamic_symbols=use_dynamic
                 )
@@ -428,97 +416,3 @@ class ValidationManager:
         logging.info("=" * 60)
 
 
-# Backwards compatibility functions
-def validate_model(
-    model,
-    val_dataloader,
-    args,
-    current_mappings: Dict[str, str],
-    phase: str,
-    epoch: int,
-    bypass_mlp: bool = False,
-    use_original_labels: bool = False,
-    max_val_samples: int = 200
-) -> float:
-    """
-    Legacy validation function for backwards compatibility
-    """
-    # Create minimal config and symbol manager
-    from ..configs.training_configs import TrainingConfig, SymbolMode
-    
-    config = TrainingConfig(
-        device=getattr(args, 'device', 'cuda:0'),
-        data_config=TrainingConfig().data_config
-    )
-    
-    # Create symbol manager with current mappings
-    from ..symbol_manager import SymbolManager
-    
-    symbol_manager = SymbolManager(
-        original_labels=list(current_mappings.keys()) if current_mappings else [],
-        tokenizer=getattr(args, 'tokenizer', None),
-        dynamic_per_epoch=False
-    )
-    
-    if current_mappings:
-        symbol_manager.fixed_mappings = current_mappings
-    
-    # Create validation manager
-    validator = ValidationManager(
-        config=config,
-        symbol_manager=symbol_manager,
-        tokenizer=getattr(args, 'tokenizer', None),
-        max_val_samples=max_val_samples
-    )
-    
-    # Run validation
-    metrics = validator.validate_model(
-        model=model,
-        val_dataloader=val_dataloader,
-        epoch=epoch,
-        phase=phase,
-        bypass_mlp=bypass_mlp,
-        use_original_labels=use_original_labels
-    )
-    
-    return metrics["accuracy"]
-
-
-def run_validation_suite(
-    model,
-    val_dataloader,
-    symbol_manager: SymbolManager,
-    config: TrainingConfig,
-    epoch: int,
-    phase: str,
-    cycle: int = 0
-) -> Dict[str, float]:
-    """
-    Run complete validation suite for an epoch
-    
-    Returns:
-        Dictionary with all validation metrics
-    """
-    validator = ValidationManager(
-        config=config,
-        symbol_manager=symbol_manager,
-        tokenizer=None,  # Will be set by caller
-        max_val_samples=config.data_config.val_max_samples
-    )
-    
-    validation_results = validator.run_comprehensive_validation(
-        model=model,
-        val_dataloader=val_dataloader,
-        epoch=epoch,
-        phase=phase,
-        cycle=cycle
-    )
-    
-    validator.log_validation_summary(
-        validation_results=validation_results,
-        epoch=epoch,
-        phase=phase,
-        cycle=cycle
-    )
-    
-    return validation_results

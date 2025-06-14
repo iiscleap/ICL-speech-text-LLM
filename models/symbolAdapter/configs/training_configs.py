@@ -5,6 +5,7 @@ Centralized configuration management for different training modes
 
 import argparse
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Union
 from enum import Enum
@@ -30,13 +31,6 @@ class ModelType(Enum):
     LLAMA = "llama"
     QWEN = "qwen"
 
-class DatasetType(Enum):
-    """Supported dataset types"""
-    VOXCELEB = "voxceleb"
-    HVB = "hvb"
-    VOXPOPULI = "voxpopuli"
-    MELD_EMOTIONS = "meld_emotions"
-
 @dataclass
 class MLPConfig:
     """MLP-specific configuration"""
@@ -56,7 +50,13 @@ class MLPConfig:
     
     def __post_init__(self):
         if not self.use_input_mlp and not self.use_output_mlp:
-            raise ValueError("At least one of use_input_mlp or use_output_mlp must be True")
+            logging.info("MLPConfig: Both input and output MLPs disabled (bypass_mlp mode)")
+        elif self.use_input_mlp and self.use_output_mlp:
+            logging.info("MLPConfig: Both input and output MLPs enabled")
+        elif self.use_input_mlp:
+            logging.info("MLPConfig: Only input MLP enabled")
+        else:
+            logging.info("MLPConfig: Only output MLP enabled")
 
 @dataclass
 class LoRAConfig:
@@ -64,7 +64,6 @@ class LoRAConfig:
     rank: int = 8
     alpha: int = 32
     dropout: float = 0.1
-    target_modules: List[str] = field(default_factory=lambda: ["q_proj", "k_proj", "v_proj", "o_proj"])
     learning_rate: float = 1e-5
     weight_decay: float = 1e-5
     
@@ -80,7 +79,6 @@ class SymbolConfig:
     """Symbol-specific configuration"""
     mode: SymbolMode = SymbolMode.FIXED
     symbol_type: str = "two_token"
-    num_symbols: Optional[int] = None  # Auto-detected from dataset
     
     # Dynamic symbol parameters
     regenerate_frequency: int = 1  # How often to regenerate (epochs or cycles)
@@ -89,14 +87,14 @@ class SymbolConfig:
 @dataclass
 class DataConfig:
     """Data-specific configuration"""
-    dataset_type: DatasetType = DatasetType.VOXCELEB
+    dataset_type: str = 'voceleb'  # Default dataset type
     batch_size: int = 1
     max_samples: int = 100
     split: str = "test"
     
     # Validation parameters
     val_batch_size: Optional[int] = 1
-    val_max_samples: int = 200
+    val_max_samples: int = 10
     val_frequency: int = 1  # Validate every N epochs
 
 @dataclass
@@ -116,7 +114,7 @@ class TrainingConfig:
     total_cycles: int = 2
     
     # I/O parameters
-    output_dir: str = "/data2/neeraja/neeraj/results/symbolAdapter/symbol_training"
+    output_dir: str = "/data2/neeraja/neeraja/results/model_ICL"
     run_name: str = "symbol_training_run"
     checkpoint_frequency: int = 1  # Save checkpoint every N epochs
     
@@ -221,8 +219,7 @@ class TrainingConfig:
                 "hidden_dim": self.mlp_config.hidden_dim,
                 "learning_rate": self.mlp_config.learning_rate,
                 "epochs": self.mlp_config.epochs,
-                "initial_epochs": self.mlp_config.initial_epochs,
-                "final_epochs": self.mlp_config.final_epochs,
+                "initial_epochs": self.mlp_config.initial_epochs
             },
             "lora_config": {
                 "rank": self.lora_config.rank,
@@ -237,7 +234,7 @@ class TrainingConfig:
                 "symbol_type": self.symbol_config.symbol_type,
             },
             "data_config": {
-                "dataset_type": self.data_config.dataset_type.value,
+                "dataset_type": self.data_config.dataset_type,
                 "batch_size": self.data_config.batch_size,
                 "max_samples": self.data_config.max_samples,
             },
@@ -247,13 +244,25 @@ class TrainingConfig:
             "device": self.device,
         }
     
+    def get_training_output_dir(self) -> str:
+        """Get training output directory with run_name structure"""
+        return os.path.join(self.output_dir, "training", self.run_name)
+    
+    def get_checkpoint_dir(self) -> str:
+        """Get checkpoint directory with run_name structure"""
+        return os.path.join(self.get_training_output_dir(), "checkpoints")
+    
+    def get_log_dir(self) -> str:
+        """Get log directory with run_name structure"""
+        return os.path.join(self.get_training_output_dir(), "logs")
+    
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> 'TrainingConfig':
         """Create configuration from command line arguments"""
         # Create sub-configurations
         mlp_config = MLPConfig(
             use_input_mlp=not args.bypass_mlp,
-            use_output_mlp=getattr(args, 'use_output_mlp', False),
+            use_output_mlp=False if args.bypass_mlp else getattr(args, 'use_output_mlp', False),
             hidden_dim=args.hidden_dim,
             learning_rate=args.mlp_lr,
             epochs=args.mlp_epochs,
@@ -273,8 +282,6 @@ class TrainingConfig:
         
         if getattr(args, 'dynamic_symbols_per_epoch', False):
             symbol_mode = SymbolMode.DYNAMIC_PER_EPOCH
-        elif args.bypass_mlp:
-            symbol_mode = SymbolMode.DYNAMIC_PER_EPOCH
         else:
             symbol_mode = SymbolMode.FIXED
         
@@ -284,7 +291,7 @@ class TrainingConfig:
         )
         
         data_config = DataConfig(
-            dataset_type=DatasetType(args.dataset_type),
+            dataset_type=args.dataset_type,
             batch_size=args.batch_size,
             max_samples=args.max_samples,
             split=getattr(args, 'split', 'test'),
@@ -296,12 +303,12 @@ class TrainingConfig:
                 training_mode = TrainingMode.BYPASS_MLP_SYM
             else:
                 training_mode = TrainingMode.BYPASS_MLP_ORG
-        elif getattr(args, 'joint_training', False):
+        elif getattr(args, 'schedule_type','joint_training' )== 'joint_training':
             training_mode = TrainingMode.JOINT_TRAINING
-        elif getattr(args, 'schedule_type', 'simplified') == 'mlp_first':
+        elif getattr(args, 'schedule_type','joint_training') == 'mlp_first':
             training_mode = TrainingMode.MLP_FIRST
         else:
-            training_mode = TrainingMode.SIMPLIFIED
+            training_mode = TrainingMode.LORA_FIRST
         
         return cls(
             mode=training_mode,
@@ -330,7 +337,7 @@ def create_training_config(**kwargs) -> TrainingConfig:
     return TrainingConfig(**kwargs)
 
 
-def get_default_config(mode: str = "lora_first") -> TrainingConfig:
+def get_default_config(schedule_type: str = "lora_first") -> TrainingConfig:
     """
     Get default configuration for a specific training mode
     
@@ -342,29 +349,29 @@ def get_default_config(mode: str = "lora_first") -> TrainingConfig:
     """
     base_config = TrainingConfig()
     
-    if mode == "lora_first":
+    if schedule_type == "lora_first":
         base_config.mode = TrainingMode.LORA_FIRST
         base_config.symbol_config.mode = SymbolMode.FIXED
         
-    elif mode == "mlp_first":
+    elif schedule_type == "mlp_first":
         base_config.mode = TrainingMode.MLP_FIRST
         base_config.symbol_config.mode = SymbolMode.FIXED
         
-    elif mode == "joint_training":
+    elif schedule_type == "joint_training":
         base_config.mode = TrainingMode.JOINT_TRAINING
         base_config.symbol_config.mode = SymbolMode.DYNAMIC_PER_EPOCH
         base_config.mlp_config.use_input_mlp = True
         base_config.mlp_config.use_output_mlp = False
         base_config.total_cycles = 1  # More cycles for joint training
         
-    elif mode == "bypass_mlp_sym":
+    elif bypass_mlp == "bypass_mlp_sym":
         base_config.mode = TrainingMode.BYPASS_MLP_SYM
         # Bypass MLP training with dynamic symbols
         base_config.symbol_config.mode = SymbolMode.DYNAMIC_PER_EPOCH
         base_config.mlp_config.use_input_mlp = False
         base_config.mlp_config.use_output_mlp = False
 
-    elif mode == "bypass_mlp_org":
+    elif schedule_type == "bypass_mlp_org":
         base_config.mode = TrainingMode.BYPASS_MLP_ORG
         # Pure LoRA training without symbols
         base_config.symbol_config.mode = SymbolMode.NO_SYMBOLS
@@ -395,29 +402,28 @@ def parse_training_args() -> argparse.Namespace:
     # MLP arguments
     parser.add_argument("--use_output_mlp", action="store_true", help="Use output MLP")
     parser.add_argument("--bypass_mlp", action="store_true", help="Bypass MLP training")
+    
     parser.add_argument("--hidden_dim", type=int, default=8)
-    parser.add_argument("--mlp_lr", type=float, default=1e-4)
-    parser.add_argument("--mlp_epochs", type=int, default=3)
-    parser.add_argument("--mlp_initial_epochs", type=int, default=3)
+    parser.add_argument("--mlp_lr", type=float, default=1e-5)
+    parser.add_argument("--mlp_epochs", type=int, default=1)
+    parser.add_argument("--mlp_initial_epochs", type=int, default=1)
     
     # LoRA arguments
     parser.add_argument("--lora_lr", type=float, default=1e-5)
-    parser.add_argument("--lora_epochs", type=int, default=2)
+    parser.add_argument("--lora_epochs", type=int, default=5)
     parser.add_argument("--lora_initial_epochs", type=int, default=1)
     parser.add_argument("--lora_final_epochs", type=int, default=1)
     
     # Training arguments
-    parser.add_argument("--total_cycles", type=int, default=2)
+    parser.add_argument("--total_cycles", type=int, default=1)
     parser.add_argument("--gradient_accumulation_steps", type=int, default=8)
     parser.add_argument("--max_grad_norm", type=float, default=1.0)
     
     # New arguments
     parser.add_argument("--dynamic_symbols_per_epoch", action="store_true", 
                        help="Generate new symbols each epoch")
-    parser.add_argument("--joint_training", action="store_true", 
-                       help="Train MLP and LoRA simultaneously")
-    parser.add_argument("--schedule_type", type=str, default="simplified",
-                       choices=["simplified", "mlp_first", "joint_training", "bypass_mlp"])
+    parser.add_argument("--schedule_type", type=str, default="lora_first",
+                       choices=["lora_first", "mlp_first", "joint_training","bypass_mlp_sym", "bypass_mlp_org",""])
     
     # I/O arguments
     parser.add_argument("--output_dir", type=str, required=True)
