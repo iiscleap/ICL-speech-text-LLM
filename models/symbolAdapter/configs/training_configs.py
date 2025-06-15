@@ -94,7 +94,7 @@ class DataConfig:
     
     # Validation parameters
     val_batch_size: Optional[int] = 1
-    val_max_samples: int = 10
+    val_max_samples: int = 200
     val_frequency: int = 1  # Validate every N epochs
 
 @dataclass

@@ -100,11 +100,6 @@ class UnifiedTrainer:
             if self.config.checkpoint_frequency > 0 and (epoch + 1) % self.config.checkpoint_frequency == 0:
                 self._save_checkpoint(step, epoch, "periodic")
         
-        # Final validation
-        final_validation = self._validate_epoch(step, step.epochs - 1, is_final=True)
-        validation_scores.update(final_validation)
-        step_metrics["final_validation"] = final_validation
-        
         # Log step summary
         self._log_step_summary(step, step_metrics)
         
@@ -375,7 +370,7 @@ class UnifiedTrainer:
         # Get trainable MLP parameters
         mlp_params = []
         for name, param in self.model.named_parameters():
-            if param.requires_grad and ('mlp_input' in name.lower() or 'mlp_output' in name.lower()):
+            if param.requires_grad and ('input_mlp' in name.lower() or 'output_mlp' in name.lower()):
                 mlp_params.append(param)
         
         if not mlp_params:
@@ -403,7 +398,7 @@ class UnifiedTrainer:
             if param.requires_grad:
                 if 'lora' in name.lower():
                     lora_params.append(param)
-                elif ('mlp_input' in name.lower() or 'mlp_output' in name.lower()  or 'symbol' in name.lower()) and 'lora' not in name.lower():
+                elif ('input_mlp' in name.lower() or 'output_mlp' in name.lower()  or 'symbol' in name.lower()) and 'lora' not in name.lower():
                     mlp_params.append(param)
                 elif ('speech_Qformer' in name or 'speech_query_tokens' in name or 'speech_llama_proj' in name):
                     salmonn_params.append(param)
@@ -697,14 +692,7 @@ class UnifiedTrainer:
         logging.info(f"STEP SUMMARY - {step.phase.upper()} Step {step.step_id}")
         logging.info("=" * 80)
         logging.info(f"Best Epoch: {step_metrics['best_epoch'] + 1}")
-        logging.info(f"Best Score: {step_metrics['best_score']:.4f}")
-        
-        if step_metrics['final_validation']:
-            final_val = step_metrics['final_validation']
-            logging.info("Final Validation:")
-            for config, score in final_val.items():
-                logging.info(f"  {config}: {score:.4f}")
-        
+        logging.info(f"Best Score: {step_metrics['best_score']:.4f}") 
         logging.info("=" * 80)
     
     def _save_checkpoint(self, step: TrainingStep, epoch: int, checkpoint_type: str):

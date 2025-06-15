@@ -134,6 +134,9 @@ class ValidationManager:
             total=min(len(val_dataloader), self.max_val_samples)
         )
         
+        # ✅ Flag to log first validation prompt
+        log_first_prompt = True
+        
         try:
             for batch_idx, batch in enumerate(progress_bar):
                 # Limit validation samples
@@ -151,6 +154,34 @@ class ValidationManager:
                     else:
                         # Use SymbolManager's method with the epoch
                         updated_batch = self.symbol_manager.replace_symbols_in_batch(batch, epoch=epoch)
+                    
+                    # ✅ ADD: Log first validation prompt (like in training)
+                    if log_first_prompt:
+                        logging.info("=" * 80)
+                        logging.info(f"FIRST VALIDATION PROMPT - {mode_name} (Epoch {epoch})")
+                        logging.info("=" * 80)
+                        
+                        # Log the first sample's prompt
+                        first_sample_org = batch['prompt'][0] if isinstance(batch['prompt'], list) else batch['prompt']
+                        first_sample = updated_batch['prompt'][0] if isinstance(updated_batch['text'], list) else updated_batch['prompt']
+                        true_label = batch['completion'][0] if isinstance(batch['completion'], list) else batch['completion']
+                        
+                        logging.info(f"Validation Prompt Org: {str(first_sample_org)}")
+                        logging.info(f"Validation Prompt: {str(first_sample)}")
+                        logging.info(f"True Label: {true_label}")
+                        
+                        # Log symbols being used
+                        if not use_original_labels:
+                            if use_dynamic_symbols:
+                                logging.info(f"Using Fresh Symbols: {symbol_mappings}")
+                            else:
+                                current_symbols = self.symbol_manager.get_symbols_for_epoch(epoch)
+                                logging.info(f"Using Fixed Symbols: {current_symbols}")
+                        else:
+                            logging.info("Using Original Labels (no symbols)")
+                        
+                        logging.info("=" * 80)
+                        log_first_prompt = False
                     
                     # Generate outputs using the model's generate_output method
                     predictions = model.generate_output(updated_batch)
@@ -191,14 +222,16 @@ class ValidationManager:
                         
                         processed_samples += 1
                         
-                        # Log first few samples for debugging
-                        if batch_idx < 10 and i < 2:
-                            logging.info(f"Original pred: {pred}")
-                            logging.info(f"Converted pred: {converted_pred}")
-                            logging.info(f"Cleaned pred: {cleaned_pred}")
-                            logging.info(f"True label: {true_label}")
-                            logging.info(f"Dataset type: {dt_key}")
-                            logging.info("=" * 50)
+                        # ✅ Log first prediction conversion (only for batch_idx == 0 and i == 0)
+                        if batch_idx < 5 and i == 0:
+                            logging.info("=" * 60)
+                            logging.info("FIRST VALIDATION PREDICTION CONVERSION:")
+                            logging.info(f"Raw Prediction: {pred}")
+                            logging.info(f"Converted Prediction: {converted_pred}")
+                            logging.info(f"Cleaned Prediction: {cleaned_pred}")
+                            logging.info(f"True Label: {true_label}")
+                            logging.info(f"Dataset Type: {dt_key}")
+                            logging.info("=" * 60)
                     
                     # Update progress bar
                     progress_bar.set_postfix({
@@ -240,7 +273,7 @@ class ValidationManager:
                     elif dataset_name.lower() == 'hvb':
                         main_metric_value = dt_metrics.get('macro_f1', 0.0)
                     elif dataset_name.lower() == 'meld_emotion':
-                        main_metric_value = dt_metrics.get('macro_f1_filtered', 0.0)
+                        main_metric_value = dt_metrics.get('macro_f1_with_invalid', 0.0)
                     else:
                         main_metric_value = dt_metrics.get('macro_f1', 0.0)
                         

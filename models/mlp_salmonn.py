@@ -94,13 +94,18 @@ class MLPSalmonn(nn.Module):
         self.hidden_dim = hidden_dim or self.embed_dim
         
         # CREATE MLP LAYERS ONLY IF NOT BYPASSED
+        
         if not self.bypass_mlp:
+            dropout =  0.2
             # INPUT MLP (for transforming input embeddings)
             self.input_mlp = nn.Sequential(
                 nn.Linear(self.embed_dim, self.hidden_dim),
                 nn.LayerNorm(self.hidden_dim),
                 nn.GELU(),
+                nn.Dropout(dropout)
                 nn.Linear(self.hidden_dim, self.embed_dim)
+                nn.LayerNorm(self.hidden_dim),
+                nn.Dropout(dropout)
             )
 
             # OUTPUT MLP (for transforming LLaMA output embeddings) - optional
@@ -205,7 +210,7 @@ class MLPSalmonn(nn.Module):
             mlp_output = self.input_mlp(to_transform)
             
             # CONTINUOUS EMBEDDINGS: Use MLP output directly (not quantized)
-            transformed = mlp_output  # Direct MLP output for training
+            transformed = mlp_output + to_transform # Direct MLP output for training
             
             # IMPROVED: More flexible logging conditions
             should_log = False

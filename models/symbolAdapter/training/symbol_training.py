@@ -75,7 +75,9 @@ class SymbolTrainingOrchestrator:
             'MLP+Symbols': {'score': 0.0, 'step': None},
             'NoMLP+Symbols': {'score': 0.0, 'step': None}, 
             'MLP+Original': {'score': 0.0, 'step': None},
-            'NoMLP+Original': {'score': 0.0, 'step': None}
+            'NoMLP+Original': {'score': 0.0, 'step': None},
+            'MLP+Fresh': {'score': 0.0, 'step': None},
+            'NoMLP+Fresh': {'score': 0.0, 'step': None}
         }
         
         # Setup logging and output directories
@@ -220,12 +222,13 @@ class SymbolTrainingOrchestrator:
                     all_score_keys.add(key)
         
         # Create header with EPOCH support
-        header_parts = ["Phase", "Cycle", "Step", "Epoch"]  # ✅ CHANGE TO EPOCH
+        header_parts = ["Phase", "Cycle", "Step", "Epoch"]  
         column_mapping = {
             'mlp_sym': 'MLP+Sym',
             'nomlp_sym': 'NoMLP+Sym', 
             'mlp_orig': 'MLP+Orig',
             'nomlp_orig': 'NoMLP+Orig',
+            'mlp_fresh': 'MLP+Fresh',
             'nomlp_fresh': 'NoMLP+Fresh'
         }
         
@@ -360,6 +363,8 @@ class SymbolTrainingOrchestrator:
         nomlp_sym = validation_scores.get('NoMLP+Symbols', 0.0) 
         mlp_orig = validation_scores.get('MLP+Original', 0.0)
         nomlp_orig = validation_scores.get('NoMLP+Original', 0.0)
+        mlp_fresh = validation_scores.get('MLP+Original', 0.0)
+        nomlp_fresh = validation_scores.get('NoMLP+Original', 0.0)
         
         # Add to summary
         summary_entry = {
@@ -371,6 +376,8 @@ class SymbolTrainingOrchestrator:
             'nomlp_sym': nomlp_sym,
             'mlp_orig': mlp_orig,
             'nomlp_orig': nomlp_orig,
+            'mlp_fresh': mlp_fresh,
+            'nomlp_fresh': nomlp_fresh,
             'step_description': step.description
         }
         self.training_summary.append(summary_entry)
@@ -472,7 +479,9 @@ class SymbolTrainingOrchestrator:
             'NoMLP+Symbols': 'nomlp_sym',
             'MLP+Original': 'mlp_orig', 
             'NoMLP+Original': 'nomlp_orig',
+            'MLP+Fresh': 'mlp_fresh',
             'NoMLP+Fresh': 'nomlp_fresh'
+            
         }
         
         for display_key, entry_key in possible_scores.items():

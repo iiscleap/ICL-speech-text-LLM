@@ -10,21 +10,21 @@ device="cuda:0"  # GPU device
 lora_lr=1e-5
 mlp_lr=1e-5
 
-lora_epochs=2
-lora_final_epochs=2 
+lora_epochs=5
+lora_final_epochs=1 
 
-mlp_epochs=2
+mlp_epochs=1
 total_cycles=1
 
 # MLP Architecture parameters
 use_output_mlp=False  # Enable/disable output MLP
 bypass_mlp=False 
-hidden_dim=2
+hidden_dim=4
 batch_size=1
 
 gradient_accumulation_steps=8
 max_grad_norm=1.0
-max_samples=10  # Set reasonable default
+max_samples=0  # Set reasonable default
 
 # NEW: Orchestrator-specific parameters
 schedule_type="joint_training"  # Options: "lora_first", "mlp_first", "joint_training"
@@ -107,7 +107,7 @@ echo "=========================================="
 
 # Submit job
 qsub -q gpu.q -V -cwd \
-    -l hostname=compute-0-7 \
+    -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
