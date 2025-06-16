@@ -3,7 +3,7 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxceleb"  # Dataset type(s) to use
+dataset_type="voxceleb-hvb"  # Dataset type(s) to use
 device="cuda:0"  # GPU device
 
 # Training parameters
@@ -18,7 +18,7 @@ total_cycles=1
 
 # MLP Architecture parameters
 use_output_mlp=False  # Enable/disable output MLP
-bypass_mlp=False 
+bypass_mlp=True 
 hidden_dim=4
 batch_size=1
 
@@ -107,7 +107,7 @@ echo "=========================================="
 
 # Submit job
 qsub -q gpu.q -V -cwd \
-    -l hostname=compute-0-9 \
+    -l hostname=compute-0-8 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \

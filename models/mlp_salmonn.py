@@ -102,9 +102,9 @@ class MLPSalmonn(nn.Module):
                 nn.Linear(self.embed_dim, self.hidden_dim),
                 nn.LayerNorm(self.hidden_dim),
                 nn.GELU(),
-                nn.Dropout(dropout)
-                nn.Linear(self.hidden_dim, self.embed_dim)
-                nn.LayerNorm(self.hidden_dim),
+                nn.Dropout(dropout),
+                nn.Linear(self.hidden_dim, self.embed_dim),
+                nn.LayerNorm(self.embed_dim),
                 nn.Dropout(dropout)
             )
 
@@ -114,7 +114,8 @@ class MLPSalmonn(nn.Module):
                     nn.Linear(self.embed_dim, self.hidden_dim),
                     nn.LayerNorm(self.hidden_dim),
                     nn.GELU(),
-                    nn.Linear(self.hidden_dim, self.embed_dim)
+                    nn.Linear(self.hidden_dim, self.embed_dim),
+                    nn.LayerNorm(self.embed_dim)  
                 )
             else:
                 self.output_mlp = None
