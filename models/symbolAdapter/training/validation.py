@@ -250,6 +250,7 @@ class ValidationManager:
         
         # Calculate metrics using utils.evaluation_utils.evaluate_predictions
         main_metric_value = 0.0
+        computed_detailed_metrics = {}  # ✅ NEW: Store computed metrics
         
         for dataset_name in dataset_names:
             dt_results = all_results.get(dataset_name, [])
@@ -257,9 +258,12 @@ class ValidationManager:
             if dt_results:
                 try:
                     dataset_type = DatasetType(dataset_name)
-                    dt_metrics = evaluate_predictions(dt_results, dataset_type)
+                    dt_metrics = evaluate_predictions(dt_results, dataset_type)  # ✅ SINGLE CALL
                     
-                    # Log metrics
+                    # ✅ NEW: Store the computed metrics for inference mode
+                    computed_detailed_metrics[dataset_name] = dt_metrics
+                    
+                    # Log metrics (existing logic - unchanged)
                     logging.info(f"Metrics for {dataset_name} ({mode_name}):")
                     for metric, value in dt_metrics.items():
                         if isinstance(value, (float, int)):
@@ -267,7 +271,7 @@ class ValidationManager:
                         else:
                             logging.info(f"  {metric}: {value}")
                     
-                    # Extract main metric for return value (same logic as unified_symbol_training.py)
+                    # Extract main metric for return value (existing logic - unchanged)
                     if dataset_name.lower() == 'voxceleb':
                         main_metric_value = dt_metrics.get('macro_f1_with_invalid', 0.0)
                     elif dataset_name.lower() == 'hvb':
@@ -281,9 +285,14 @@ class ValidationManager:
                     logging.error(f"Error evaluating predictions for {dataset_name}: {str(e)}")
                     main_metric_value = 0.0
         
+        # ✅ NEW: Store both results AND computed metrics for inference mode
+        if hasattr(self.config, 'inference_mode') and self.config.inference_mode:
+            self.all_results = all_results  # Store predictions
+            self.computed_detailed_metrics = computed_detailed_metrics  # ✅ Store computed metrics
+        
         return {
             "accuracy": main_metric_value,
-            "loss": 0.0,  # Not calculated in this implementation
+            "loss": 0.0,
             "total_samples": len(all_results.get(dataset_names[0], []))
         }
 
@@ -296,7 +305,7 @@ class ValidationManager:
         phase: str,  # This comes from TrainingStep.phase: "lora", "mlp", "joint"
         cycle: int = 0,
         step: Optional[TrainingStep] = None  # Add step parameter
-    ) -> Dict[str, float]:
+    ) -> Union[Dict[str, float], Dict[str, Any]]:
         """
         Run comprehensive validation with all modes (MLP+Symbols, NoMLP+Symbols, etc.)
         """
@@ -305,7 +314,14 @@ class ValidationManager:
         # Check model state
         bypass_mlp = getattr(model, 'bypass_mlp', False)
         use_symbols = step.use_symbols if step else True  # Default to True if no step provided
+
+        dynamic_symbols_enabled = (self.config.symbol_config.mode == SymbolMode.DYNAMIC_PER_EPOCH)
+        is_inference_mode = getattr(self.config, 'inference_mode', False)
         
+        if is_inference_mode:
+            accumulated_detailed_metrics = {}
+            accumulated_predictions = []
+
         # Determine validation modes based on phase + model state + step config
         if phase == "lora":
             if bypass_mlp and use_symbols:
@@ -399,6 +415,13 @@ class ValidationManager:
         
         # Run each validation mode
         for mode_key, bypass_mlp_val, use_original, use_dynamic in modes:
+
+            if is_inference_mode and dynamic_symbols_enabled:
+                # Skip fixed symbol modes (use_dynamic=False) when dynamic symbols are enabled
+                if not use_dynamic and not use_original:
+                    logging.info(f"⏭️ Skipping {mode_key} (fixed symbols) - dynamic symbols enabled in inference")
+                    continue
+
             try:
                 metrics = self.validate_model(
                     model=model,
@@ -414,13 +437,47 @@ class ValidationManager:
                 validation_results[mode_key] = metrics["accuracy"]
                 validation_results[f"{mode_key}_loss"] = metrics["loss"]
                 
+                # ✅ NEW: Collect detailed results if in inference mode
+                if hasattr(self.config, 'inference_mode') and self.config.inference_mode:
+                    # Collect computed metrics with mode prefix
+                    if hasattr(self, 'computed_detailed_metrics'):
+                        for dataset_name, dataset_metrics in self.computed_detailed_metrics.items():
+                            key = f"{dataset_name}_{mode_key}"  # e.g., "voxceleb_mlp_symbols"
+                            accumulated_detailed_metrics[key] = dataset_metrics
+                    
+                    # Collect predictions with mode information
+                    if hasattr(self, 'all_results'):
+                        for dataset_name, results in self.all_results.items():
+                            for result in results:
+                                result['validation_mode'] = mode_key  # ✅ TAG WITH MODE
+                            accumulated_predictions.extend(results)
+                
             except Exception as e:
                 logging.error(f"Validation mode {mode_key} failed: {str(e)}")
                 validation_results[mode_key] = 0.0
                 validation_results[f"{mode_key}_loss"] = float('inf')
         
-        return validation_results
-    
+        # Return based on mode
+        if hasattr(self.config, 'inference_mode') and self.config.inference_mode:
+            logging.info("🔍 Running in inference mode - collecting detailed results")
+            
+            # Return accumulated results (NO additional computation)
+            return {
+                'validation_scores': validation_results,
+                'detailed_metrics': accumulated_detailed_metrics,  # ✅ PRE-COMPUTED
+                'all_predictions': accumulated_predictions,        # ✅ PRE-COLLECTED
+                'inference_metadata': {
+                    'epoch': epoch,
+                    'phase': phase,
+                    'cycle': cycle,
+                    'total_samples': len(accumulated_predictions)
+                }
+            }
+        else:
+            # Training mode: return only validation scores (as before)
+            return validation_results
+
+
     def log_validation_summary(
         self,
         validation_results: Dict[str, float],

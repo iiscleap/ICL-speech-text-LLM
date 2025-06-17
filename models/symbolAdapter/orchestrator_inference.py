@@ -1,0 +1,379 @@
+#!/usr/bin/env python3
+"""
+Orchestrator Inference Pipeline
+Evaluates trained models using comprehensive validation with detailed metrics and predictions
+"""
+
+import os
+import sys
+import json
+import logging
+import argparse
+import torch
+from datetime import datetime
+from typing import Dict, List, Optional, Any, Tuple, Union
+from pathlib import Path
+
+# Add project paths
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(current_dir)
+sys.path.append(project_root)
+sys.path.append(os.path.join(project_root, "models"))
+
+# Import required modules
+from models.mlp_salmonn import MLPSalmonn
+from models.symbolAdapter.configs.training_configs import TrainingConfig
+from models.symbolAdapter.symbol_manager import SymbolManager
+from models.symbolAdapter.training.validation import ValidationManager
+from models.symbolAdapter.orchestrator_training import load_datasets_for_config, create_combined_dataloader
+from utils.evaluation_utils import evaluate_predictions
+from data.master_config import DatasetType
+
+class InferenceOrchestrator:
+    """Orchestrates comprehensive inference evaluation using ValidationManager"""
+    
+    def __init__(
+        self,
+        checkpoint_path: str,
+        dataset_type: str,
+        device: str = "cuda:0",
+        max_val_samples: int = 0,  # 0 = all samples
+        output_dir: Optional[str] = None
+    ):
+        self.checkpoint_path = checkpoint_path
+        self.dataset_type = dataset_type
+        self.device = device
+        self.max_val_samples = max_val_samples
+        
+        # Setup output directories
+        self.results_base = output_dir or "/data2/neeraja/neeraja/results/model_ICL"
+        self.metrics_dir = os.path.join(self.results_base, "orchestrator_metrics")
+        self.logs_dir = os.path.join(self.results_base, "orchestrator_logs")
+        
+        # Create directories
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        self.metrics_output_dir = os.path.join(self.metrics_dir, current_date)
+        self.logs_output_dir = os.path.join(self.logs_dir, current_date)
+        os.makedirs(self.metrics_output_dir, exist_ok=True)
+        os.makedirs(self.logs_output_dir, exist_ok=True)
+        
+        # Generate run name
+        timestamp = datetime.now().strftime("%d%m_%H%M")
+        checkpoint_name = os.path.basename(checkpoint_path).replace('.pt', '').replace('.pth', '')
+        self.run_name = f"{timestamp}_inference_{checkpoint_name}_{dataset_type}"
+        
+        # Setup logging
+        self._setup_logging()
+        
+        # Initialize components
+        self.model = None
+        self.config = None
+        self.symbol_manager = None
+        self.validator = None
+        self.val_dataloader = None
+        
+        logging.info(f"🚀 Initializing Inference Orchestrator")
+        logging.info(f"📁 Checkpoint: {checkpoint_path}")
+        logging.info(f"📊 Dataset: {dataset_type}")
+        logging.info(f"🔧 Device: {device}")
+        logging.info(f"📝 Run Name: {self.run_name}")
+    
+    def _setup_logging(self):
+        """Setup logging configuration"""
+        log_file = os.path.join(self.logs_output_dir, f"{self.run_name}.log")
+        
+        # Clear existing handlers
+        for handler in logging.root.handlers[:]:
+            logging.root.removeHandler(handler)
+        
+        # Setup logging format
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s',
+            handlers=[
+                # logging.FileHandler(log_file),  
+                logging.StreamHandler()
+            ]
+        )
+        
+        logging.info(f"📋 Logging setup complete: {log_file}")
+    
+    def load_checkpoint_and_config(self):
+        """Load trained model checkpoint and configuration"""
+        logging.info("=" * 80)
+        logging.info("LOADING CHECKPOINT AND CONFIGURATION")
+        logging.info("=" * 80)
+        
+        try:
+            # Load checkpoint
+            logging.info(f"Loading checkpoint: {self.checkpoint_path}")
+            checkpoint = torch.load(self.checkpoint_path, map_location='cpu')
+            
+            # Extract configuration
+            if 'config' in checkpoint:
+                self.config = checkpoint['config']
+                logging.info("✅ Configuration loaded from checkpoint")
+            else:
+                logging.error("❌ No configuration found in checkpoint")
+                raise ValueError("Checkpoint missing configuration")
+            
+            # Log checkpoint info
+            if 'step_info' in checkpoint:
+                step_info = checkpoint['step_info']
+                logging.info(f"📋 Checkpoint Info:")
+                logging.info(f"  Phase: {step_info.get('phase', 'unknown')}")
+                logging.info(f"  Step: {step_info.get('step_id', 'unknown')}")
+                logging.info(f"  Cycle: {step_info.get('cycle', 'unknown')}")
+                logging.info(f"  Epoch: {step_info.get('epoch', 'unknown')}")
+                logging.info(f"  Description: {step_info.get('description', 'N/A')}")
+            
+            # Update config for inference
+            self.config.data_config.dataset_type = self.dataset_type
+            if self.max_val_samples > 0:
+                self.config.data_config.val_max_samples = self.max_val_samples
+            
+            return checkpoint
+            
+        except Exception as e:
+            logging.error(f"❌ Failed to load checkpoint: {str(e)}")
+            raise
+    
+    def setup_model_and_data(self, checkpoint):
+        """Setup model and data loaders using same logic as training orchestrator"""
+        logging.info("=" * 80)
+        logging.info("SETTING UP MODEL AND DATA")
+        logging.info("=" * 80)
+        
+        try:
+            # Setup symbol manager (same as training)
+            self.symbol_manager = SymbolManager(self.config)
+            logging.info("✅ SymbolManager initialized")
+            
+            # Load datasets (same as training orchestrator)
+            logging.info(f"📊 Loading datasets for: {self.dataset_type}")
+            train_datasets, val_datasets = load_datasets_for_config(self.config)
+            
+            # ✅ FIX: Setup tokenizer first (needed for processor)
+            from transformers import LlamaTokenizer
+            tokenizer = LlamaTokenizer.from_pretrained("lmsys/vicuna-13b-v1.1", use_fast=False)
+            tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+            tokenizer.padding_side = "right"
+            logging.info("✅ Tokenizer setup complete")
+            
+            # ✅ FIX: Create processor (same as training orchestrator)
+            from data.model_processors import get_processor
+            processor = get_processor(self.config.model_config.model_type, tokenizer=tokenizer)
+            logging.info("✅ Processor initialized")
+            
+            # ✅ FIX: Create validation dataloader with processor (same as training orchestrator)
+            self.val_dataloader = create_combined_dataloader(
+                val_datasets, 
+                processor,  # ✅ NOW WITH PROCESSOR
+                self.config, 
+                shuffle=False  # No shuffle for inference
+            )
+            
+            logging.info(f"✅ Validation dataloader created: {len(self.val_dataloader)} batches")
+            
+            # Initialize model (same as training orchestrator)
+            logging.info("🤖 Initializing model...")
+            if self.config.model_config.model_type == "salmonn":
+                self.model = MLPSalmonn(
+                    label_tokens=self.symbol_manager.symbol_tokens,
+                    hidden_dim=self.config.model_config.hidden_dim,
+                    dropout=self.config.model_config.dropout,
+                    bypass_mlp=self.config.model_config.bypass_mlp,
+                    use_output_mlp=self.config.model_config.use_output_mlp,
+                    device=self.device,
+                    low_resource=False
+                )
+            else:
+                raise ValueError(f"Unsupported model type: {self.config.model_config.model_type}")
+            
+            # Load model state from checkpoint
+            logging.info("📥 Loading model state from checkpoint...")
+            if 'model_state' in checkpoint:
+                try:
+                    # ✅ OPTION 1: Standard loading (with warnings)
+                    missing_keys, unexpected_keys = self.model.load_state_dict(
+                        checkpoint['model_state'], 
+                        strict=False
+                    )
+                    
+                    loaded_params = len(checkpoint['model_state']) - len(unexpected_keys)
+                    logging.info(f"✅ Loaded {loaded_params} model parameters")
+                    
+                    if missing_keys:
+                        logging.info(f"⚠️ Missing keys (expected): {len(missing_keys)} frozen parameters")
+                    if unexpected_keys:
+                        logging.warning(f"⚠️ Unexpected keys: {unexpected_keys}")
+                        
+                except Exception as e:
+                    logging.error(f"❌ Failed to load model state: {str(e)}")
+                    raise
+            else:
+                logging.warning("⚠️ No model state found in checkpoint")
+            
+            # Move model to device
+            self.model.to(self.device)
+            self.model.eval()  # Set to evaluation mode
+            
+            # ✅ FIX: Setup ValidationManager with tokenizer (same as training orchestrator)
+            self.validator = ValidationManager(
+                config=self.config,
+                symbol_manager=self.symbol_manager,
+                tokenizer=tokenizer,  # ✅ USE THE TOKENIZER WE CREATED
+                max_val_samples=self.config.data_config.val_max_samples
+            )
+            
+            logging.info("✅ ValidationManager initialized")
+            logging.info("=" * 80)
+            
+        except Exception as e:
+            logging.error(f"❌ Failed to setup model and data: {str(e)}")
+            raise
+    
+    def run_comprehensive_inference(self) -> Tuple[Dict[str, float], Dict[str, Any], List[Dict[str, Any]]]:
+        """Run comprehensive inference using ValidationManager"""
+        
+        # Enable inference mode
+        self.config.inference_mode = True
+        
+        # Run validation
+        results = self.validator.run_comprehensive_validation(
+            model=self.model,
+            val_dataloader=self.val_dataloader,
+            epoch=0,
+            phase=self._determine_phase(),
+            cycle=0
+        )
+        
+        # Extract and return (ValidationManager did all the work)
+        return results['validation_scores'], results['detailed_metrics'], results['all_predictions']
+
+    def _determine_phase(self) -> str:
+        """Determine phase from config or checkpoint"""
+        if hasattr(self.config, 'training_config') and hasattr(self.config.training_config, 'current_phase'):
+            return self.config.training_config.current_phase
+        elif hasattr(self.config, 'phase'):
+            return self.config.phase
+        else:
+            # Infer from model configuration
+            if self.config.model_config.bypass_mlp:
+                return "lora_only"  # Only LoRA training, no MLP
+            else:
+                return "joint"  # Both LoRA and MLP
+
+    def save_results(self, detailed_metrics: Dict[str, Any], all_predictions: List[Dict[str, Any]]):
+        """Save detailed metrics and predictions to files"""
+        logging.info("=" * 80)
+        logging.info("SAVING RESULTS")
+        logging.info("=" * 80)
+        
+        try:
+            # Save metrics.json
+            metrics_file = os.path.join(self.metrics_output_dir, f"{self.run_name}_metrics.json")
+            with open(metrics_file, 'w') as f:
+                json.dump(detailed_metrics, f, indent=2, default=str)
+            
+            logging.info(f"✅ Metrics saved: {metrics_file}")
+            
+            # Save predictions.json
+            predictions_file = os.path.join(self.metrics_output_dir, f"{self.run_name}_predictions.json")
+            with open(predictions_file, 'w') as f:
+                json.dump(all_predictions, f, indent=2, default=str)
+            
+            logging.info(f"✅ Predictions saved: {predictions_file}")
+            
+            logging.info("=" * 80)
+            
+        except Exception as e:
+            logging.error(f"❌ Failed to save results: {str(e)}")
+            raise
+    
+    
+    def run_complete_inference(self):
+        """Run complete inference pipeline"""
+        try:
+            logging.info("🚀 Starting Orchestrator Inference Pipeline")
+            
+            # 1. Load checkpoint and configuration
+            checkpoint = self.load_checkpoint_and_config()
+            
+            # 2. Setup model and data
+            self.setup_model_and_data(checkpoint)
+            
+            # 3. Run comprehensive inference
+            validation_scores, detailed_metrics, all_predictions = self.run_comprehensive_inference()
+            
+            # 4. Save results
+            self.save_results(detailed_metrics, all_predictions)
+            
+            # 5. Simple final logging (inline)
+            logging.info("=" * 60)
+            logging.info("FINAL INFERENCE RESULTS")
+            logging.info("=" * 60)
+            for mode, score in validation_scores.items():
+                if not mode.endswith('_loss'):
+                    logging.info(f"{mode:<20}: {score:.4f}")
+            logging.info("=" * 60)
+            
+            logging.info("✅ Orchestrator Inference Pipeline completed successfully!")
+            
+            return {
+                'validation_results': validation_scores,
+                'detailed_metrics': detailed_metrics,
+                'predictions_count': len(all_predictions),
+                'run_name': self.run_name
+            }
+            
+        except Exception as e:
+            logging.error(f"❌ Inference pipeline failed: {str(e)}")
+            raise
+
+def main():
+    """Main function for orchestrator inference"""
+    parser = argparse.ArgumentParser(description="Orchestrator Inference Pipeline")
+    parser.add_argument("--checkpoint_path", type=str, required=True, 
+                       help="Path to trained model checkpoint")
+    parser.add_argument("--dataset_type", type=str, required=True,
+                       help="Dataset type for evaluation (e.g., voxceleb, hvb)")
+    parser.add_argument("--device", type=str, default="cuda:0",
+                       help="Device to use for inference")
+    parser.add_argument("--max_val_samples", type=int, default=0,
+                       help="Maximum validation samples (0 = all)")
+    parser.add_argument("--output_dir", type=str, default=None,
+                       help="Output directory for results")
+    
+    args = parser.parse_args()
+    
+    # Validate checkpoint path
+    if not os.path.exists(args.checkpoint_path):
+        print(f"❌ Checkpoint not found: {args.checkpoint_path}")
+        return 1
+    
+    try:
+        # Initialize orchestrator
+        orchestrator = InferenceOrchestrator(
+            checkpoint_path=args.checkpoint_path,
+            dataset_type=args.dataset_type,
+            device=args.device,
+            max_val_samples=args.max_val_samples,
+            output_dir=args.output_dir
+        )
+        
+        # Run inference
+        results = orchestrator.run_complete_inference()
+        
+        print(f"✅ Inference completed successfully!")
+        print(f"📁 Results saved as: {results['run_name']}")
+        print(f"📊 Predictions collected: {results['predictions_count']}")
+        
+        return 0
+        
+    except Exception as e:
+        print(f"❌ Inference failed: {str(e)}")
+        return 1
+
+if __name__ == "__main__":
+    exit(main())

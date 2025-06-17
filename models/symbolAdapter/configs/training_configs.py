@@ -127,6 +127,10 @@ class TrainingConfig:
     log_level: str = "INFO"
     log_frequency: int = 1  # Log every N steps
     
+    # NEW: Inference configuration
+    inference_mode: bool = False
+    
+    
     def __post_init__(self):
         """Validate configuration after initialization"""
         self._validate_config()
@@ -279,6 +283,8 @@ class TrainingConfig:
         )
         
         # Determine symbol mode
+
+
         
         if getattr(args, 'dynamic_symbols_per_epoch', False):
             symbol_mode = SymbolMode.DYNAMIC_PER_EPOCH
