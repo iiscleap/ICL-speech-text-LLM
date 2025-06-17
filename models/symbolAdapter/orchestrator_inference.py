@@ -14,6 +14,9 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any, Tuple, Union
 from pathlib import Path
 
+ICL_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+sys.path.insert(0, ICL_ROOT)
+
 # Add project paths
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.dirname(current_dir)
@@ -22,7 +25,7 @@ sys.path.append(os.path.join(project_root, "models"))
 
 # Import required modules
 from models.mlp_salmonn import MLPSalmonn
-from models.symbolAdapter.configs.training_configs import TrainingConfig
+from models.symbolAdapter.configs.training_configs import TrainingConfig,SymbolMode
 from models.symbolAdapter.symbol_manager import SymbolManager
 from models.symbolAdapter.training.validation import ValidationManager
 from models.symbolAdapter.orchestrator_training import load_datasets_for_config, create_combined_dataloader
@@ -145,56 +148,76 @@ class InferenceOrchestrator:
         logging.info("=" * 80)
         
         try:
-            # Setup symbol manager (same as training)
-            self.symbol_manager = SymbolManager(self.config)
-            logging.info("✅ SymbolManager initialized")
-            
-            # Load datasets (same as training orchestrator)
-            logging.info(f"📊 Loading datasets for: {self.dataset_type}")
-            train_datasets, val_datasets = load_datasets_for_config(self.config)
-            
-            # ✅ FIX: Setup tokenizer first (needed for processor)
-            from transformers import LlamaTokenizer
-            tokenizer = LlamaTokenizer.from_pretrained("lmsys/vicuna-13b-v1.1", use_fast=False)
-            tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-            tokenizer.padding_side = "right"
-            logging.info("✅ Tokenizer setup complete")
-            
-            # ✅ FIX: Create processor (same as training orchestrator)
-            from data.model_processors import get_processor
-            processor = get_processor(self.config.model_config.model_type, tokenizer=tokenizer)
-            logging.info("✅ Processor initialized")
-            
-            # ✅ FIX: Create validation dataloader with processor (same as training orchestrator)
-            self.val_dataloader = create_combined_dataloader(
-                val_datasets, 
-                processor,  # ✅ NOW WITH PROCESSOR
-                self.config, 
-                shuffle=False  # No shuffle for inference
+            # Setup tokenizer and other components
+            from models.symbolAdapter.orchestrator_training import (
+                setup_tokenizer,
+                extract_dataset_labels
             )
             
-            logging.info(f"✅ Validation dataloader created: {len(self.val_dataloader)} batches")
+            # Setup tokenizer (same as training)
+            tokenizer = setup_tokenizer()
+            logging.info("✅ Tokenizer setup complete")
             
-            # Initialize model (same as training orchestrator)
+            # Extract dataset labels (same as training)
+            dataset_labels = extract_dataset_labels(self.config)
+            
+            # Setup symbol manager (same as training)
+            self.symbol_manager = SymbolManager(
+                original_labels=dataset_labels,
+                tokenizer=tokenizer,
+                dynamic_per_epoch=(self.config.symbol_config.mode == SymbolMode.DYNAMIC_PER_EPOCH),
+                symbol_type=self.config.symbol_config.symbol_type
+            )
+            logging.info("✅ SymbolManager initialized")
+            
+            # ✅ FIX: Update config for TEST split inference
+            self.config.data_config.split = 'test'  # Force test split for inference
+
+            self.config.data_config.val_max_samples = self.max_val_samples
+            
+            # Load datasets (same as training orchestrator)
+            logging.info(f"📊 Loading datasets for: {self.dataset_type} (TEST split)")
+            train_datasets, test_datasets = load_datasets_for_config(self.config, inference_mode=True)
+            
+            
+            # ✅ FIX: Create processor with correct model type
+            from data.model_processors import get_processor
+            processor = get_processor(self.config.model_type.value, tokenizer=tokenizer)  # ✅ Use model_type.value
+            logging.info("✅ Processor initialized")
+            
+            # ✅ FIX: Create test dataloader (not validation)
+            self.val_dataloader = create_combined_dataloader(
+                test_datasets,  # ✅ Use test datasets
+                processor,
+                self.config, 
+                shuffle=False
+            )
+            
+            logging.info(f"✅ Test dataloader created: {len(self.val_dataloader)} batches")
+            
+            # Get initial symbol mappings
+            initial_symbol_mappings = self.symbol_manager.get_symbols_for_epoch(0)
+            
+            # ✅ FIX: Initialize model with correct config attributes
             logging.info("🤖 Initializing model...")
-            if self.config.model_config.model_type == "salmonn":
-                self.model = MLPSalmonn(
-                    label_tokens=self.symbol_manager.symbol_tokens,
-                    hidden_dim=self.config.model_config.hidden_dim,
-                    dropout=self.config.model_config.dropout,
-                    bypass_mlp=self.config.model_config.bypass_mlp,
-                    use_output_mlp=self.config.model_config.use_output_mlp,
-                    device=self.device,
-                    low_resource=False
-                )
-            else:
-                raise ValueError(f"Unsupported model type: {self.config.model_config.model_type}")
+            self.model = MLPSalmonn(
+                device=self.device,
+                label_tokens=list(initial_symbol_mappings.values()),
+                hidden_dim=self.config.mlp_config.hidden_dim,  # ✅ mlp_config.hidden_dim
+                dropout=self.config.mlp_config.dropout,        # ✅ mlp_config.dropout
+                lora=True,
+                lora_rank=self.config.lora_config.rank,        # ✅ lora_config.rank
+                lora_alpha=self.config.lora_config.alpha,      # ✅ lora_config.alpha
+                lora_dropout=self.config.lora_config.dropout,  # ✅ lora_config.dropout
+                low_resource=False,
+                use_output_mlp=self.config.mlp_config.use_output_mlp,  # ✅ mlp_config.use_output_mlp
+                bypass_mlp=not self.config.mlp_config.use_input_mlp    # ✅ NOT use_input_mlp = bypass_mlp
+            )
             
             # Load model state from checkpoint
             logging.info("📥 Loading model state from checkpoint...")
             if 'model_state' in checkpoint:
                 try:
-                    # ✅ OPTION 1: Standard loading (with warnings)
                     missing_keys, unexpected_keys = self.model.load_state_dict(
                         checkpoint['model_state'], 
                         strict=False
@@ -204,26 +227,26 @@ class InferenceOrchestrator:
                     logging.info(f"✅ Loaded {loaded_params} model parameters")
                     
                     if missing_keys:
-                        logging.info(f"⚠️ Missing keys (expected): {len(missing_keys)} frozen parameters")
+                        logging.info(f"⚠️ Missing keys: {len(missing_keys)} (expected for frozen params)")
                     if unexpected_keys:
-                        logging.warning(f"⚠️ Unexpected keys: {unexpected_keys}")
+                        logging.warning(f"⚠️ Unexpected keys: {len(unexpected_keys)}")
                         
                 except Exception as e:
                     logging.error(f"❌ Failed to load model state: {str(e)}")
                     raise
             else:
                 logging.warning("⚠️ No model state found in checkpoint")
-            
-            # Move model to device
+        
+        # Move model to device and set eval mode
             self.model.to(self.device)
-            self.model.eval()  # Set to evaluation mode
+            self.model.eval()
             
-            # ✅ FIX: Setup ValidationManager with tokenizer (same as training orchestrator)
+            # ✅ FIX: Setup ValidationManager with correct config attribute
             self.validator = ValidationManager(
                 config=self.config,
                 symbol_manager=self.symbol_manager,
-                tokenizer=tokenizer,  # ✅ USE THE TOKENIZER WE CREATED
-                max_val_samples=self.config.data_config.val_max_samples
+                tokenizer=tokenizer,
+                max_val_samples=getattr(self.config.data_config, 'val_max_samples', 0)  
             )
             
             logging.info("✅ ValidationManager initialized")
@@ -231,6 +254,8 @@ class InferenceOrchestrator:
             
         except Exception as e:
             logging.error(f"❌ Failed to setup model and data: {str(e)}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
             raise
     
     def run_comprehensive_inference(self) -> Tuple[Dict[str, float], Dict[str, Any], List[Dict[str, Any]]]:
@@ -244,25 +269,13 @@ class InferenceOrchestrator:
             model=self.model,
             val_dataloader=self.val_dataloader,
             epoch=0,
-            phase=self._determine_phase(),
+            phase='joint',  # Use 'joint' for comprehensive inference
             cycle=0
         )
         
         # Extract and return (ValidationManager did all the work)
         return results['validation_scores'], results['detailed_metrics'], results['all_predictions']
 
-    def _determine_phase(self) -> str:
-        """Determine phase from config or checkpoint"""
-        if hasattr(self.config, 'training_config') and hasattr(self.config.training_config, 'current_phase'):
-            return self.config.training_config.current_phase
-        elif hasattr(self.config, 'phase'):
-            return self.config.phase
-        else:
-            # Infer from model configuration
-            if self.config.model_config.bypass_mlp:
-                return "lora_only"  # Only LoRA training, no MLP
-            else:
-                return "joint"  # Both LoRA and MLP
 
     def save_results(self, detailed_metrics: Dict[str, Any], all_predictions: List[Dict[str, Any]]):
         """Save detailed metrics and predictions to files"""

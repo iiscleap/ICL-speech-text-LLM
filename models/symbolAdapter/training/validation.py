@@ -263,6 +263,8 @@ class ValidationManager:
                     # ✅ NEW: Store the computed metrics for inference mode
                     computed_detailed_metrics[dataset_name] = dt_metrics
                     
+                    loggin.info(dt_metrics)  # Log the metrics for debugging
+
                     # Log metrics (existing logic - unchanged)
                     logging.info(f"Metrics for {dataset_name} ({mode_name}):")
                     for metric, value in dt_metrics.items():
@@ -286,7 +288,7 @@ class ValidationManager:
                     main_metric_value = 0.0
         
         # ✅ NEW: Store both results AND computed metrics for inference mode
-        if hasattr(self.config, 'inference_mode') and self.config.inference_mode:
+        if is_inference_mode:
             self.all_results = all_results  # Store predictions
             self.computed_detailed_metrics = computed_detailed_metrics  # ✅ Store computed metrics
         
@@ -437,9 +439,7 @@ class ValidationManager:
                 validation_results[mode_key] = metrics["accuracy"]
                 validation_results[f"{mode_key}_loss"] = metrics["loss"]
                 
-                # ✅ NEW: Collect detailed results if in inference mode
-                if hasattr(self.config, 'inference_mode') and self.config.inference_mode:
-                    # Collect computed metrics with mode prefix
+                if is_inference_mode:
                     if hasattr(self, 'computed_detailed_metrics'):
                         for dataset_name, dataset_metrics in self.computed_detailed_metrics.items():
                             key = f"{dataset_name}_{mode_key}"  # e.g., "voxceleb_mlp_symbols"
@@ -458,7 +458,7 @@ class ValidationManager:
                 validation_results[f"{mode_key}_loss"] = float('inf')
         
         # Return based on mode
-        if hasattr(self.config, 'inference_mode') and self.config.inference_mode:
+        if is_inference_mode:
             logging.info("🔍 Running in inference mode - collecting detailed results")
             
             # Return accumulated results (NO additional computation)

@@ -39,32 +39,54 @@ def setup_tokenizer():
     return llama_tokenizer
 
 
-def load_datasets_for_config(config: TrainingConfig):
-    """Load datasets based on configuration"""
+def load_datasets_for_config(config: TrainingConfig, inference_mode: bool = False):
+    """Load datasets based on configuration
+    
+    Args:
+        config: Training configuration
+        inference_mode: If True, load test split only
+    """
     dataset_type_str = config.data_config.dataset_type
     dataset_names = dataset_type_str.split('-') if '-' in dataset_type_str else [dataset_type_str]
     
     train_datasets = {}
-    val_datasets = {}
+    val_datasets = {}  # Will contain test datasets when inference_mode=True
     
     for dataset_name in dataset_names:
         try:
             dataset_type = DatasetType(dataset_name)
             
-            # Load both train and validation
-            full_train_dataset = load_dataset(dataset_type, split="train")
-            full_val_dataset = load_dataset(dataset_type, split="validation")
-            
-            if config.data_config.max_samples > 0:
-                train_datasets[dataset_type] = full_train_dataset.select(range(config.data_config.max_samples))
-                # Use smaller validation set
-                val_samples = min(config.data_config.val_max_samples, len(full_val_dataset))
-                val_datasets[dataset_type] = full_val_dataset.select(range(val_samples))
+            if inference_mode:
+                # ✅ INFERENCE MODE: Load only test split
+                logging.info(f"🔍 Loading test split for {dataset_name}")
+                full_test_dataset = load_dataset(dataset_type, split="test")
+                
+                if config.data_config.max_samples > 0:
+                    test_samples = min(config.data_config.max_samples, len(full_test_dataset))
+                    val_datasets[dataset_type] = full_test_dataset.select(range(test_samples))
+                else:
+                    val_datasets[dataset_type] = full_test_dataset
+                
+                # Empty train_datasets for inference
+                train_datasets[dataset_type] = None
+                
+                logging.info(f"✓ Loaded {dataset_name} TEST: {len(val_datasets[dataset_type])} samples")
+                
             else:
-                train_datasets[dataset_type] = full_train_dataset
-                val_datasets[dataset_type] = full_val_dataset
-            
-            logging.info(f"✓ Loaded {dataset_name}: {len(train_datasets[dataset_type])} train, {len(val_datasets[dataset_type])} val samples")
+                # ✅ TRAINING MODE: Load train and validation splits
+                logging.info(f"📚 Loading train/val splits for {dataset_name}")
+                full_train_dataset = load_dataset(dataset_type, split="train")
+                full_val_dataset = load_dataset(dataset_type, split="validation")
+                
+                if config.data_config.max_samples > 0:
+                    train_datasets[dataset_type] = full_train_dataset.select(range(config.data_config.max_samples))
+                    val_samples = min(config.data_config.val_max_samples, len(full_val_dataset))
+                    val_datasets[dataset_type] = full_val_dataset.select(range(val_samples))
+                else:
+                    train_datasets[dataset_type] = full_train_dataset
+                    val_datasets[dataset_type] = full_val_dataset
+                
+                logging.info(f"✓ Loaded {dataset_name}: {len(train_datasets[dataset_type])} train, {len(val_datasets[dataset_type])} val samples")
             
         except Exception as e:
             logging.error(f"✗ Failed to load dataset {dataset_name}: {e}")

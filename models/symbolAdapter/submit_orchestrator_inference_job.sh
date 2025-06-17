@@ -5,7 +5,7 @@
 # Configuration - Edit these values as needed
 # ========================================
 checkpoint_path="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training/training/1606_1315_orchestrator_joint_training_1c_5le_1me_bypass_mlp_sym_salmonn_voxceleb_hvb/checkpoints/lora_step0_cycle0_epoch1_periodic.pt"
-dataset_type="voxceleb-hvb"  # Dataset type to evaluate on
+dataset_type="voxceleb"  # Dataset type to evaluate on
 max_val_samples=10            # 0 = use all samples
 
 # Optional parameters
@@ -49,7 +49,7 @@ SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/models/symbolAdapter/orchestrator_i
 TODAY=$(date +"%Y-%m-%d")
 
 # Create output directories
-LOG_DIR="/data2/neeraja/neeraja/results/model_ICL/logs/orchestrator_logs/${TODAY}"
+LOG_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_logs/${TODAY}"
 mkdir -p "$LOG_DIR"
 
 # Remove old log file if exists
