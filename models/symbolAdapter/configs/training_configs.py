@@ -130,7 +130,8 @@ class TrainingConfig:
     # NEW: Inference configuration
     inference_mode: bool = False
     
-    
+    only_original: bool = False  # Only use original labels without symbols
+
     def __post_init__(self):
         """Validate configuration after initialization"""
         self._validate_config()

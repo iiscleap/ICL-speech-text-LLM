@@ -132,8 +132,8 @@ class InferenceOrchestrator:
             
             # Update config for inference
             self.config.data_config.dataset_type = self.dataset_type
-            if self.max_val_samples > 0:
-                self.config.data_config.val_max_samples = self.max_val_samples
+
+            self.config.data_config.val_max_samples = self.max_val_samples
             
             return checkpoint
             

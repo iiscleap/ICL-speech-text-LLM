@@ -18,7 +18,11 @@ total_cycles=1
 
 # MLP Architecture parameters
 use_output_mlp=False  # Enable/disable output MLP
+
+
 bypass_mlp=True 
+
+
 hidden_dim=4
 batch_size=1
 
@@ -28,6 +32,8 @@ max_samples=0  # Set reasonable default
 
 # NEW: Orchestrator-specific parameters
 schedule_type="joint_training"  # Options: "lora_first", "mlp_first", "joint_training"
+
+
 dynamic_symbols_per_epoch=True  # Generate new symbols each epoch
 
 # Set conda environment
@@ -70,7 +76,7 @@ TODAY=$(date +"%Y-%m-%d")
 
 # Directory setup
 OUTPUT_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training"
-LOG_DIR="/data2/neeraja/neeraja/results/model_ICL/logs/orchestrator_training/${TODAY}"
+LOG_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training/logs/${TODAY}"
 
 # Create directories
 for dir in "$LOG_DIR" "$OUTPUT_DIR"; do

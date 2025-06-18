@@ -112,12 +112,14 @@ class SymbolManager:
     
     def _generate_symbol_mappings(self) -> Dict[str, str]:
         """Generate symbol mappings based on symbol_type"""
+        # return dict(zip(self.original_labels, self.original_labels))
         if self.symbol_type == "two_token":
             symbols = self._generate_two_token_symbols(len(self.original_labels))
         else:
             raise ValueError(f"Unsupported symbol type: {self.symbol_type}")
         
         return dict(zip(self.original_labels, symbols))
+        
     
     def _generate_two_token_symbols(self, num_symbols: int) -> List[str]:
         """

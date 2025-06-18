@@ -5,8 +5,8 @@
 # Configuration - Edit these values as needed
 # ========================================
 checkpoint_path="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training/training/1606_1315_orchestrator_joint_training_1c_5le_1me_bypass_mlp_sym_salmonn_voxceleb_hvb/checkpoints/lora_step0_cycle0_epoch1_periodic.pt"
-dataset_type="voxceleb"  # Dataset type to evaluate on
-max_val_samples=10            # 0 = use all samples
+dataset_type="hvb-voxceleb-voxpopuli"  # Dataset type to evaluate on
+max_val_samples=0            # 0 = use all samples
 
 # Optional parameters
 device="cuda:0"

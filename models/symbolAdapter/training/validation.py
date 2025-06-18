@@ -123,7 +123,9 @@ class ValidationManager:
         processed_samples = 0
         
         # Initialize results dict based on dataset types
-        dataset_names = [self.config.data_config.dataset_type.value] if hasattr(self.config.data_config.dataset_type, 'value') else [str(self.config.data_config.dataset_type)]
+        # dataset_names = [self.config.data_config.dataset_type.value] if hasattr(self.config.data_config.dataset_type, 'value') else [str(self.config.data_config.dataset_type)]
+        dataset_type_str = self.config.data_config.dataset_type
+        dataset_names = dataset_type_str.split('-') if '-' in dataset_type_str else [dataset_type_str]
         for dataset_name in dataset_names:
             all_results[dataset_name] = []
         
@@ -131,7 +133,7 @@ class ValidationManager:
         progress_bar = tqdm(
             val_dataloader, 
             desc=f"Val {mode_name}",
-            total=min(len(val_dataloader), self.max_val_samples)
+            total=min(len(val_dataloader), self.max_val_samples) if self.max_val_samples > 0 else len(val_dataloader),
         )
         
         # ✅ Flag to log first validation prompt
@@ -140,7 +142,7 @@ class ValidationManager:
         try:
             for batch_idx, batch in enumerate(progress_bar):
                 # Limit validation samples
-                if processed_samples >= self.max_val_samples:
+                if (processed_samples >= self.max_val_samples) and self.max_val_samples > 0:
                     break
                 
                 try:
@@ -263,7 +265,7 @@ class ValidationManager:
                     # ✅ NEW: Store the computed metrics for inference mode
                     computed_detailed_metrics[dataset_name] = dt_metrics
                     
-                    loggin.info(dt_metrics)  # Log the metrics for debugging
+                    # logging.info(dt_metrics)  # Log the metrics for debugging
 
                     # Log metrics (existing logic - unchanged)
                     logging.info(f"Metrics for {dataset_name} ({mode_name}):")
@@ -288,7 +290,7 @@ class ValidationManager:
                     main_metric_value = 0.0
         
         # ✅ NEW: Store both results AND computed metrics for inference mode
-        if is_inference_mode:
+        if self.is_inference_mode:
             self.all_results = all_results  # Store predictions
             self.computed_detailed_metrics = computed_detailed_metrics  # ✅ Store computed metrics
         
@@ -319,8 +321,9 @@ class ValidationManager:
 
         dynamic_symbols_enabled = (self.config.symbol_config.mode == SymbolMode.DYNAMIC_PER_EPOCH)
         is_inference_mode = getattr(self.config, 'inference_mode', False)
+        self.is_inference_mode = is_inference_mode  # Store for later use
         
-        if is_inference_mode:
+        if self.is_inference_mode:
             accumulated_detailed_metrics = {}
             accumulated_predictions = []
 
@@ -418,10 +421,16 @@ class ValidationManager:
         # Run each validation mode
         for mode_key, bypass_mlp_val, use_original, use_dynamic in modes:
 
-            if is_inference_mode and dynamic_symbols_enabled:
+            if self.is_inference_mode and dynamic_symbols_enabled:
                 # Skip fixed symbol modes (use_dynamic=False) when dynamic symbols are enabled
                 if not use_dynamic and not use_original:
                     logging.info(f"⏭️ Skipping {mode_key} (fixed symbols) - dynamic symbols enabled in inference")
+                    continue
+
+            if not self.only_original:
+                # If only original labels are used, skip all symbol modes
+                if not use_original:
+                    logging.info(f"⏭️ Skipping {mode_key} - only original labels are used")
                     continue
 
             try:
@@ -439,7 +448,7 @@ class ValidationManager:
                 validation_results[mode_key] = metrics["accuracy"]
                 validation_results[f"{mode_key}_loss"] = metrics["loss"]
                 
-                if is_inference_mode:
+                if self.is_inference_mode:
                     if hasattr(self, 'computed_detailed_metrics'):
                         for dataset_name, dataset_metrics in self.computed_detailed_metrics.items():
                             key = f"{dataset_name}_{mode_key}"  # e.g., "voxceleb_mlp_symbols"
@@ -458,7 +467,7 @@ class ValidationManager:
                 validation_results[f"{mode_key}_loss"] = float('inf')
         
         # Return based on mode
-        if is_inference_mode:
+        if self.is_inference_mode:
             logging.info("🔍 Running in inference mode - collecting detailed results")
             
             # Return accumulated results (NO additional computation)
