@@ -20,7 +20,7 @@ total_cycles=1
 use_output_mlp=False  # Enable/disable output MLP
 
 
-bypass_mlp=True 
+bypass_mlp=False 
 
 
 hidden_dim=4
@@ -113,7 +113,7 @@ echo "=========================================="
 
 # Submit job
 qsub -q gpu.q -V -cwd \
-    -l hostname=compute-0-8 \
+    -l hostname=compute-0-7 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \

@@ -251,8 +251,8 @@ class ValidationManager:
             progress_bar.close()
         
         # Calculate metrics using utils.evaluation_utils.evaluate_predictions
-        main_metric_value = 0.0
-        computed_detailed_metrics = {}  # ✅ NEW: Store computed metrics
+        dataset_metric_values = {}  # ✅ Store all dataset metrics
+        computed_detailed_metrics = {}
         
         for dataset_name in dataset_names:
             dt_results = all_results.get(dataset_name, [])
@@ -260,13 +260,11 @@ class ValidationManager:
             if dt_results:
                 try:
                     dataset_type = DatasetType(dataset_name)
-                    dt_metrics = evaluate_predictions(dt_results, dataset_type)  # ✅ SINGLE CALL
+                    dt_metrics = evaluate_predictions(dt_results, dataset_type)
                     
-                    # ✅ NEW: Store the computed metrics for inference mode
+                    # ✅ Store the computed metrics for inference mode
                     computed_detailed_metrics[dataset_name] = dt_metrics
                     
-                    # logging.info(dt_metrics)  # Log the metrics for debugging
-
                     # Log metrics (existing logic - unchanged)
                     logging.info(f"Metrics for {dataset_name} ({mode_name}):")
                     for metric, value in dt_metrics.items():
@@ -275,29 +273,46 @@ class ValidationManager:
                         else:
                             logging.info(f"  {metric}: {value}")
                     
-                    # Extract main metric for return value (existing logic - unchanged)
+                    # ✅ Extract and STORE metric for each dataset
                     if dataset_name.lower() == 'voxceleb':
-                        main_metric_value = dt_metrics.get('macro_f1_with_invalid', 0.0)
+                        dataset_metric_values[dataset_name] = dt_metrics.get('macro_f1_with_invalid', 0.0)
                     elif dataset_name.lower() == 'hvb':
-                        main_metric_value = dt_metrics.get('macro_f1', 0.0)
+                        dataset_metric_values[dataset_name] = dt_metrics.get('macro_f1', 0.0)
                     elif dataset_name.lower() == 'meld_emotion':
-                        main_metric_value = dt_metrics.get('macro_f1_with_invalid', 0.0)
+                        dataset_metric_values[dataset_name] = dt_metrics.get('macro_f1_with_invalid', 0.0)
                     else:
-                        main_metric_value = dt_metrics.get('macro_f1', 0.0)
+                        dataset_metric_values[dataset_name] = dt_metrics.get('macro_f1', 0.0)
                         
                 except Exception as e:
                     logging.error(f"Error evaluating predictions for {dataset_name}: {str(e)}")
-                    main_metric_value = 0.0
+                    dataset_metric_values[dataset_name] = 0.0
         
-        # ✅ NEW: Store both results AND computed metrics for inference mode
+        # ✅ Create composite metric string: "dataset1:score1|dataset2:score2"
+        if dataset_metric_values:
+            composite_metric_str = "|".join([f"{dataset}:{score:.4f}" for dataset, score in dataset_metric_values.items()])
+            
+            # Calculate average for backward compatibility
+            main_metric_value = sum(dataset_metric_values.values()) / len(dataset_metric_values)
+            
+            logging.info(f"📊 Dataset metrics: {dataset_metric_values}")
+            logging.info(f"📊 Combined metric: {main_metric_value:.4f}")
+            logging.info(f"📊 Composite string: {composite_metric_str}")
+        else:
+            composite_metric_str = "no_data:0.000000"
+            main_metric_value = 0.0
+        
+        # ✅ Store both results AND computed metrics for inference mode
         if self.is_inference_mode:
-            self.all_results = all_results  # Store predictions
-            self.computed_detailed_metrics = computed_detailed_metrics  # ✅ Store computed metrics
+            self.all_results = all_results
+            self.computed_detailed_metrics = computed_detailed_metrics
+            self.dataset_metric_values = dataset_metric_values  # ✅ Store individual metrics
+            self.composite_metric_str = composite_metric_str    # ✅ Store composite string
         
         return {
-            "accuracy": main_metric_value,
+            "accuracy": main_metric_value,           # ✅ Backward compatible average
+            "composite_accuracy": composite_metric_str,  # ✅ NEW: All dataset metrics
             "loss": 0.0,
-            "total_samples": len(all_results.get(dataset_names[0], []))
+            "total_samples": sum(len(all_results.get(name, [])) for name in dataset_names)
         }
 
     # Keep all the existing methods unchanged
@@ -322,6 +337,8 @@ class ValidationManager:
         dynamic_symbols_enabled = (self.config.symbol_config.mode == SymbolMode.DYNAMIC_PER_EPOCH)
         is_inference_mode = getattr(self.config, 'inference_mode', False)
         self.is_inference_mode = is_inference_mode  # Store for later use
+
+        self.only_original = getattr(self.config, 'only_original', False)
         
         if self.is_inference_mode:
             accumulated_detailed_metrics = {}
@@ -427,7 +444,7 @@ class ValidationManager:
                     logging.info(f"⏭️ Skipping {mode_key} (fixed symbols) - dynamic symbols enabled in inference")
                     continue
 
-            if not self.only_original:
+            if self.only_original:
                 # If only original labels are used, skip all symbol modes
                 if not use_original:
                     logging.info(f"⏭️ Skipping {mode_key} - only original labels are used")
@@ -444,9 +461,12 @@ class ValidationManager:
                     use_original_labels=use_original,
                     use_dynamic_symbols=use_dynamic
                 )
-                
-                validation_results[mode_key] = metrics["accuracy"]
+                composite_metric = metrics.get("composite_accuracy", "no_data:0.000000")
+                # validation_results[mode_key] = metrics["accuracy"]
+                validation_results[mode_key] =  composite_metric
                 validation_results[f"{mode_key}_loss"] = metrics["loss"]
+                validation_results[f"{mode_key}_composite"] = composite_metric
+
                 
                 if self.is_inference_mode:
                     if hasattr(self, 'computed_detailed_metrics'):
@@ -464,6 +484,7 @@ class ValidationManager:
             except Exception as e:
                 logging.error(f"Validation mode {mode_key} failed: {str(e)}")
                 validation_results[mode_key] = 0.0
+                validation_results[f"{mode_key}_composite"] = "error:0.000000"
                 validation_results[f"{mode_key}_loss"] = float('inf')
         
         # Return based on mode
@@ -487,31 +508,80 @@ class ValidationManager:
             return validation_results
 
 
-    def log_validation_summary(
-        self,
-        validation_results: Dict[str, float],
-        epoch: int,
-        phase: str,
-        cycle: int = 0
-    ):
-        """Log validation summary in a readable format"""
-        logging.info("=" * 60)
+    def log_validation_summary(self, validation_results: Dict[str, float], epoch: int, phase: str, cycle: int = 0):
+        """Enhanced logging with per-dataset breakdown"""
+        logging.info("=" * 80)
         logging.info(f"{phase.upper()} CYCLE {cycle} EPOCH {epoch} VALIDATION SUMMARY:")
-        logging.info("=" * 60)
+        logging.info("=" * 80)
         
         # Group results by type
-        accuracy_results = {k: v for k, v in validation_results.items() if not k.endswith('_loss')}
+        accuracy_results = {k: v for k, v in validation_results.items() 
+                           if not k.endswith('_loss') and not k.endswith('_composite')}
+        composite_results = {k.replace('_composite', ''): v for k, v in validation_results.items() 
+                            if k.endswith('_composite')}
         
         for mode, accuracy in accuracy_results.items():
-            logging.info(f"{mode:<20}: {accuracy:.4f}")
+            logging.info(f"{mode:<25}: {accuracy:.4f} (avg)")
+            
+            # ✅ Show per-dataset breakdown
+            if mode in composite_results:
+                dataset_scores = parse_composite_metric(composite_results[mode])
+                for dataset, score in dataset_scores.items():
+                    logging.info(f"  └─ {dataset:<20}: {score:.4f}")
         
-        # Find best performing mode
-        if accuracy_results:
-            best_mode = max(accuracy_results, key=accuracy_results.get)
-            best_score = accuracy_results[best_mode]
-            logging.info("-" * 60)
-            logging.info(f"Best performance: {best_mode} = {best_score:.4f}")
+        # Find best performing mode per dataset
+        if composite_results:
+            all_dataset_names = set()
+            for composite_str in composite_results.values():
+                all_dataset_names.update(parse_composite_metric(composite_str).keys())
+            
+            logging.info("-" * 80)
+            logging.info("BEST PERFORMANCE PER DATASET:")
+            for dataset in all_dataset_names:
+                best_mode = None
+                best_score = 0.0
+                
+                for mode, composite_str in composite_results.items():
+                    dataset_scores = parse_composite_metric(composite_str)
+                    if dataset in dataset_scores and dataset_scores[dataset] > best_score:
+                        best_score = dataset_scores[dataset]
+                        best_mode = mode
+                
+                if best_mode:
+                    logging.info(f"  {dataset:<15}: {best_mode} = {best_score:.4f}")
         
-        logging.info("=" * 60)
+        logging.info("=" * 80)
+
+
+def parse_composite_metric(composite_str: str) -> Dict[str, float]:
+    """Parse composite metric string back to dictionary"""
+    if not composite_str or composite_str == "no_data:0.000000":
+        return {}
+    
+    result = {}
+    for pair in composite_str.split("|"):
+        if ":" in pair:
+            dataset, score = pair.split(":", 1)
+            try:
+                result[dataset] = float(score)
+            except ValueError:
+                result[dataset] = 0.0
+    return result
+
+def create_composite_metric(dataset_metrics: Dict[str, float]) -> str:
+    """Create composite metric string from dictionary"""
+    if not dataset_metrics:
+        return "no_data:0.000000"
+    return "|".join([f"{dataset}:{score:.6f}" for dataset, score in dataset_metrics.items()])
+
+def get_best_dataset_metric(composite_str: str) -> Tuple[str, float]:
+    """Get the best performing dataset from composite string"""
+    metrics = parse_composite_metric(composite_str)
+    if not metrics:
+        return "none", 0.0
+    
+    best_dataset = max(metrics, key=metrics.get)
+    best_score = metrics[best_dataset]
+    return best_dataset, best_score
 
 

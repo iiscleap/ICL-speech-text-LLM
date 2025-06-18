@@ -264,13 +264,13 @@ def main():
                 symbol_manager=symbol_manager  # PASS EXISTING SYMBOL_MANAGER
             )
             
-            results = orchestrator.run_complete_training()
+            orchestrator.run_complete_training()
             
             logging.info("✅ Training completed successfully!")
-            logging.info(f"Best overall score: {results.get('best_overall_score', 0):.4f}")
-            logging.info(f"Training time: {results.get('training_time', 0):.1f} seconds")
+            # logging.info(f"Best overall score: {results.get('best_overall_score', 0):.4f}")
+            # logging.info(f"Training time: {results.get('training_time', 0):.1f} seconds")
             
-            return results
+            return None
             
         except KeyboardInterrupt:
             logging.info("❌ Training interrupted by user")

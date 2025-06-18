@@ -89,12 +89,12 @@ class DataConfig:
     """Data-specific configuration"""
     dataset_type: str = 'voceleb'  # Default dataset type
     batch_size: int = 1
-    max_samples: int = 100
+    max_samples: int = 10
     split: str = "test"
     
     # Validation parameters
     val_batch_size: Optional[int] = 1
-    val_max_samples: int = 200
+    val_max_samples: int = 200  # Default validation samples
     val_frequency: int = 1  # Validate every N epochs
 
 @dataclass
@@ -251,15 +251,9 @@ class TrainingConfig:
     
     def get_training_output_dir(self) -> str:
         """Get training output directory with run_name structure"""
-        return os.path.join(self.output_dir, "training", self.run_name)
+        return os.path.join(self.output_dir, "checkpoints", self.run_name)
     
-    def get_checkpoint_dir(self) -> str:
-        """Get checkpoint directory with run_name structure"""
-        return os.path.join(self.get_training_output_dir(), "checkpoints")
     
-    def get_log_dir(self) -> str:
-        """Get log directory with run_name structure"""
-        return os.path.join(self.get_training_output_dir(), "logs")
     
     @classmethod
     def from_args(cls, args: argparse.Namespace) -> 'TrainingConfig':
@@ -301,6 +295,7 @@ class TrainingConfig:
             dataset_type=args.dataset_type,
             batch_size=args.batch_size,
             max_samples=args.max_samples,
+            val_max_samples = min(200, args.max_samples),
             split=getattr(args, 'split', 'test'),
         )
         
@@ -371,7 +366,7 @@ def get_default_config(schedule_type: str = "lora_first") -> TrainingConfig:
         base_config.mlp_config.use_output_mlp = False
         base_config.total_cycles = 1  # More cycles for joint training
         
-    elif bypass_mlp == "bypass_mlp_sym":
+    elif schedule_type == "bypass_mlp_sym":
         base_config.mode = TrainingMode.BYPASS_MLP_SYM
         # Bypass MLP training with dynamic symbols
         base_config.symbol_config.mode = SymbolMode.DYNAMIC_PER_EPOCH
@@ -386,7 +381,7 @@ def get_default_config(schedule_type: str = "lora_first") -> TrainingConfig:
         base_config.mlp_config.use_output_mlp = False
         
     else:
-        raise ValueError(f"Unknown training mode: {mode}")
+        raise ValueError(f"Unknown training mode: {schedule_type}")
     
     return base_config
 
