@@ -121,11 +121,28 @@ class ValidationManager:
         
         all_results = {}
         processed_samples = 0
-        
-        # Initialize results dict based on dataset types
-        # dataset_names = [self.config.data_config.dataset_type.value] if hasattr(self.config.data_config.dataset_type, 'value') else [str(self.config.data_config.dataset_type)]
+
+        # ✅ Get training datasets
         dataset_type_str = self.config.data_config.dataset_type
-        dataset_names = dataset_type_str.split('-') if '-' in dataset_type_str else [dataset_type_str]
+        dataset_names_train = set(dataset_type_str.split('-') if '-' in dataset_type_str else [dataset_type_str])
+        
+        # ✅ Get validation datasets
+        if not self.is_inference_mode:
+            val_dataset_type_str = self.config.data_config.val_dataset_type
+            dataset_names_val = val_dataset_type_str.split('-') if '-' in val_dataset_type_str else [val_dataset_type_str]
+        else:
+            dataset_names_val = list(dataset_names_train)
+        
+        # ✅ Identify val-only datasets that should be skipped in symbol modes
+        val_only_datasets = set(dataset_names_val) - dataset_names_train
+        
+        # ✅ Log what we're doing
+        if val_only_datasets and not use_original_labels and not use_dynamic_symbols:
+            logging.info(f"📊 Training datasets: {list(dataset_names_train)}")
+            logging.info(f"📊 Val-only datasets (will skip in symbol mode): {list(val_only_datasets)}")
+        
+        dataset_names = dataset_names_val
+
         for dataset_name in dataset_names:
             all_results[dataset_name] = []
         
@@ -133,7 +150,7 @@ class ValidationManager:
         progress_bar = tqdm(
             val_dataloader, 
             desc=f"Val {mode_name}",
-            total=min(len(val_dataloader), self.max_val_samples) if self.max_val_samples > 0 else len(val_dataloader),
+            total=len(val_dataloader),
         )
         
         # ✅ Flag to log first validation prompt
@@ -141,10 +158,6 @@ class ValidationManager:
         
         try:
             for batch_idx, batch in enumerate(progress_bar):
-                # Limit validation samples
-                if (processed_samples >= self.max_val_samples) and self.max_val_samples > 0:
-                    break
-                
                 try:
                     # Apply symbol replacement using SymbolManager methods
                     if use_original_labels:
@@ -154,25 +167,23 @@ class ValidationManager:
                         # For dynamic symbols, use the fresh mappings directly
                         updated_batch = self.symbol_manager.replace_symbols_in_batch(batch, mappings=symbol_mappings)
                     else:
-                        # Use SymbolManager's method with the epoch
+                        # For fixed symbols, replace using SymbolManager's method with the epoch
                         updated_batch = self.symbol_manager.replace_symbols_in_batch(batch, epoch=epoch)
                     
-                    # ✅ ADD: Log first validation prompt (like in training)
+                    # ✅ Log first validation prompt
                     if log_first_prompt:
                         logging.info("=" * 80)
                         logging.info(f"FIRST VALIDATION PROMPT - {mode_name} (Epoch {epoch})")
                         logging.info("=" * 80)
                         
-                        # Log the first sample's prompt
                         first_sample_org = batch['prompt'][0] if isinstance(batch['prompt'], list) else batch['prompt']
-                        first_sample = updated_batch['prompt'][0] if isinstance(updated_batch['text'], list) else updated_batch['prompt']
+                        first_sample = updated_batch['prompt'][0] if isinstance(updated_batch['prompt'], list) else updated_batch['prompt']
                         true_label = batch['completion'][0] if isinstance(batch['completion'], list) else batch['completion']
                         
                         logging.info(f"Validation Prompt Org: {str(first_sample_org)}")
                         logging.info(f"Validation Prompt: {str(first_sample)}")
                         logging.info(f"True Label: {true_label}")
                         
-                        # Log symbols being used
                         if not use_original_labels:
                             if use_dynamic_symbols:
                                 logging.info(f"Using Fresh Symbols: {symbol_mappings}")
@@ -194,14 +205,19 @@ class ValidationManager:
                         dt_key = dt.value if hasattr(dt, 'value') else str(dt)
                         true_label = batch["completion"][i] if isinstance(batch["completion"], list) else batch["completion"]
                         
+                        # ✅ CORRECT FILTERING: Skip val-only datasets in symbol modes
+                        if (dt_key in val_only_datasets and 
+                            not use_original_labels and 
+                            not use_dynamic_symbols):
+                            # Skip this sample - it's a val-only dataset in fixed symbol mode
+                            continue
+                        
                         # Convert symbols back to original labels using SymbolManager
                         converted_pred = pred
                         if not use_original_labels and symbol_mappings:
                             if use_dynamic_symbols:
-                                # For fresh symbols, use the fresh mappings directly
                                 converted_pred = self.symbol_manager.convert_symbols_back(pred, mappings=symbol_mappings)
                             else:
-                                # For training symbols, use SymbolManager's method with epoch
                                 converted_pred = self.symbol_manager.convert_symbols_back(pred, epoch=epoch)
                         
                         # Clean the prediction using utils.evaluation_utils
@@ -224,7 +240,7 @@ class ValidationManager:
                         
                         processed_samples += 1
                         
-                        # ✅ Log first prediction conversion (only for batch_idx == 0 and i == 0)
+                        # ✅ Log first prediction conversion
                         if batch_idx < 5 and i == 0:
                             logging.info("=" * 60)
                             logging.info("FIRST VALIDATION PREDICTION CONVERSION:")
@@ -251,7 +267,7 @@ class ValidationManager:
             progress_bar.close()
         
         # Calculate metrics using utils.evaluation_utils.evaluate_predictions
-        dataset_metric_values = {}  # ✅ Store all dataset metrics
+        dataset_metric_values = {}
         computed_detailed_metrics = {}
         
         for dataset_name in dataset_names:
@@ -262,10 +278,8 @@ class ValidationManager:
                     dataset_type = DatasetType(dataset_name)
                     dt_metrics = evaluate_predictions(dt_results, dataset_type)
                     
-                    # ✅ Store the computed metrics for inference mode
                     computed_detailed_metrics[dataset_name] = dt_metrics
                     
-                    # Log metrics (existing logic - unchanged)
                     logging.info(f"Metrics for {dataset_name} ({mode_name}):")
                     for metric, value in dt_metrics.items():
                         if isinstance(value, (float, int)):
@@ -273,7 +287,7 @@ class ValidationManager:
                         else:
                             logging.info(f"  {metric}: {value}")
                     
-                    # ✅ Extract and STORE metric for each dataset
+                    # Extract metric for each dataset
                     if dataset_name.lower() == 'voxceleb':
                         dataset_metric_values[dataset_name] = dt_metrics.get('macro_f1_with_invalid', 0.0)
                     elif dataset_name.lower() == 'hvb':
@@ -286,12 +300,19 @@ class ValidationManager:
                 except Exception as e:
                     logging.error(f"Error evaluating predictions for {dataset_name}: {str(e)}")
                     dataset_metric_values[dataset_name] = 0.0
+            else:
+                # ✅ Handle empty results properly
+                if dataset_name in val_only_datasets and not use_original_labels and not use_dynamic_symbols:
+                    # Expected - val-only dataset in symbol mode
+                    logging.info(f"📊 {dataset_name} skipped in symbol mode (expected)")
+                else:
+                    # Unexpected - trained dataset with no results
+                    logging.warning(f"⚠️ No results for dataset {dataset_name}")
+                    dataset_metric_values[dataset_name] = 0.0
         
-        # ✅ Create composite metric string: "dataset1:score1|dataset2:score2"
+        # ✅ Create composite metric string
         if dataset_metric_values:
             composite_metric_str = "|".join([f"{dataset}:{score:.4f}" for dataset, score in dataset_metric_values.items()])
-            
-            # Calculate average for backward compatibility
             main_metric_value = sum(dataset_metric_values.values()) / len(dataset_metric_values)
             
             logging.info(f"📊 Dataset metrics: {dataset_metric_values}")
@@ -300,19 +321,20 @@ class ValidationManager:
         else:
             composite_metric_str = "no_data:0.000000"
             main_metric_value = 0.0
+            logging.info(f"📊 No validation data available")
         
-        # ✅ Store both results AND computed metrics for inference mode
+        # Store results for inference mode
         if self.is_inference_mode:
             self.all_results = all_results
             self.computed_detailed_metrics = computed_detailed_metrics
-            self.dataset_metric_values = dataset_metric_values  # ✅ Store individual metrics
-            self.composite_metric_str = composite_metric_str    # ✅ Store composite string
+            self.dataset_metric_values = dataset_metric_values
+            self.composite_metric_str = composite_metric_str
         
         return {
-            "accuracy": main_metric_value,           # ✅ Backward compatible average
-            "composite_accuracy": composite_metric_str,  # ✅ NEW: All dataset metrics
+            "accuracy": main_metric_value,
+            "composite_accuracy": composite_metric_str,
             "loss": 0.0,
-            "total_samples": sum(len(all_results.get(name, [])) for name in dataset_names)
+            "total_samples": sum(len(all_results.get(name, [])) for name in dataset_names if name in dataset_metric_values)
         }
 
     # Keep all the existing methods unchanged
@@ -432,9 +454,8 @@ class ValidationManager:
             ]
         
         logging.info(f"Validation modes for {phase.upper()} (bypass_mlp={bypass_mlp}, use_symbols={use_symbols}):")
-        for mode_name, bypass, orig, fresh in modes:
-            logging.info(f"  - {mode_name}")
-        
+
+    
         # Run each validation mode
         for mode_key, bypass_mlp_val, use_original, use_dynamic in modes:
 
@@ -465,7 +486,7 @@ class ValidationManager:
                 # validation_results[mode_key] = metrics["accuracy"]
                 validation_results[mode_key] =  composite_metric
                 validation_results[f"{mode_key}_loss"] = metrics["loss"]
-                validation_results[f"{mode_key}_composite"] = composite_metric
+                # validation_results[f"{mode_key}_composite"] = composite_metric
 
                 
                 if self.is_inference_mode:
@@ -484,7 +505,7 @@ class ValidationManager:
             except Exception as e:
                 logging.error(f"Validation mode {mode_key} failed: {str(e)}")
                 validation_results[mode_key] = 0.0
-                validation_results[f"{mode_key}_composite"] = "error:0.000000"
+                # validation_results[f"{mode_key}_composite"] = "error:0.000000"
                 validation_results[f"{mode_key}_loss"] = float('inf')
         
         # Return based on mode
@@ -509,48 +530,90 @@ class ValidationManager:
 
 
     def log_validation_summary(self, validation_results: Dict[str, float], epoch: int, phase: str, cycle: int = 0):
-        """Enhanced logging with per-dataset breakdown"""
-        logging.info("=" * 80)
+        """Enhanced logging with contextual missing dataset handling"""
+        logging.info("=" * 140)
         logging.info(f"{phase.upper()} CYCLE {cycle} EPOCH {epoch} VALIDATION SUMMARY:")
-        logging.info("=" * 80)
+        logging.info("=" * 140)
         
-        # Group results by type
-        accuracy_results = {k: v for k, v in validation_results.items() 
-                           if not k.endswith('_loss') and not k.endswith('_composite')}
-        composite_results = {k.replace('_composite', ''): v for k, v in validation_results.items() 
-                            if k.endswith('_composite')}
+        # Get training vs validation datasets for context
+        dataset_type_str = self.config.data_config.dataset_type
+        dataset_names_train = set(dataset_type_str.split('-') if '-' in dataset_type_str else [dataset_type_str])
         
-        for mode, accuracy in accuracy_results.items():
-            logging.info(f"{mode:<25}: {accuracy:.4f} (avg)")
-            
-            # ✅ Show per-dataset breakdown
-            if mode in composite_results:
-                dataset_scores = parse_composite_metric(composite_results[mode])
-                for dataset, score in dataset_scores.items():
-                    logging.info(f"  └─ {dataset:<20}: {score:.4f}")
+        if not getattr(self, 'is_inference_mode', False):
+            val_dataset_type_str = self.config.data_config.val_dataset_type
+            dataset_names_val = set(val_dataset_type_str.split('-') if '-' in val_dataset_type_str else [val_dataset_type_str])
+            val_only_datasets = dataset_names_val - dataset_names_train
+        else:
+            val_only_datasets = set()
         
-        # Find best performing mode per dataset
+        composite_results = {k: v for k, v in validation_results.items() 
+                            if not k.endswith('_loss') and isinstance(v, str)}
+        
         if composite_results:
-            all_dataset_names = set()
+            # Get all datasets and create display mapping
+            all_datasets = set()
             for composite_str in composite_results.values():
-                all_dataset_names.update(parse_composite_metric(composite_str).keys())
-            
-            logging.info("-" * 80)
-            logging.info("BEST PERFORMANCE PER DATASET:")
-            for dataset in all_dataset_names:
-                best_mode = None
-                best_score = 0.0
-                
-                for mode, composite_str in composite_results.items():
+                if '|' in composite_str:
                     dataset_scores = parse_composite_metric(composite_str)
-                    if dataset in dataset_scores and dataset_scores[dataset] > best_score:
-                        best_score = dataset_scores[dataset]
-                        best_mode = mode
+                    all_datasets.update(dataset_scores.keys())
+            
+            if all_datasets:
+                # Create abbreviated names and context info
+                dataset_info = {}
+                for dataset in sorted(all_datasets):
+                    abbrev = dataset[:3].upper()
+                    is_trained = dataset in dataset_names_train
+                    dataset_info[dataset] = {
+                        'abbrev': abbrev,
+                        'is_trained': is_trained,
+                        'context': 'TRN' if is_trained else 'VAL'
+                    }
                 
-                if best_mode:
-                    logging.info(f"  {dataset:<15}: {best_mode} = {best_score:.4f}")
+                # Header with context
+                header_parts = ["Mode"]
+                for dataset in sorted(all_datasets):
+                    info = dataset_info[dataset]
+                    header_parts.append(f"{info['abbrev']}({info['context']})")
+                header_parts.append("Avg")
+                
+                header = "  ".join(f"{h:<12}" for h in header_parts)
+                logging.info(header)
+                logging.info("-" * len(header))
+                
+                # Data rows
+                for mode, composite_str in composite_results.items():
+                    if '|' in composite_str:
+                        dataset_scores = parse_composite_metric(composite_str)
+                        mode_short = mode.replace('no_mlp_', '').replace('mlp_', '').replace('_', '+')
+                        row_parts = [mode_short[:8]]
+                        
+                        for dataset in sorted(all_datasets):
+                            info = dataset_info[dataset]
+                            
+                            if dataset in dataset_scores:
+                                score = dataset_scores[dataset]
+                                row_parts.append(f"{score:.3f}")
+                            else:
+                                # ✅ Context-aware missing values
+                                if dataset in val_only_datasets and 'symbol' in mode.lower() and 'fresh' not in mode.lower():
+                                    row_parts.append("SKIP")  # Expected skip for val-only in symbol mode
+                                else:
+                                    row_parts.append("N/A")   # Unexpected missing
+                        
+                        # Average
+                        if dataset_scores:
+                            avg_score = sum(dataset_scores.values()) / len(dataset_scores)
+                            row_parts.append(f"{avg_score:.3f}")
+                        else:
+                            row_parts.append("N/A")
+                        
+                        row = "  ".join(f"{r:<12}" for r in row_parts)
+                        logging.info(row)
+                    else:
+                        mode_short = mode.replace('no_mlp_', '').replace('mlp_', '').replace('_', '+')
+                        logging.info(f"{mode_short:<12}  {composite_str}")
         
-        logging.info("=" * 80)
+        logging.info("=" * 140)
 
 
 def parse_composite_metric(composite_str: str) -> Dict[str, float]:

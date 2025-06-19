@@ -55,13 +55,6 @@ class UnifiedTrainer:
         self._setup_training_phase(step)
         
         validation_scores = {}
-        step_metrics = {
-            "train_loss": [],
-            "validation_scores": {},
-            "best_epoch": 0,
-            "best_score": 0.0
-        }
-        
         # Train for specified epochs
         for epoch in range(step.epochs):
             self.current_epoch = epoch
@@ -69,7 +62,7 @@ class UnifiedTrainer:
             
             # Training epoch
             epoch_loss = self._train_epoch(step, epoch)
-            step_metrics["train_loss"].append(epoch_loss)
+            # step_metrics["train_loss"].append(epoch_loss)
             
             logging.info(f"{step.phase.upper()} Epoch {epoch+1} Loss: {epoch_loss:.6f}")
             
@@ -77,7 +70,7 @@ class UnifiedTrainer:
             if getattr(self.config, 'validate_every_epoch', True):
                 epoch_validation = self._validate_epoch(step, epoch)
                 validation_scores.update(epoch_validation)
-                step_metrics["validation_scores"][epoch] = epoch_validation
+                # step_metrics["validation_scores"][epoch] = epoch_validation
                 
                 # ✅ TRACK EACH EPOCH INDIVIDUALLY
                 if hasattr(self, 'orchestrator') and hasattr(self.orchestrator, '_track_epoch_summary'):
@@ -86,23 +79,11 @@ class UnifiedTrainer:
                 # Log epoch summary
                 self._log_epoch_summary(step, epoch + 1, epoch_loss, epoch_validation)
                 
-                # Track best performance
-                # main_score = self._get_main_score(epoch_validation, step.phase)
-                # if main_score > step_metrics["best_score"]:
-                #     step_metrics["best_score"] = main_score
-                #     step_metrics["best_epoch"] = epoch
-                    
-                #     # Save best checkpoint
-                #     if self.config.checkpoint_frequency > 0:
-                #         self._save_checkpoint(step, epoch, "best")
-            
             # Save periodic checkpoint
             if self.config.checkpoint_frequency > 0 and (epoch + 1) % self.config.checkpoint_frequency == 0:
                 self._save_checkpoint(step, epoch, "periodic")
         
-        # Log step summary
-        self._log_step_summary(step, step_metrics)
-        
+
         return validation_scores
     
     def _setup_training_phase(self, step: TrainingStep):
@@ -612,11 +593,11 @@ class UnifiedTrainer:
         return device_batch
     
     def _validate_epoch(self, step: TrainingStep, epoch: int, is_final: bool = False) -> dict:
-        """Universal validation - DYNAMIC mapping based on actual validation results"""
+        """Universal validation - Simplified, no mapping"""
         logging.info(f"Validating {step.phase.upper()} (Epoch {epoch+1})")
         
-        # Use the existing validation method to get comprehensive results
-        comprehensive_results = self.validator.run_comprehensive_validation(
+        # ✅ Direct return - no mapping needed
+        return self.validator.run_comprehensive_validation(
             model=self.model,
             val_dataloader=self.val_dataloader,
             epoch=epoch,
@@ -624,47 +605,18 @@ class UnifiedTrainer:
             cycle=step.cycle,
             step=step
         )
-        
-        # ✅ DYNAMIC MAPPING: Map based on what validation modes were actually run
-        validation_scores = {}
-        
-        # Standard mapping with FRESH SYMBOLS support
-        result_to_display_mapping = {
-            'mlp_symbols': 'MLP+Symbols',
-            'no_mlp_symbols': 'NoMLP+Symbols',
-            'mlp_original': 'MLP+Original', 
-            'no_mlp_original': 'NoMLP+Original',
-            'mlp_fresh': 'MLP+Fresh',        # ✅ ADD FRESH SYMBOLS
-            'no_mlp_fresh': 'NoMLP+Fresh'    # ✅ ADD FRESH SYMBOLS
-        }
-        
-        for result_key, display_key in result_to_display_mapping.items():
-            if result_key in comprehensive_results:
-                validation_scores[display_key] = comprehensive_results[result_key]
-        
-        return validation_scores
 
-    # def _get_main_score(self, validation_scores: dict, phase: str) -> float:
-    #     """Get the main score for tracking best performance"""
-    #     if phase == "lora":
-    #         return validation_scores.get('NoMLP+Symbols', 0.0)
-    #     elif phase == "mlp":
-    #         return validation_scores.get('MLP+Symbols', 0.0)
-    #     elif phase == "joint":
-    #         return validation_scores.get('MLP+Symbols', 0.0)
-    #     else:
-    #         return max(validation_scores.values()) if validation_scores else 0.0
-    
     def _log_epoch_summary(self, step: TrainingStep, epoch: int, epoch_loss: float, validation_scores: dict):
-        """Log summary after each epoch - Clean composite display"""
+        """Log summary after each epoch - Works with any keys"""
         logging.info("=" * 120)
         logging.info(f"EPOCH SUMMARY - {step.phase.upper()} Cycle {step.cycle} Epoch {epoch}")
         logging.info("=" * 120)
         logging.info(f"Phase: {step.phase.upper():<6} | Cycle: {step.cycle:<2} | Epoch: {epoch:<2} | Loss: {epoch_loss:.4f}")
         
+        # ✅ FIX: Proper if-else structure for each validation mode
         for mode_name, composite_score in validation_scores.items():
             if isinstance(composite_score, str) and "|" in composite_score:
-                # Parse and display nicely
+                # Parse composite string
                 datasets = {}
                 for pair in composite_score.split("|"):
                     if ":" in pair:
@@ -672,20 +624,13 @@ class UnifiedTrainer:
                         datasets[dataset] = score
                 
                 dataset_parts = [f"{dataset}={score}" for dataset, score in datasets.items()]
-                logging.info(f"  {mode_name:<15}: {' | '.join(dataset_parts)}")
+                logging.info(f"  {mode_name:<18}: {' | '.join(dataset_parts)}")
             else:
-                logging.info(f"  {mode_name:<15}: {composite_score}")
-        
+                # ✅ FIX: This should be inside the loop, not attached to it
+                logging.info(f"  {mode_name:<18}: {composite_score}")
+
         logging.info("=" * 120)
     
-    def _log_step_summary(self, step: TrainingStep, step_metrics: dict):
-        """Log summary after each training step"""
-        logging.info("=" * 80)
-        logging.info(f"STEP SUMMARY - {step.phase.upper()} Step {step.step_id}")
-        logging.info("=" * 80)
-        logging.info(f"Best Epoch: {step_metrics['best_epoch'] + 1}")
-        logging.info(f"Best Score: {step_metrics['best_score']:.4f}") 
-        logging.info("=" * 80)
     
     def _save_checkpoint(self, step: TrainingStep, epoch: int, checkpoint_type: str):
         """Save model checkpoint with only trainable parameters"""

@@ -71,14 +71,6 @@ class SymbolTrainingOrchestrator:
         
         # Add summary tracking
         self.training_summary = []
-        # self.best_scores = {
-        #     'MLP+Symbols': {'score': 0.0, 'step': None},
-        #     'NoMLP+Symbols': {'score': 0.0, 'step': None}, 
-        #     'MLP+Original': {'score': 0.0, 'step': None},
-        #     'NoMLP+Original': {'score': 0.0, 'step': None},
-        #     'MLP+Fresh': {'score': 0.0, 'step': None},
-        #     'NoMLP+Fresh': {'score': 0.0, 'step': None}
-        # }
         
         # Setup logging and output directories
         self._setup_training_environment()
@@ -122,9 +114,6 @@ class SymbolTrainingOrchestrator:
             
             # Execute training step with unified trainer
             validation_scores = self.trainer.train_step(step)
-            
-            # Track summary data - this will be replaced by epoch tracking
-            # self._track_step_summary(step, validation_scores)  # COMMENTED OUT
         
         # Log final summaries
         self._log_cycle_summary(current_cycle)
@@ -184,291 +173,305 @@ class SymbolTrainingOrchestrator:
         
         logging.info("=" * 80)
     
-    # def _summarize_cycle(self, cycle: int, training_steps: List[Dict[str, Any]]) -> Dict[str, Any]:
-    #     """Summarize results for a completed cycle"""
-    #     cycle_steps = [step for step in training_steps if step.get("step_info", {}).get("cycle") == cycle]
-        
-    #     if not cycle_steps:
-    #         return {"cycle": cycle, "steps": 0, "best_score": 0.0}
-        
-    #     # Find best score in this cycle
-    #     best_score = max(step.get("best_score", 0) for step in cycle_steps)
-    #     best_step = max(cycle_steps, key=lambda x: x.get("best_score", 0))
-        
-    #     cycle_summary = {
-    #         "cycle": cycle,
-    #         "steps": len(cycle_steps),
-    #         "best_score": best_score,
-    #         "best_step": best_step.get("step_info", {}),
-    #         "phases": list(set(step.get("step_info", {}).get("phase") for step in cycle_steps))
-    #     }
-        
-    #     logging.info(f"\n📊 CYCLE {cycle} SUMMARY:")
-    #     logging.info(f"  Steps completed: {len(cycle_steps)}")
-    #     logging.info(f"  Phases executed: {', '.join(cycle_summary['phases'])}")
-    #     logging.info(f"  Best score: {best_score:.4f}")
-    #     logging.info(f"  Best phase: {best_step.get('step_info', {}).get('phase', 'Unknown')}")
-        
-    #     return cycle_summary
     
     def _log_final_summary(self):
-        """Log complete training summary - With composite strings"""
-        logging.info("=" * 140)
+        """Log complete training summary - Context-aware with better formatting"""
+        logging.info("=" * 180)
         logging.info("COMPLETE TRAINING SUMMARY - ALL EPOCHS")
-        logging.info("=" * 140)
+        logging.info("=" * 180)
         
-        # ✅ SIMPLE: Just show all columns as strings
-        header_parts = ["Phase", "Cycle", "Step", "Epoch"]
+        if not self.training_summary:
+            logging.info("No training data to summarize")
+            logging.info("=" * 180)
+            return
         
-        # Add all validation modes that appear
+        # ✅ Get dataset context for better display (same as cycle summary)
+        dataset_type_str = getattr(self.config.data_config, 'dataset_type', '')
+        dataset_names_train = set(dataset_type_str.split('-') if '-' in dataset_type_str else [dataset_type_str])
+        
+        val_dataset_type_str = getattr(self.config.data_config, 'val_dataset_type', dataset_type_str)
+        dataset_names_val = set(val_dataset_type_str.split('-') if '-' in val_dataset_type_str else [val_dataset_type_str])
+        val_only_datasets = dataset_names_val - dataset_names_train
+        
+        # ✅ Determine all mode keys
         all_keys = set()
         for entry in self.training_summary:
             for key in entry.keys():
                 if key not in ['phase', 'cycle', 'step', 'epoch', 'epochs_total']:
                     all_keys.add(key)
         
-        header_parts.extend(sorted(all_keys))
+        # Filter out loss and composite keys for main display
+        mode_keys = [k for k in sorted(all_keys) if not k.endswith('_loss') and not k.endswith('_composite')]
         
-        header = "  ".join(f"{h:<20}" for h in header_parts)
-        logging.info(header)
-        logging.info("-" * len(header))
-        
-        # Log data rows
-        for entry in self.training_summary:
-            row_parts = [
-                entry['phase'][:6], 
-                str(entry['cycle']), 
-                str(entry['step']),
-                str(entry['epoch'])
-            ]
+        if mode_keys:
+            # ✅ Get all unique datasets from all validation results
+            all_datasets = set()
+            for entry in self.training_summary:
+                for mode in mode_keys:
+                    value = entry.get(mode, "")
+                    if isinstance(value, str) and "|" in value:
+                        for pair in value.split("|"):
+                            if ":" in pair:
+                                dataset, _ = pair.split(":", 1)
+                                all_datasets.add(dataset)
             
-            for key in sorted(all_keys):
-                value = entry.get(key, "N/A")
-                # ✅ Truncate long composite strings for display
-                # if isinstance(value, str) and len(value) > 18:
-                #     display_value = value[:15] + "..."
-                # else:
-                display_value = str(value)
-                row_parts.append(display_value)
+            if all_datasets:
+                # ✅ Create dataset info with context (consistent with cycle summary)
+                dataset_info = {}
+                for dataset in sorted(all_datasets):
+                    is_trained = dataset in dataset_names_train
+                    if dataset == 'voxceleb':
+                        abbrev = 'VOX'
+                    elif dataset == 'hvb':
+                        abbrev = 'HVB'
+                    elif dataset == 'meld_emotion':
+                        abbrev = 'MEL'
+                    elif dataset == 'voxpopuli':
+                        abbrev = 'VXP'
+                    else:
+                        abbrev = dataset[:3].upper()
+                    
+                    dataset_info[dataset] = {
+                        'abbrev': abbrev,
+                        'is_trained': is_trained,
+                        'context': 'TRN' if is_trained else 'VAL'
+                    }
+                
+                # ✅ Create header with context information
+                header_parts = ["Phase", "Cyc", "Stp", "Ep"]
+                for dataset in sorted(all_datasets):
+                    info = dataset_info[dataset]
+                    header_parts.append(f"{info['abbrev']}({info['context']})")
+                header_parts.append("Mode")
+                
+                header = "  ".join(f"{h:<12}" for h in header_parts)
+                logging.info(header)
+                logging.info("-" * len(header))
+                
+                # ✅ Log data rows with context-aware missing value handling
+                for entry in self.training_summary:
+                    phase = entry['phase'][:6]
+                    cycle_num = str(entry['cycle'])
+                    step_num = str(entry['step'])
+                    epoch_num = str(entry['epoch'])
+                    
+                    # Show each validation mode as a separate row
+                    for mode in mode_keys:
+                        value = entry.get(mode, "N/A")
+                        
+                        # Create row for this mode
+                        row_parts = [phase, cycle_num, step_num, epoch_num]
+                        
+                        # Add dataset scores
+                        if isinstance(value, str) and "|" in value:
+                            datasets = {}
+                            for pair in value.split("|"):
+                                if ":" in pair:
+                                    dataset, score = pair.split(":", 1)
+                                    try:
+                                        datasets[dataset] = float(score)
+                                    except ValueError:
+                                        datasets[dataset] = 0.0
+                            
+                            for dataset in sorted(all_datasets):
+                                if dataset in datasets:
+                                    score = datasets[dataset]
+                                    row_parts.append(f"{score:.3f}")
+                                else:
+                                    # ✅ Context-aware missing values (same logic as cycle summary)
+                                    if dataset in val_only_datasets and 'symbol' in mode.lower() and 'fresh' not in mode.lower():
+                                        row_parts.append("SKIP")  # Expected skip for val-only in symbol mode
+                                    else:
+                                        row_parts.append("N/A")   # Unexpected missing
+                        else:
+                            # Special case values
+                            for dataset in sorted(all_datasets):
+                                if value == "val_only_skip:0.000000":
+                                    row_parts.append("SKIP")
+                                else:
+                                    row_parts.append("N/A")
+                        
+                        # Add mode name
+                        mode_short = mode.replace('no_mlp_', '').replace('mlp_', '').replace('_', '+').title()
+                        row_parts.append(mode_short[:8])
+                        
+                        row = "  ".join(f"{r:<12}" for r in row_parts)
+                        logging.info(row)
+                    
+                    # Add separator between different entries for readability
+                    logging.info("-" * len(header))
             
-            row = "  ".join(f"{r:<20}" for r in row_parts)
-            logging.info(row)
+            else:
+                # ✅ Fallback for no dataset results (compact format)
+                header_parts = ["Phase", "Cycle", "Step", "Epoch"] + [mode.replace('no_mlp_', '').replace('mlp_', '').title()[:12] for mode in mode_keys]
+                header = "  ".join(f"{h:<20}" for h in header_parts)
+                logging.info(header)
+                logging.info("-" * len(header))
+                
+                for entry in self.training_summary:
+                    row_parts = [
+                        entry['phase'][:8], 
+                        str(entry['cycle']), 
+                        str(entry['step']),
+                        str(entry['epoch'])
+                    ]
+                    
+                    for mode in mode_keys:
+                        value = entry.get(mode, "N/A")
+                        
+                        if value == "val_only_skip:0.000000":
+                            row_parts.append("SKIPPED")
+                        elif isinstance(value, float):
+                            row_parts.append(f"{value:.4f}")
+                        else:
+                            display_value = str(value)[:18] if len(str(value)) > 18 else str(value)
+                            row_parts.append(display_value)
+                    
+                    row = "  ".join(f"{r:<20}" for r in row_parts)
+                    logging.info(row)
         
-        logging.info("=" * 140)
-    
-    # def _save_training_results(self, results: Dict[str, Any]):
-    #     """Save complete training results to file"""
-    #     results_path = os.path.join(self.config.output_dir, "training_results.json")
+        else:
+            logging.info("No validation modes found in training summary")
         
-    #     # Convert any non-serializable objects
-    #     serializable_results = self._make_serializable(results)
-        
-    #     with open(results_path, 'w') as f:
-    #         json.dump(serializable_results, f, indent=2)
-        
-    #     logging.info(f"Training results saved to: {results_path}")
-    
-    # def _make_serializable(self, obj: Any) -> Any:
-    #     """Make object JSON serializable"""
-    #     if isinstance(obj, dict):
-    #         return {k: self._make_serializable(v) for k, v in obj.items()}
-    #     elif isinstance(obj, list):
-    #         return [self._make_serializable(item) for item in obj]
-    #     elif isinstance(obj, (int, float, str, bool, type(None))):
-    #         return obj
-    #     else:
-    #         return str(obj)
-    
-    # def run_validation_only(self, epoch: int = 0, phase: str = "joint") -> Dict[str, float]:
-    #     """
-    #     Run only validation without training
-    #     Useful for evaluating pre-trained models
-    #     """
-    #     logging.info(f"🔍 Running validation-only mode")
-        
-    #     validation_results = self.validator.run_comprehensive_validation(
-    #         model=self.model,
-    #         val_dataloader=self.val_dataloader,
-    #         epoch=epoch,
-    #         phase=phase,
-    #         cycle=0
-    #     )
-        
-    #     self.validator.log_validation_summary(
-    #         validation_results=validation_results,
-    #         epoch=epoch,
-    #         phase=phase,
-    #         cycle=0
-    #     )
-        
-    #     return validation_results
-    
-    # def run_single_step(self, step: TrainingStep) -> Dict[str, Any]:
-    #     """
-    #     Run a single training step
-    #     Useful for debugging or custom training schedules
-    #     """
-    #     logging.info(f"🎯 Running single training step: {step.description}")
-        
-    #     step_results = self._execute_training_step(step)
-        
-    #     logging.info(f"✅ Single step completed")
-    #     logging.info(f"Best score: {step_results.get('best_score', 0):.4f}")
-        
-    #     return step_results
-    
-    # def continue_from_checkpoint(self, checkpoint_path: str) -> Dict[str, Any]:
-    #     """
-    #     Continue training from a saved checkpoint
-    #     """
-    #     logging.info(f"📂 Loading checkpoint from: {checkpoint_path}")
-        
-    #     checkpoint = torch.load(checkpoint_path, map_location=self.config.device)
-        
-    #     # Load model state
-    #     self.model.load_state_dict(checkpoint["model_state_dict"])
-        
-    #     # Restore training state
-    #     step_info = checkpoint.get("step_info", {})
-    #     self.current_cycle = step_info.get("cycle", 0)
-        
-    #     # Load symbol mappings
-    #     if "symbol_mappings" in checkpoint:
-    #         # Update symbol manager with saved mappings
-    #         epoch = checkpoint.get("epoch", 0)
-    #         self.symbol_manager.fixed_mappings = checkpoint["symbol_mappings"]
-        
-    #     logging.info(f"✅ Checkpoint loaded successfully")
-    #     logging.info(f"Resuming from cycle {self.current_cycle}")
-        
-    #     # Continue with remaining training
-    #     return self.run_complete_training()
-    
-    # def _log_epoch_summary(self, step: TrainingStep, epoch: int, epoch_loss: float, validation_scores: dict):
-    #     """Log and track epoch summary"""
-        
-    #     # Extract validation scores (assuming these keys exist)
-    #     mlp_sym = validation_scores.get('MLP+Symbols', 0.0)
-    #     nomlp_sym = validation_scores.get('NoMLP+Symbols', 0.0) 
-    #     mlp_orig = validation_scores.get('MLP+Original', 0.0)
-    #     nomlp_orig = validation_scores.get('NoMLP+Original', 0.0)
-    #     mlp_fresh = validation_scores.get('MLP+Original', 0.0)
-    #     nomlp_fresh = validation_scores.get('NoMLP+Original', 0.0)
-        
-    #     # Add to summary
-    #     summary_entry = {
-    #         'phase': step.phase.upper(),
-    #         'cycle': step.cycle,
-    #         'epoch': epoch,
-    #         'loss': epoch_loss,
-    #         'mlp_sym': mlp_sym,
-    #         'nomlp_sym': nomlp_sym,
-    #         'mlp_orig': mlp_orig,
-    #         'nomlp_orig': nomlp_orig,
-    #         'mlp_fresh': mlp_fresh,
-    #         'nomlp_fresh': nomlp_fresh,
-    #         'step_description': step.description
-    #     }
-    #     self.training_summary.append(summary_entry)
-        
-    #     # Update best scores
-    #     self._update_best_scores(summary_entry)
-        
-    #     # Log epoch summary
-    #     logging.info("=" * 100)
-    #     logging.info(f"EPOCH SUMMARY - {step.phase.upper()} Cycle {step.cycle} Epoch {epoch}")
-    #     logging.info("=" * 100)
-    #     logging.info(f"Phase: {step.phase.upper():<6} | Cycle: {step.cycle:<2} | Epoch: {epoch:<2} | Loss: {epoch_loss:.4f}")
-    #     logging.info(f"MLP+Sym: {mlp_sym:.4f} | NoMLP+Sym: {nomlp_sym:.4f} | MLP+Orig: {mlp_orig:.4f} | NoMLP+Orig: {nomlp_orig:.4f}")
-    #     logging.info("=" * 100)
-    
-    # def _update_best_scores(self, entry):
-    #     """Update best scores tracking with FRESH support"""
-    #     configs = {
-    #         'MLP+Symbols': entry.get('mlp_sym'),
-    #         'NoMLP+Symbols': entry.get('nomlp_sym'), 
-    #         'MLP+Original': entry.get('mlp_orig'),
-    #         'NoMLP+Original': entry.get('nomlp_orig'),
-    #         'MLP+Fresh': entry.get('mlp_fresh'),        # ✅ ADD FRESH SYMBOLS
-    #         'NoMLP+Fresh': entry.get('nomlp_fresh')     # ✅ ADD FRESH SYMBOLS
-    #     }
-        
-    #     for config_name, score in configs.items():
-    #         if score is not None and score > self.best_scores.get(config_name, {}).get('score', 0):
-    #             if config_name not in self.best_scores:
-    #                 self.best_scores[config_name] = {'score': 0.0, 'step': None}
-    #             self.best_scores[config_name]['score'] = score
-    #             self.best_scores[config_name]['step'] = f"{entry['phase']} Cycle {entry['cycle']} Step {entry['step']}"
-    
+        logging.info("=" * 180)
+        logging.info("✅ Training completed successfully!")
+ 
     def _log_cycle_summary(self, cycle: int):
-        """Log summary at end of each cycle - Handle composite strings"""
+        """Log summary at end of each cycle - Context-aware missing dataset handling"""
         cycle_entries = [e for e in self.training_summary if e['cycle'] == cycle]
         
         if not cycle_entries:
             return
             
-        logging.info("=" * 160)
+        logging.info("=" * 180)
         logging.info(f"CYCLE {cycle} SUMMARY")
-        logging.info("=" * 160)
+        logging.info("=" * 180)
         
-        # ✅ UPDATED: Determine columns based on composite strings
+        # ✅ Get dataset context for better display
+        dataset_type_str = getattr(self.config.data_config, 'dataset_type', '')
+        dataset_names_train = set(dataset_type_str.split('-') if '-' in dataset_type_str else [dataset_type_str])
+        
+        val_dataset_type_str = getattr(self.config.data_config, 'val_dataset_type', dataset_type_str)
+        dataset_names_val = set(val_dataset_type_str.split('-') if '-' in val_dataset_type_str else [val_dataset_type_str])
+        val_only_datasets = dataset_names_val - dataset_names_train
+        
+        # Get all mode keys
         all_mode_keys = set()
         for entry in cycle_entries:
             for key in entry.keys():
                 if key not in ['phase', 'cycle', 'step', 'epoch', 'epochs_total']:
                     all_mode_keys.add(key)
         
-        # Create header
-        header_parts = ["Phase", "Cycle", "Step", "Epoch"]
-        header_parts.extend(sorted(all_mode_keys))
+        # Filter out loss keys for main display
+        mode_keys = [k for k in sorted(all_mode_keys) if not k.endswith('_loss') and not k.endswith('_composite')]
         
-        header = "  ".join(f"{h:<25}" for h in header_parts)
-        logging.info(header)
-        logging.info("-" * len(header))
-        
-        # ✅ UPDATED: Log data rows with composite string handling
-        for entry in cycle_entries:
-            row_parts = [
-                entry['phase'][:6], 
-                str(entry['cycle']), 
-                str(entry['step']),
-                str(entry['epoch'])
-            ]
+        if mode_keys:
+            # ✅ Get all unique datasets from all validation results
+            all_datasets = set()
+            for entry in cycle_entries:
+                for mode in mode_keys:
+                    value = entry.get(mode, "")
+                    if isinstance(value, str) and "|" in value:
+                        for pair in value.split("|"):
+                            if ":" in pair:
+                                dataset, _ = pair.split(":", 1)
+                                all_datasets.add(dataset)
             
-            for key in sorted(all_mode_keys):
-                value = entry.get(key, "N/A")
-                
-                # ✅ Handle composite strings - show them nicely
-                if isinstance(value, str) and "|" in value:
-                    # Parse composite string and show compactly
-                    datasets = {}
-                    for pair in value.split("|"):
-                        if ":" in pair:
-                            dataset, score = pair.split(":", 1)
-                            try:
-                                datasets[dataset] = float(score)
-                            except ValueError:
-                                datasets[dataset] = score
+            if all_datasets:
+                # ✅ Create dataset info with context
+                dataset_info = {}
+                for dataset in sorted(all_datasets):
+                    is_trained = dataset in dataset_names_train
+                    if dataset == 'voxceleb':
+                        abbrev = 'VOX'
+                    elif dataset == 'hvb':
+                        abbrev = 'HVB'
+                    elif dataset == 'meld_emotion':
+                        abbrev = 'MEL'
+                    elif dataset == 'voxpopuli':
+                        abbrev = 'VXP'
+                    else:
+                        abbrev = dataset[:3].upper()
                     
-                    # Format as "vox:0.82|hvb:0.67"
-                    if datasets:
-                        compact = "|".join([f"{d[:3]}:{s:.2f}" if isinstance(s, float) else f"{d[:3]}:{s}" 
-                                          for d, s in datasets.items()])
-                        row_parts.append(compact)
-                    else:
-                        row_parts.append(str(value)[:22] + "..." if len(str(value)) > 25 else str(value))
-                else:
-                    # Regular value
-                    if isinstance(value, float):
-                        row_parts.append(f"{value:.4f}")
-                    else:
-                        display_value = str(value)[:22] + "..." if len(str(value)) > 25 else str(value)
-                        row_parts.append(display_value)
+                    dataset_info[dataset] = {
+                        'abbrev': abbrev,
+                        'is_trained': is_trained,
+                        'context': 'TRN' if is_trained else 'VAL'
+                    }
+                
+                # ✅ Create header with context information
+                header_parts = ["Phase", "Cyc", "Ep"]
+                for dataset in sorted(all_datasets):
+                    info = dataset_info[dataset]
+                    header_parts.append(f"{info['abbrev']}({info['context']})")
+                header_parts.append("Mode")
+                
+                header = "  ".join(f"{h:<12}" for h in header_parts)
+                logging.info(header)
+                logging.info("-" * len(header))
+                
+                # ✅ Show each validation mode as a separate row
+                for entry in cycle_entries:
+                    phase = entry['phase'][:6]
+                    cycle_num = str(entry['cycle'])
+                    epoch_num = str(entry['epoch'])
+                    
+                    for mode in mode_keys:
+                        value = entry.get(mode, "N/A")
+                        
+                        # Create row for this mode
+                        row_parts = [phase, cycle_num, epoch_num]
+                        
+                        # Add dataset scores
+                        if isinstance(value, str) and "|" in value:
+                            datasets = {}
+                            for pair in value.split("|"):
+                                if ":" in pair:
+                                    dataset, score = pair.split(":", 1)
+                                    try:
+                                        datasets[dataset] = float(score)
+                                    except ValueError:
+                                        datasets[dataset] = 0.0
+                            
+                            for dataset in sorted(all_datasets):
+                                if dataset in datasets:
+                                    score = datasets[dataset]
+                                    row_parts.append(f"{score:.3f}")
+                                else:
+                                    # ✅ Context-aware missing values
+                                    if dataset in val_only_datasets and 'symbol' in mode.lower() and 'fresh' not in mode.lower():
+                                        row_parts.append("SKIP")  # Expected skip
+                                    else:
+                                        row_parts.append("N/A")   # Unexpected missing
+                        else:
+                            # Special case values
+                            for dataset in sorted(all_datasets):
+                                if value == "val_only_skip:0.000000":
+                                    row_parts.append("SKIP")
+                                else:
+                                    row_parts.append("N/A")
+                        
+                        # Add mode name
+                        mode_short = mode.replace('no_mlp_', '').replace('mlp_', '').replace('_', '+').title()
+                        row_parts.append(mode_short[:8])
+                        
+                        row = "  ".join(f"{r:<12}" for r in row_parts)
+                        logging.info(row)
+                    
+                    # Add separator between entries if multiple entries
+                    if len(cycle_entries) > 1:
+                        logging.info("-" * len(header))
             
-            row = "  ".join(f"{r:<25}" for r in row_parts)
-            logging.info(row)
+            else:
+                # ✅ Fallback for no dataset results
+                for entry in cycle_entries:
+                    logging.info(f"Phase: {entry['phase']} | Cycle: {entry['cycle']} | Epoch: {entry['epoch']}")
+                    for mode in mode_keys:
+                        value = entry.get(mode, "N/A")
+                        mode_short = mode.replace('no_mlp_', '').replace('mlp_', '').replace('_', '+')
+                        logging.info(f"  {mode_short:<15}: {value}")
         
-        logging.info("=" * 160)
+        logging.info("=" * 180)
 
     def _track_epoch_summary(self, step: TrainingStep, epoch: int, validation_scores: dict):
         """Track summary data for each EPOCH - Using composite strings"""

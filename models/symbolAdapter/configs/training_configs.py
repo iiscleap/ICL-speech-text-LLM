@@ -96,6 +96,7 @@ class DataConfig:
     val_batch_size: Optional[int] = 1
     val_max_samples: int = 200  # Default validation samples
     val_frequency: int = 1  # Validate every N epochs
+    val_dataset_type: str = "voxceleb-hvb-meld_emotion-voxpopuli"  # Default validation dataset type
 
 @dataclass
 class TrainingConfig:
@@ -295,7 +296,7 @@ class TrainingConfig:
             dataset_type=args.dataset_type,
             batch_size=args.batch_size,
             max_samples=args.max_samples,
-            val_max_samples = min(200, args.max_samples),
+            val_max_samples = 200 if args.max_samples ==0 else min(200, args.max_samples),
             split=getattr(args, 'split', 'test'),
         )
         

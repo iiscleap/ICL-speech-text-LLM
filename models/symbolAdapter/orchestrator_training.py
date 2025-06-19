@@ -76,22 +76,36 @@ def load_datasets_for_config(config: TrainingConfig, inference_mode: bool = Fals
                 # ✅ TRAINING MODE: Load train and validation splits
                 logging.info(f"📚 Loading train/val splits for {dataset_name}")
                 full_train_dataset = load_dataset(dataset_type, split="train")
-                full_val_dataset = load_dataset(dataset_type, split="validation")
+                # full_val_dataset = load_dataset(dataset_type, split="validation")
                 
                 if config.data_config.max_samples > 0:
                     train_datasets[dataset_type] = full_train_dataset.select(range(config.data_config.max_samples))
-                    val_samples = min(config.data_config.val_max_samples, len(full_val_dataset))
-                    val_datasets[dataset_type] = full_val_dataset.select(range(val_samples))
                 else:
                     train_datasets[dataset_type] = full_train_dataset
-                    val_datasets[dataset_type] = full_val_dataset
-                
-                logging.info(f"✓ Loaded {dataset_name}: {len(train_datasets[dataset_type])} train, {len(val_datasets[dataset_type])} val samples")
-            
+                logging.info(f"✓ Loaded {dataset_name} Train: {len(train_datasets[dataset_type])} samples")
         except Exception as e:
             logging.error(f"✗ Failed to load dataset {dataset_name}: {e}")
             continue
     
+    
+    val_dataset_str = config.data_config.val_dataset_type
+    val_dataset_names = val_dataset_str.split('-') if '-' in val_dataset_str else [val_dataset_str]
+
+    for dataset_name in val_dataset_names:
+        dataset_type = DatasetType(dataset_name)
+        if not inference_mode:
+            try:
+                full_val_dataset = load_dataset(dataset_type, split="validation")
+                if config.data_config.val_max_samples > 0:
+                    val_samples = min(config.data_config.val_max_samples, len(full_val_dataset))
+                    val_datasets[dataset_type] = full_val_dataset.select(range(val_samples))
+                else:
+                    val_datasets[dataset_type] = full_val_dataset
+            except Exception as e:
+                logging.error(f"✗ Failed to load dataset {dataset_name}: {e}")
+                continue
+
+        logging.info(f"✓ Loaded {dataset_name} Val: {len(val_datasets[dataset_type])} samples")
     return train_datasets, val_datasets
 
 
@@ -132,7 +146,7 @@ def create_combined_dataloader(datasets, processor, config: TrainingConfig, shuf
 
 def extract_dataset_labels(config: TrainingConfig) -> List[str]:
     """Extract dataset labels once - centralized function"""
-    dataset_type_str = config.data_config.dataset_type
+    dataset_type_str = config.data_config.val_dataset_type
     dataset_names = dataset_type_str.split('-') if '-' in dataset_type_str else [dataset_type_str]
     
     all_valid_labels = set()
