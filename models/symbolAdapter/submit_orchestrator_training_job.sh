@@ -10,11 +10,11 @@ device="cuda:0"  # GPU device
 lora_lr=1e-5
 mlp_lr=1e-5
 
-lora_epochs=5
+lora_epochs=1
 lora_final_epochs=1 
 
 mlp_epochs=1
-total_cycles=1
+total_cycles=2
 
 # MLP Architecture parameters
 use_output_mlp=False  # Enable/disable output MLP
@@ -31,10 +31,10 @@ max_grad_norm=1.0
 max_samples=0  # Set reasonable default
 
 # NEW: Orchestrator-specific parameters
-schedule_type="joint_training"  # Options: "lora_first", "mlp_first", "joint_training"
+schedule_type="mlp_first"  # Options: "lora_first", "mlp_first", "joint_training"
 
 
-dynamic_symbols_per_epoch=True  # Generate new symbols each epoch
+dynamic_symbols_per_epoch=False  # Generate new symbols each epoch
 
 # Set conda environment
 export CONDA_ENV="salmon"
@@ -113,11 +113,11 @@ echo "=========================================="
 
 # Submit job
 qsub -q gpu.q -V -cwd \
-    -l hostname=compute-0-7 \
+    -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=0,\
+    -v CUDA_VISIBLE_DEVICES=2,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

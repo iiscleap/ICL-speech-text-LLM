@@ -30,10 +30,10 @@ class TrainingStep:
     
     def __post_init__(self):
         """Set training flags based on phase"""
-        if self.phase in ["mlp", "mlp_initial","mlp_final"]:
+        if self.phase in ["mlp"]:
             self.freeze_mlp = False
             self.freeze_lora = True
-        elif self.phase in ["lora", "lora_initial", "lora_final"]:
+        elif self.phase in ["lora"]:
             self.freeze_mlp = True
             self.freeze_lora = False
         elif self.phase == "joint":
@@ -102,7 +102,7 @@ class TrainingScheduler:
         
         # Phase 1: Initial LoRA training
         schedule.append(TrainingStep(
-            phase="lora_initial",
+            phase="lora",
             epochs=self.config.lora_config.initial_epochs,
             cycle=0,
             step_id=step_id,
@@ -143,7 +143,7 @@ class TrainingScheduler:
         
         # Phase 3: Final LoRA training
         schedule.append(TrainingStep(
-            phase="lora_final",
+            phase="lora",
             epochs=self.config.lora_config.final_epochs,
             cycle=self.config.total_cycles,
             step_id=step_id,
@@ -165,7 +165,7 @@ class TrainingScheduler:
         
         # Phase 1: Initial MLP training
         schedule.append(TrainingStep(
-            phase="mlp_initial",
+            phase="mlp",
             epochs=self.config.mlp_config.initial_epochs,
             cycle=0,
             step_id=step_id,
@@ -206,7 +206,7 @@ class TrainingScheduler:
         
         # Phase 3: Final LoRA training
         schedule.append(TrainingStep(
-            phase="lora_final",
+            phase="lora",
             epochs=self.config.lora_config.final_epochs,
             cycle=self.config.total_cycles,
             step_id=step_id,
