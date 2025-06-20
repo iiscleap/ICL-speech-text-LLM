@@ -47,7 +47,7 @@ class MLPSalmonn(nn.Module):
             "llama_path": llama_path,
             "whisper_path": whisper_path,
             "beats_path": beats_path,
-            "lora": True,
+            "lora": False,
             "lora_rank": lora_rank,
             "lora_alpha": lora_alpha,
             "lora_dropout": lora_dropout,
@@ -55,21 +55,58 @@ class MLPSalmonn(nn.Module):
             "use_speech_Qformer": True,
             "freeze_whisper": True,
             "freeze_beats": True,
-            "freeze_speech_QFormer": False,
+            "freeze_speech_QFormer": True,
             "num_speech_query_token": 1,
             "window_level_Qformer": True,
             "second_per_window": 0.333333,
             "second_stride": 0.333333,
             "speech_llama_proj_model": "",
-            "freeze_speech_llama_proj": False,
+            "freeze_speech_llama_proj": True,
             "ckpt": "/data2/neeraja/neeraja/salmonn_v1.pth"
         }
+        logging.info("=" * 80)
+        logging.info("🔧 INITIALIZING MLP-SALMONN MODEL")
+        logging.info("=" * 80)
+        logging.info(f"Device: {self.device}")
+        logging.info(f"Bypass MLP: {self.bypass_mlp}")
+        logging.info(f"Use Output MLP: {self.use_output_mlp}")
+        logging.info(f"LoRA Rank: {lora_rank}, Alpha: {lora_alpha}")
 
+        logging.info("🔄 Loading base SALMONN model...")
+        import sys
+        sys.stdout.flush()  # ✅ Force flush stdout
+        logging.getLogger().handlers[0].flush() 
         # Initialize SALMONN
         logging.info("Loading base SALMONN model...")
         self.salmonn = SALMONN.from_config(salmonn_config)
         logging.info("Base SALMONN model loaded successfully")
         self.salmonn.to(self.device)
+        
+        # ✅ ADD: Symbol LoRA adapter on top of SALMONN
+        if hasattr(self.salmonn, 'llama_model'):
+            symbol_lora_config = LoraConfig(
+                task_type="CAUSAL_LM",
+                r=4,                   # ✅ Higher rank for symbol learning
+                lora_alpha=8,          # ✅ Strong adaptation
+                lora_dropout=0.1,
+                target_modules=[        
+                    "q_proj", "k_proj", "v_proj", "o_proj"    
+                    "gate_proj", "up_proj", "down_proj",  
+                ],
+                bias="none"
+            )
+            
+            # ✅ Apply Symbol LoRA to LLaMA model (which already has SALMONN's LoRA)
+            self.symbol_lora_model = get_peft_model(
+                self.salmonn.llama_model, 
+                symbol_lora_config
+                
+            )
+            
+            logging.info("✅ Added Symbol LoRA adapter with rank 32")
+        else:
+            logging.warning("⚠️ Could not add Symbol LoRA - llama_model not found")
+            self.symbol_lora_model = None
         
         # Essential attributes only
         self.label_tokens = label_tokens or []
@@ -154,6 +191,7 @@ class MLPSalmonn(nn.Module):
             self.lm_head = None
             logging.info("🚫 BYPASS_MLP=True: Not extracting lm_head separately")
 
+        self.debug_salmonn_lora_targets()
     
     def _initialize_mlp_weights(self, mlp):
         """Xavier initialization for MLP layers"""
@@ -291,14 +329,14 @@ class MLPSalmonn(nn.Module):
         return tensor
 
     def compute_mlp_loss(self, wrapped_embeds, wrapped_atts, target_tokens):
-        """UNIFIED: Input MLP → LLaMA → [Optional Output MLP] → Cross-entropy"""
+        """UNIFIED: Input MLP → Symbol LoRA Model → [Optional Output MLP] → Cross-entropy"""
         
         # NEW: If MLP is bypassed, use standard loss
         if self.bypass_mlp:
             logging.info("BYPASS_MLP=True: Using standard loss function")
             return self.compute_standard_loss(wrapped_embeds, wrapped_atts, target_tokens)
         
-        logging.info(f"=== MLP Architecture Loss (Input MLP → LLaMA → {'Output MLP → ' if self.use_output_mlp else ''}Cross-entropy) ===")
+        logging.info(f"=== MLP Architecture Loss (Input MLP → Symbol LoRA → {'Output MLP → ' if self.use_output_mlp else ''}Cross-entropy) ===")
         
         try:
             # 1. Apply Input MLP to target embeddings (ALWAYS applied when not bypassed)
@@ -311,11 +349,13 @@ class MLPSalmonn(nn.Module):
             combined_embeds = torch.cat([wrapped_embeds, transformed_target_embeds], dim=1)
             combined_attention_mask = torch.cat([wrapped_atts, target_tokens.attention_mask], dim=1)
             
-            # 3. Forward through LLaMA
+            # ✅ 3. Forward through Symbol LoRA Model (NOT base llama_model)
+            model_to_use = self.symbol_lora_model if self.symbol_lora_model is not None else self.llama_model
+            
             if self.use_output_mlp:
                 # Get hidden states for output MLP
                 with self.maybe_autocast():
-                    outputs = self.llama_model(
+                    outputs = model_to_use(  # ✅ Use Symbol LoRA model
                         inputs_embeds=combined_embeds,
                         attention_mask=combined_attention_mask,
                         output_hidden_states=True,
@@ -328,12 +368,10 @@ class MLPSalmonn(nn.Module):
                 target_output_hiddens = outputs.hidden_states[-1][:, prompt_length:, :]
                 
                 # 5. Apply Output MLP transformation with dtype fix
-                # FIXED: Ensure dtype compatibility before Output MLP
                 target_output_hiddens = self._ensure_dtype_compatibility(target_output_hiddens, self.output_mlp)
                 reconstructed_embeds = self.output_mlp(target_output_hiddens)
                 
                 # 6. Project to vocab space using lm_head with dtype fix
-                # FIXED: Ensure dtype compatibility before lm_head
                 reconstructed_embeds = self._ensure_dtype_compatibility(reconstructed_embeds, self.lm_head)
                 logits = self.lm_head(reconstructed_embeds)
                 
@@ -350,7 +388,7 @@ class MLPSalmonn(nn.Module):
                 labels[:, prompt_length:] = target_tokens.input_ids
                 
                 with self.maybe_autocast():
-                    outputs = self.llama_model(
+                    outputs = model_to_use(  # ✅ Use Symbol LoRA model
                         inputs_embeds=combined_embeds,
                         attention_mask=combined_attention_mask,
                         labels=labels,
@@ -367,17 +405,17 @@ class MLPSalmonn(nn.Module):
                 ignore_index=-100
             )
             
-            logging.info(f"MLP Architecture loss: {loss:.6f}")
+            logging.info(f"Symbol LoRA Model loss: {loss:.6f}")
             
             return {"loss": loss, "logits": logits}
             
         except Exception as e:
-            logging.error(f"MLP loss computation failed: {e}")
+            logging.error(f"Symbol LoRA loss computation failed: {e}")
             logging.error(f"Error details: {type(e).__name__}: {str(e)}")
             return {"loss": torch.tensor(0.0, device=self.device, requires_grad=True)}
 
     def compute_standard_loss(self, wrapped_embeds, wrapped_atts, target_tokens):
-        """Standard loss function for LoRA training"""
+        """Standard loss function for LoRA training - Use Symbol LoRA Model"""
         # Get target embeddings (no MLP transformation)
         target_embeds = self.embed_module(target_tokens.input_ids)
         
@@ -394,9 +432,12 @@ class MLPSalmonn(nn.Module):
         attention_mask = torch.cat([wrapped_atts, target_tokens.attention_mask], dim=1)
         labels[attention_mask == 0] = -100
         
-        # Standard LLaMA forward
+        # ✅ Use Symbol LoRA Model (NOT base llama_model)
+        model_to_use = self.symbol_lora_model if self.symbol_lora_model is not None else self.llama_model
+        
+        # Standard forward with Symbol LoRA
         with self.maybe_autocast():
-            outputs = self.llama_model(
+            outputs = model_to_use(  # ✅ Use Symbol LoRA model
                 inputs_embeds=torch.cat([wrapped_embeds, target_embeds], dim=1),
                 attention_mask=attention_mask,
                 labels=labels,
@@ -821,7 +862,7 @@ class MLPSalmonn(nn.Module):
             logging.info("✓ MLP transformations will be APPLIED")
 
     def generate_output(self, samples):
-        """Generate predictions with MLP transformations applied"""
+        """Generate predictions with Symbol LoRA Model"""
         start_time = time.time()
         
         # Process speech embeddings
@@ -841,11 +882,11 @@ class MLPSalmonn(nn.Module):
         
         # Check if MLPs should be bypassed
         bypass_mlp = (
-            self.bypass_mlp or  # NEW: Architecture-level bypass
+            self.bypass_mlp or  # Architecture-level bypass
             (hasattr(self, 'bypass_mlp_for_inference') and self.bypass_mlp_for_inference)
         )
         
-        # Extract generation parameters (SAME FOR BOTH MODES)
+        # Extract generation parameters
         generation_kwargs = {
             "max_new_tokens": samples.get("max_new_tokens", 10),
             "num_beams": samples.get("num_beams", 1),
@@ -861,42 +902,50 @@ class MLPSalmonn(nn.Module):
             "output_scores": False,
         }
         
+        # ✅ Use Symbol LoRA Model for generation
+        model_to_use = self.symbol_lora_model if self.symbol_lora_model is not None else self.llama_model
+        
         if bypass_mlp or not self.use_output_mlp or self.output_mlp is None:
-            logging.info("BYPASSING Output MLP - using standard generation")
+            logging.info("Using Symbol LoRA Model - bypassing Output MLP")
             
-            # Standard generation without Output MLP (EXACT SAME PARAMETERS)
+            # Standard generation with Symbol LoRA Model
             with torch.inference_mode():
-                outputs = self.llama_model.generate(
+                outputs = model_to_use.generate(  # ✅ Use Symbol LoRA model
                     inputs_embeds=wrapped_embeds,
                     attention_mask=wrapped_atts,
-                    **generation_kwargs  # USE SAME PARAMETERS
+                    **generation_kwargs
                 )
         
         else:
-            logging.info("APPLYING Output MLP during generation - using custom generation loop")
+            logging.info("Using Symbol LoRA Model - applying Output MLP during generation")
             
-            # Custom generation loop with Output MLP (SAME PARAMETERS)
+            # Custom generation loop with Symbol LoRA Model + Output MLP
             outputs = self._generate_with_output_mlp(
                 wrapped_embeds, 
                 wrapped_atts, 
-                generation_kwargs  # PASS SAME PARAMETERS
+                generation_kwargs,
+                model_to_use  # ✅ Pass Symbol LoRA model
             )
         
         # Decode predictions
         predictions = self.llama_tokenizer.batch_decode(outputs, skip_special_tokens=True)
         
         self.batch_counter += 1
-        logging.info(f"Generation took {time.time() - start_time:.2f} seconds")
+        logging.info(f"Generation with Symbol LoRA took {time.time() - start_time:.2f} seconds")
         return predictions
 
-    def _generate_with_output_mlp(self, input_embeds, attention_mask, generation_kwargs):
-        """Custom generation loop that applies Output MLP at each step with dtype fixes"""
+    def _generate_with_output_mlp(self, input_embeds, attention_mask, generation_kwargs, model_to_use=None):
+        """Custom generation loop using Symbol LoRA Model + Output MLP"""
         
-        # NEW: Safety check
+        # ✅ Use provided model or default to Symbol LoRA model
+        if model_to_use is None:
+            model_to_use = self.symbol_lora_model if self.symbol_lora_model is not None else self.llama_model
+        
+        # Safety check
         if self.bypass_mlp or self.output_mlp is None:
             logging.warning("Output MLP generation called but MLP is bypassed or None, falling back to standard")
             with torch.inference_mode():
-                return self.llama_model.generate(
+                return model_to_use.generate(  # ✅ Use Symbol LoRA model
                     inputs_embeds=input_embeds,
                     attention_mask=attention_mask,
                     **generation_kwargs
@@ -927,8 +976,8 @@ class MLPSalmonn(nn.Module):
         with torch.inference_mode():
             for step in range(max_new_tokens):
                 try:
-                    # Forward pass through LLaMA to get hidden states
-                    outputs = self.llama_model(
+                    # ✅ Forward pass through Symbol LoRA Model
+                    outputs = model_to_use(  # ✅ Use Symbol LoRA model
                         inputs_embeds=current_embeds,
                         attention_mask=current_attention,
                         output_hidden_states=True,
@@ -1036,6 +1085,37 @@ class MLPSalmonn(nn.Module):
                         break
         
         return generated_tokens
+
+    def debug_salmonn_lora_targets(self):
+        """Debug what SALMONN's LoRA actually targets"""
+        logging.info("=" * 60)
+        logging.info("SALMONN LoRA TARGET ANALYSIS")
+        logging.info("=" * 60)
+        
+        if hasattr(self.salmonn, 'llama_model') and hasattr(self.salmonn.llama_model, 'peft_config'):
+            peft_config = self.salmonn.llama_model.peft_config
+            
+            for adapter_name, config in peft_config.items():
+                logging.info(f"SALMONN Adapter '{adapter_name}':")
+                logging.info(f"  Target modules: {config.target_modules}")
+                logging.info(f"  Rank: {config.r}")
+                logging.info(f"  Alpha: {config.lora_alpha}")
+                logging.info(f"  Dropout: {config.lora_dropout}")
+        
+        # Check actual parameter names
+        lora_layers = set()
+        for name, param in self.salmonn.llama_model.named_parameters():
+            if 'lora' in name.lower():
+                # Extract layer type from parameter name
+                # e.g., "model.layers.0.self_attn.q_proj.lora_A.default.weight"
+                parts = name.split('.')
+                for i, part in enumerate(parts):
+                    if part in ['q_proj', 'k_proj', 'v_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj']:
+                        lora_layers.add(part)
+                        break
+        
+        logging.info(f"SALMONN LoRA actually targets: {sorted(lora_layers)}")
+        logging.info("=" * 60)
 
 # SIMPLIFIED helper functions
 def generate_one_word_two_token_symbols(num_symbols, tokenizer):

@@ -10,17 +10,17 @@ device="cuda:0"  # GPU device
 lora_lr=1e-5
 mlp_lr=1e-5
 
-lora_epochs=1
+lora_epochs=5
 lora_final_epochs=1 
 
 mlp_epochs=1
-total_cycles=2
+total_cycles=1
 
 # MLP Architecture parameters
 use_output_mlp=False  # Enable/disable output MLP
 
 
-bypass_mlp=False 
+bypass_mlp=True 
 
 
 hidden_dim=4
@@ -28,13 +28,13 @@ batch_size=1
 
 gradient_accumulation_steps=8
 max_grad_norm=1.0
-max_samples=0  # Set reasonable default
+max_samples=2000 # Set reasonable default
 
 # NEW: Orchestrator-specific parameters
-schedule_type="mlp_first"  # Options: "lora_first", "mlp_first", "joint_training"
+schedule_type="joint_training"  # Options: "lora_first", "mlp_first", "joint_training"
 
 
-dynamic_symbols_per_epoch=False  # Generate new symbols each epoch
+dynamic_symbols_per_epoch=True  # Generate new symbols each epoch
 
 # Set conda environment
 export CONDA_ENV="salmon"

@@ -190,61 +190,79 @@ class UnifiedTrainer:
             logging.info("No MLP parameters found to freeze")
     
     def _freeze_lora_parameters(self):
-        """Freeze all LoRA parameters AND unfreeze SALMONN speech components"""
-        
-        # Freeze LoRA parameters
+        """Freeze SALMONN's original LoRA + our Symbol LoRA"""
+        # ✅ Freeze SALMONN's original LoRA
         for name, param in self.model.named_parameters():
             if 'lora' in name.lower():
                 param.requires_grad = False
         
-        if hasattr(self.model, 'salmonn'):
-            # Freeze QFormer components during MLP training
-            if hasattr(self.model.salmonn, 'speech_Qformer'):
-                for name, param in self.model.salmonn.speech_Qformer.named_parameters():
+        # ✅ Freeze our Symbol LoRA
+        if hasattr(self.model, 'symbol_lora_model') and self.model.symbol_lora_model:
+            for name, param in self.model.symbol_lora_model.named_parameters():
+                if 'lora' in name.lower():
                     param.requires_grad = False
-            
-            # Freeze speech_query_tokens
-            if hasattr(self.model.salmonn, 'speech_query_tokens'):
-                self.model.salmonn.speech_query_tokens.requires_grad = False
-            
-            # Freeze speech_llama_proj
-            if hasattr(self.model.salmonn, 'speech_llama_proj'):
-                for name, param in self.model.salmonn.speech_llama_proj.named_parameters():
-                    param.requires_grad = False
+        
+        # ✅ COMMENTED OUT: Don't train SALMONN components for now
+        # if hasattr(self.model, 'salmonn'):
+        #     # Freeze QFormer components during MLP training
+        #     if hasattr(self.model.salmonn, 'speech_Qformer'):
+        #         for name, param in self.model.salmonn.speech_Qformer.named_parameters():
+        #             param.requires_grad = False
+        #     
+        #     # Freeze speech_query_tokens
+        #     if hasattr(self.model.salmonn, 'speech_query_tokens'):
+        #         self.model.salmonn.speech_query_tokens.requires_grad = False
+        #     
+        #     # Freeze speech_llama_proj
+        #     if hasattr(self.model.salmonn, 'speech_llama_proj'):
+        #         for name, param in self.model.salmonn.speech_llama_proj.named_parameters():
+        #             param.requires_grad = False
     
     def _unfreeze_lora_parameters(self):
-        """Unfreeze LoRA parameters and SALMONN speech components"""
-        lora_param_count = 0
+        """Unfreeze ONLY our Symbol LoRA (keep SALMONN's LoRA frozen)"""
+        if not hasattr(self.model, 'symbol_lora_model') or self.model.symbol_lora_model is None:
+            logging.warning("⚠️ No Symbol LoRA model found to unfreeze")
+            return 0
         
-        # Unfreeze LoRA parameters
+        symbol_lora_param_count = 0
+        
+        # ✅ SALMONN's original LoRA stays FROZEN
         for name, param in self.model.named_parameters():
             if 'lora' in name.lower():
+                param.requires_grad = False  # ✅ Keep SALMONN LoRA frozen
+        
+        # ✅ Unfreeze ONLY our Symbol LoRA
+        for name, param in self.model.symbol_lora_model.named_parameters():
+            if 'lora' in name.lower() and param.requires_grad == False:
                 param.requires_grad = True
-                lora_param_count += param.numel()
+                symbol_lora_param_count += param.numel()
+                logging.debug(f"✅ Unfrozen Symbol LoRA parameter: {name}")
         
-        # For SALMONN model, unfreeze speech components during LoRA training
-        speech_param_count = 0
-        if hasattr(self.model, 'salmonn'):
-            # Unfreeze QFormer components
-            if hasattr(self.model.salmonn, 'speech_Qformer'):
-                for name, param in self.model.salmonn.speech_Qformer.named_parameters():
-                    param.requires_grad = True
-                    speech_param_count += param.numel()
-            
-            # Unfreeze speech_query_tokens
-            if hasattr(self.model.salmonn, 'speech_query_tokens'):
-                self.model.salmonn.speech_query_tokens.requires_grad = True
-                speech_param_count += self.model.salmonn.speech_query_tokens.numel() if hasattr(self.model.salmonn.speech_query_tokens, 'numel') else 1
-            
-            # Unfreeze speech_llama_proj
-            if hasattr(self.model.salmonn, 'speech_llama_proj'):
-                for name, param in self.model.salmonn.speech_llama_proj.named_parameters():
-                    param.requires_grad = True
-                    speech_param_count += param.numel()
+        logging.info(f"Unfrozen {symbol_lora_param_count:,} Symbol LoRA parameters")
+        logging.info("SALMONN's original LoRA remains FROZEN")
         
-        logging.info(f"Unfrozen {lora_param_count:,} LoRA parameters")
-        if speech_param_count > 0:
-            logging.info(f"Unfrozen {speech_param_count:,} SALMONN speech parameters")
+        # ✅ COMMENTED OUT: Don't train SALMONN components for now
+        # speech_param_count = 0
+        # if hasattr(self.model, 'salmonn'):
+        #     # Unfreeze QFormer components
+        #     if hasattr(self.model.salmonn, 'speech_Qformer'):
+        #         for name, param in self.model.salmonn.speech_Qformer.named_parameters():
+        #             param.requires_grad = True
+        #             speech_param_count += param.numel()
+        #     
+        #     # Unfreeze speech_query_tokens
+        #     if hasattr(self.model.salmonn, 'speech_query_tokens'):
+        #         self.model.salmonn.speech_query_tokens.requires_grad = True
+        #         speech_param_count += self.model.salmonn.speech_query_tokens.numel() if hasattr(self.model.salmonn.speech_query_tokens, 'numel') else 1
+        #     
+        #     # Unfreeze speech_llama_proj
+        #     if hasattr(self.model.salmonn, 'speech_llama_proj'):
+        #         for name, param in self.model.salmonn.speech_llama_proj.named_parameters():
+        #             param.requires_grad = True
+        #             speech_param_count += param.numel()
+        # 
+        # if speech_param_count > 0:
+        #     logging.info(f"Unfrozen {speech_param_count:,} SALMONN speech parameters")
     
     def _unfreeze_mlp_parameters(self):
         """Unfreeze MLP parameters based on configuration"""
@@ -305,46 +323,85 @@ class UnifiedTrainer:
         logging.info("=" * 60)
     
     def _setup_lora_optimizer(self, step: TrainingStep):
-        """Setup optimizer for LoRA parameters"""
-        # Get trainable LoRA parameters
-        lora_params = []
-        salmonn_params = []
+        """Setup optimizer for Symbol LoRA parameters ONLY"""
         
-        for name, param in self.model.named_parameters():
-            if param.requires_grad:
-                if 'lora' in name.lower():
-                    lora_params.append(param)
-                elif ('speech_Qformer' in name or 'speech_query_tokens' in name or 'speech_llama_proj' in name):
-                    salmonn_params.append(param)
+        # ✅ COMMENTED OUT: Original LoRA + SALMONN parameter collection
+        # # Get trainable LoRA parameters
+        # lora_params = []
+        # salmonn_params = []
+        # 
+        # for name, param in self.model.named_parameters():
+        #     if param.requires_grad:
+        #         if 'lora' in name.lower():
+        #             lora_params.append(param)
+        #         elif ('speech_Qformer' in name or 'speech_query_tokens' in name or 'speech_llama_proj' in name):
+        #             salmonn_params.append(param)
+        # 
+        # if not lora_params and not salmonn_params:
+        #     raise ValueError("No trainable LoRA or SALMONN parameters found!")
+        # 
+        # # Create parameter groups with different learning rates if needed
+        # param_groups = []
+        # 
+        # if lora_params:
+        #     param_groups.append({
+        #         'params': lora_params,
+        #         'lr': step.learning_rate or self.config.lora_config.learning_rate,
+        #         'weight_decay': self.config.lora_config.weight_decay,
+        #         'name': 'lora'
+        #     })
+        # 
+        # if salmonn_params:
+        #     param_groups.append({
+        #         'params': salmonn_params,
+        #         'lr': (step.learning_rate or self.config.lora_config.learning_rate),
+        #         'weight_decay': self.config.lora_config.weight_decay,
+        #         'name': 'salmonn'
+        #     })
+        # 
+        # # Create optimizer
+        # self.optimizer = torch.optim.AdamW(param_groups)
+        # 
+        # logging.info(f"Created AdamW optimizer with {len(param_groups)} parameter groups:")
+        # for group in param_groups:
+        #     logging.info(f"  {group['name']}: {len(group['params'])} layers, LR={group['lr']}")
         
-        if not lora_params and not salmonn_params:
-            raise ValueError("No trainable LoRA or SALMONN parameters found!")
+        # ✅ NEW: Symbol LoRA parameter collection ONLY
+        symbol_lora_params = []
         
-        # Create parameter groups with different learning rates if needed
-        param_groups = []
+        if hasattr(self.model, 'symbol_lora_model') and self.model.symbol_lora_model:
+            # ✅ FIXED: Use named_parameters() instead of peft_modules
+            for name, param in self.model.symbol_lora_model.named_parameters():
+                if 'lora' in name.lower() and param.requires_grad:
+                    symbol_lora_params.append(param)
+                    logging.debug(f"✅ Added Symbol LoRA parameter to optimizer: {name}")
+
+
+        if not symbol_lora_params:
+            # ✅ FALLBACK: Try to find LoRA parameters through model hierarchy
+            logging.warning("No Symbol LoRA parameters found via named_parameters(), trying fallback...")
+            
+            for name, param in self.model.named_parameters():
+                if 'lora' in name.lower() and param.requires_grad:
+                    # Check if this is our Symbol LoRA (not SALMONN's)
+                    # Our Symbol LoRA should have 'symbol' in path or be in symbol_lora_model
+                    if 'symbol' in name.lower() or hasattr(self.model, 'symbol_lora_model'):
+                        symbol_lora_params.append(param)
+                        logging.debug(f"✅ Added fallback Symbol LoRA parameter: {name}")
         
-        if lora_params:
-            param_groups.append({
-                'params': lora_params,
-                'lr': step.learning_rate or self.config.lora_config.learning_rate,
-                'weight_decay': self.config.lora_config.weight_decay,
-                'name': 'lora'
-            })
+        if not symbol_lora_params:
+            raise ValueError("No trainable Symbol LoRA parameters found!")
         
-        if salmonn_params:
-            param_groups.append({
-                'params': salmonn_params,
-                'lr': (step.learning_rate or self.config.lora_config.learning_rate),
-                'weight_decay': self.config.lora_config.weight_decay,
-                'name': 'salmonn'
-            })
+        # ✅ Create optimizer for Symbol LoRA only
+        self.optimizer = torch.optim.AdamW(
+            symbol_lora_params,
+            lr=step.learning_rate or self.config.lora_config.learning_rate,
+            weight_decay=self.config.lora_config.weight_decay
+        )
         
-        # Create optimizer
-        self.optimizer = torch.optim.AdamW(param_groups)
-        
-        logging.info(f"Created AdamW optimizer with {len(param_groups)} parameter groups:")
-        for group in param_groups:
-            logging.info(f"  {group['name']}: {len(group['params'])} layers, LR={group['lr']}")
+        logging.info(f"✅ Created AdamW optimizer for {len(symbol_lora_params)} Symbol LoRA parameters")
+        logging.info(f"Learning rate: {step.learning_rate or self.config.lora_config.learning_rate}")
+        logging.info("🚫 SALMONN's original LoRA and components are FROZEN")
     
     def _setup_mlp_optimizer(self, step: TrainingStep):
         """Setup optimizer for MLP parameters"""
@@ -369,28 +426,92 @@ class UnifiedTrainer:
         logging.info(f"Weight decay: {self.config.mlp_config.weight_decay}")
     
     def _setup_joint_optimizer(self, step: TrainingStep):
-        """Setup optimizer for both MLP and LoRA parameters with different learning rates"""
-        # Get different parameter groups
+        """Setup optimizer for MLP + Symbol LoRA (not SALMONN components)"""
+        
+        # ✅ COMMENTED OUT: Original joint parameter collection
+        # # Get different parameter groups
+        # mlp_params = []
+        # lora_params = []
+        # salmonn_params = []
+        # 
+        # for name, param in self.model.named_parameters():
+        #     if param.requires_grad:
+        #         if 'lora' in name.lower():
+        #             lora_params.append(param)
+        #         elif ('input_mlp' in name.lower() or 'output_mlp' in name.lower()  or 'symbol' in name.lower()) and 'lora' not in name.lower():
+        #             mlp_params.append(param)
+        #         elif ('speech_Qformer' in name or 'speech_query_tokens' in name or 'speech_llama_proj' in name):
+        #             salmonn_params.append(param)
+        # 
+        # if not mlp_params and not lora_params and not salmonn_params:
+        #     raise ValueError("No trainable parameters found for joint training!")
+        # 
+        # # Create parameter groups with different learning rates
+        # param_groups = []
+        # 
+        # # MLP parameters - use MLP learning rate
+        # if mlp_params:
+        #     param_groups.append({
+        #         'params': mlp_params,
+        #         'lr': step.learning_rate or self.config.mlp_config.learning_rate,
+        #         'weight_decay': self.config.mlp_config.weight_decay,
+        #         'name': 'mlp'
+        #     })
+        # 
+        # # LoRA parameters - use LoRA learning rate
+        # if lora_params:
+        #     param_groups.append({
+        #         'params': lora_params,
+        #         'lr': (step.learning_rate or self.config.lora_config.learning_rate),  
+        #         'weight_decay': self.config.lora_config.weight_decay,
+        #         'name': 'lora'
+        #     })
+        # 
+        # # SALMONN parameters - use lowest learning rate
+        # if salmonn_params:
+        #     param_groups.append({
+        #         'params': salmonn_params,
+        #         'lr': (step.learning_rate or self.config.lora_config.learning_rate),  
+        #         'weight_decay': self.config.lora_config.weight_decay,
+        #         'name': 'salmonn'
+        #     })
+        # 
+        # # Create optimizer
+        # self.optimizer = torch.optim.AdamW(param_groups)
+        # 
+        # logging.info(f"Created Joint AdamW optimizer with {len(param_groups)} parameter groups:")
+        # for group in param_groups:
+        #     logging.info(f"  {group['name']}: {len(group['params'])} params, LR={group['lr']:.2e}, WD={group['weight_decay']}")
+        
+        # ✅ NEW: Joint parameter collection (MLP + Symbol LoRA only)
         mlp_params = []
-        lora_params = []
-        salmonn_params = []
+        symbol_lora_params = []
         
+        # ✅ MLP parameters
         for name, param in self.model.named_parameters():
-            if param.requires_grad:
-                if 'lora' in name.lower():
-                    lora_params.append(param)
-                elif ('input_mlp' in name.lower() or 'output_mlp' in name.lower()  or 'symbol' in name.lower()) and 'lora' not in name.lower():
-                    mlp_params.append(param)
-                elif ('speech_Qformer' in name or 'speech_query_tokens' in name or 'speech_llama_proj' in name):
-                    salmonn_params.append(param)
+            if param.requires_grad and ('input_mlp' in name.lower() or 'output_mlp' in name.lower() or 'symbol' in name.lower()) and 'lora' not in name.lower():
+                mlp_params.append(param)
         
-        if not mlp_params and not lora_params and not salmonn_params:
+        # ✅ Symbol LoRA parameters - FIXED METHOD
+        if hasattr(self.model, 'symbol_lora_model') and self.model.symbol_lora_model:
+            for name, param in self.model.symbol_lora_model.named_parameters():
+                if 'lora' in name.lower() and param.requires_grad:
+                    symbol_lora_params.append(param)
+        
+        # ✅ FALLBACK: If no Symbol LoRA found via symbol_lora_model
+        if not symbol_lora_params:
+            logging.warning("No Symbol LoRA parameters found via symbol_lora_model, trying fallback...")
+            for name, param in self.model.named_parameters():
+                if 'lora' in name.lower() and param.requires_grad:
+                    if 'symbol' in name.lower():  # Our Symbol LoRA should have 'symbol' in name
+                        symbol_lora_params.append(param)
+            
+        if not mlp_params and not symbol_lora_params:
             raise ValueError("No trainable parameters found for joint training!")
         
-        # Create parameter groups with different learning rates
+        # Create parameter groups
         param_groups = []
         
-        # MLP parameters - use MLP learning rate
         if mlp_params:
             param_groups.append({
                 'params': mlp_params,
@@ -399,30 +520,21 @@ class UnifiedTrainer:
                 'name': 'mlp'
             })
         
-        # LoRA parameters - use LoRA learning rate
-        if lora_params:
+        if symbol_lora_params:
             param_groups.append({
-                'params': lora_params,
-                'lr': (step.learning_rate or self.config.lora_config.learning_rate),  
+                'params': symbol_lora_params,
+                'lr': step.learning_rate or self.config.lora_config.learning_rate,
                 'weight_decay': self.config.lora_config.weight_decay,
-                'name': 'lora'
-            })
-        
-        # SALMONN parameters - use lowest learning rate
-        if salmonn_params:
-            param_groups.append({
-                'params': salmonn_params,
-                'lr': (step.learning_rate or self.config.lora_config.learning_rate),  
-                'weight_decay': self.config.lora_config.weight_decay,
-                'name': 'salmonn'
+                'name': 'symbol_lora'
             })
         
         # Create optimizer
         self.optimizer = torch.optim.AdamW(param_groups)
         
-        logging.info(f"Created Joint AdamW optimizer with {len(param_groups)} parameter groups:")
+        logging.info(f"✅ Created Joint AdamW optimizer with {len(param_groups)} parameter groups:")
         for group in param_groups:
-            logging.info(f"  {group['name']}: {len(group['params'])} params, LR={group['lr']:.2e}, WD={group['weight_decay']}")
+            logging.info(f"  {group['name']}: {len(group['params'])} params, LR={group['lr']:.2e}")
+        logging.info("🚫 SALMONN's original LoRA and components are FROZEN")
     
     def _train_epoch(self, step: TrainingStep, epoch: int) -> float:
         """Train for one epoch"""
