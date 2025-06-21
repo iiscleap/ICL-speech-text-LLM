@@ -6,6 +6,8 @@ model_type="salmonn"  # Options: "salmonn" or "qwen2"
 dataset_type="voxceleb-hvb"  # Dataset type(s) to use
 device="cuda:0"  # GPU device
 
+hold_job_id="142552"
+
 # Training parameters
 lora_lr=1e-5
 mlp_lr=1e-5
@@ -20,7 +22,7 @@ total_cycles=1
 use_output_mlp=False  # Enable/disable output MLP
 
 
-bypass_mlp=True 
+bypass_mlp=False 
 
 
 hidden_dim=4
@@ -86,6 +88,15 @@ for dir in "$LOG_DIR" "$OUTPUT_DIR"; do
     fi
 done
 
+
+if [ -n "$hold_job_id" ]; then
+    echo "Job will wait for completion of job: $hold_job_id"
+    HOLD_FLAG="-hold_jid $hold_job_id"
+else
+    HOLD_FLAG=""
+fi
+
+
 # Remove old log file if it exists
 rm -f "${LOG_DIR}/${RUN_NAME}.log"
 
@@ -113,6 +124,7 @@ echo "=========================================="
 
 # Submit job
 qsub -q gpu.q -V -cwd \
+    $HOLD_FLAG \
     -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \

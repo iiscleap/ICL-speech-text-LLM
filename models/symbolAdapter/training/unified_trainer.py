@@ -376,7 +376,6 @@ class UnifiedTrainer:
                     symbol_lora_params.append(param)
                     logging.debug(f"✅ Added Symbol LoRA parameter to optimizer: {name}")
 
-
         if not symbol_lora_params:
             # ✅ FALLBACK: Try to find LoRA parameters through model hierarchy
             logging.warning("No Symbol LoRA parameters found via named_parameters(), trying fallback...")
@@ -399,12 +398,27 @@ class UnifiedTrainer:
             weight_decay=self.config.lora_config.weight_decay
         )
         
+        # ✅ ADD: Learning rate scheduler for LoRA training
+        total_steps = len(self.train_dataloader) * step.epochs
+        warmup_steps = min(100, total_steps // 10)  # 10% warmup or 100 steps max
+        
+        from transformers import get_scheduler
+        self.scheduler = get_scheduler(
+            name="linear",  # ✅ Linear scheduler (like your old train.py default)
+            optimizer=self.optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps
+        )
+        
         logging.info(f"✅ Created AdamW optimizer for {len(symbol_lora_params)} Symbol LoRA parameters")
+        logging.info(f"✅ Created linear scheduler for LoRA training:")
+        logging.info(f"   Total steps: {total_steps}")
+        logging.info(f"   Warmup steps: {warmup_steps}")
         logging.info(f"Learning rate: {step.learning_rate or self.config.lora_config.learning_rate}")
         logging.info("🚫 SALMONN's original LoRA and components are FROZEN")
     
     def _setup_mlp_optimizer(self, step: TrainingStep):
-        """Setup optimizer for MLP parameters"""
+        """Setup optimizer for MLP parameters with scheduler"""
         # Get trainable MLP parameters
         mlp_params = []
         for name, param in self.model.named_parameters():
@@ -421,7 +435,22 @@ class UnifiedTrainer:
             weight_decay=self.config.mlp_config.weight_decay
         )
         
-        logging.info(f"Created AdamW optimizer for {len(mlp_params)} MLP parameter groups")
+        # ✅ ADD: Learning rate scheduler for MLP training
+        total_steps = len(self.train_dataloader) * step.epochs
+        warmup_steps = min(100, total_steps // 10)  # 10% warmup
+        
+        from transformers import get_scheduler
+        self.scheduler = get_scheduler(
+            name="linear",  # ✅ Linear scheduler
+            optimizer=self.optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps
+        )
+        
+        logging.info(f"✅ Created AdamW optimizer for {len(mlp_params)} MLP parameter groups")
+        logging.info(f"✅ Created linear scheduler for MLP training:")
+        logging.info(f"   Total steps: {total_steps}")
+        logging.info(f"   Warmup steps: {warmup_steps}")
         logging.info(f"Learning rate: {step.learning_rate or self.config.mlp_config.learning_rate}")
         logging.info(f"Weight decay: {self.config.mlp_config.weight_decay}")
     
@@ -531,13 +560,28 @@ class UnifiedTrainer:
         # Create optimizer
         self.optimizer = torch.optim.AdamW(param_groups)
         
+        # ✅ ADD: Learning rate scheduler for joint training
+        total_steps = len(self.train_dataloader) * step.epochs
+        warmup_steps = min(100, total_steps // 10)  # 10% warmup or 100 steps max
+        
+        from transformers import get_scheduler
+        self.scheduler = get_scheduler(
+            name="linear",  # ✅ Linear scheduler (like your old train.py default)
+            optimizer=self.optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps
+        )
+        
         logging.info(f"✅ Created Joint AdamW optimizer with {len(param_groups)} parameter groups:")
         for group in param_groups:
             logging.info(f"  {group['name']}: {len(group['params'])} params, LR={group['lr']:.2e}")
+        logging.info(f"✅ Created linear scheduler for joint training:")
+        logging.info(f"   Total steps: {total_steps}")
+        logging.info(f"   Warmup steps: {warmup_steps}")
         logging.info("🚫 SALMONN's original LoRA and components are FROZEN")
     
     def _train_epoch(self, step: TrainingStep, epoch: int) -> float:
-        """Train for one epoch"""
+        """Train for one epoch with scheduler and gradient accumulation"""
         self.model.train()
         total_loss = 0.0
         num_batches = 0
@@ -552,7 +596,7 @@ class UnifiedTrainer:
             leave=False
         )
         
-        # Gradient accumulation steps
+        # ✅ KEEP: Gradient accumulation steps (NOT REMOVED)
         if step.phase == "lora":
             accumulation_steps = step.gradient_accumulation_steps or self.config.lora_config.gradient_accumulation_steps
         elif step.phase == "mlp":
@@ -617,13 +661,13 @@ class UnifiedTrainer:
                         logging.warning(f"No loss returned for batch {batch_idx}")
                         continue
                     
-                    # Scale loss for gradient accumulation
+                    # ✅ KEEP: Scale loss for gradient accumulation (NOT REMOVED)
                     loss = loss / accumulation_steps
                     
                     # Backward pass
                     loss.backward()
                     
-                    # Gradient accumulation
+                    # ✅ KEEP: Gradient accumulation with scheduler (NOT REMOVED)
                     if (batch_idx + 1) % accumulation_steps == 0:
                         # Gradient clipping
                         max_grad_norm = getattr(self.config, 'max_grad_norm', 0)
@@ -640,24 +684,27 @@ class UnifiedTrainer:
                         if max_grad_norm > 0:
                             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
                         
-                        # Optimizer step
+                        # ✅ CRITICAL: Update optimizer AND scheduler
                         self.optimizer.step()
+                        if hasattr(self, 'scheduler') and self.scheduler:
+                            self.scheduler.step()  # ✅ ADD THIS LINE
                         self.optimizer.zero_grad()
                     
                     # Update metrics
                     total_loss += loss.item() * accumulation_steps
                     num_batches += 1
                     
-                    # Update progress bar
-                    avg_loss = total_loss / num_batches
+                    # ✅ ADD: Show current learning rate in progress bar
+                    current_lr = self.optimizer.param_groups[0]['lr']
                     progress_bar.set_postfix({
                         'loss': f"{loss.item() * accumulation_steps:.6f}",
-                        'avg_loss': f"{avg_loss:.6f}"
+                        'avg_loss': f"{total_loss / num_batches:.6f}",
+                        'lr': f"{current_lr:.2e}"  # ✅ Show LR changes
                     })
                     
                     # Log frequently during first epoch
                     if epoch == 0 and batch_idx % getattr(self.config, 'log_frequency', 10) == 0:
-                        logging.info(f"Batch {batch_idx}: loss = {loss.item() * accumulation_steps:.6f}")
+                        logging.info(f"Batch {batch_idx}: loss = {loss.item() * accumulation_steps:.6f}, lr = {current_lr:.2e}")
                     
                 except Exception as e:
                     logging.error(f"Error in batch {batch_idx}: {str(e)}")
@@ -669,7 +716,7 @@ class UnifiedTrainer:
         finally:
             progress_bar.close()
         
-        # Final gradient step if needed
+        # ✅ KEEP: Final gradient step if needed (NOT REMOVED)
         if num_batches % accumulation_steps != 0:
             max_grad_norm = getattr(self.config, 'max_grad_norm', 0)
             if step.phase == "lora":
@@ -685,7 +732,10 @@ class UnifiedTrainer:
             if max_grad_norm > 0:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
             
+            # ✅ CRITICAL: Final optimizer AND scheduler step
             self.optimizer.step()
+            if hasattr(self, 'scheduler') and self.scheduler:
+                self.scheduler.step()  # ✅ ADD THIS LINE
             self.optimizer.zero_grad()
         
         return total_loss / max(num_batches, 1)

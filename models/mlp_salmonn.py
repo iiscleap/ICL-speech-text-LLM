@@ -713,23 +713,23 @@ class MLPSalmonn(nn.Module):
             audio_padding_mask=audio_padding_mask
         )
     
-    def _get_label_token_ids(self):
-        """Convert label tokens to token IDs"""
-        token_ids = []
-        self.label_to_token_ids = {}
+    # def _get_label_token_ids(self):
+    #     """Convert label tokens to token IDs"""
+    #     token_ids = []
+    #     self.label_to_token_ids = {}
         
-        for label in self.label_tokens:
-            if isinstance(label, int):
-                token_ids.append(label)
-                self.label_to_token_ids[label] = [label]
-            else:
-                tokenized = self.llama_tokenizer.encode(label, add_special_tokens=False)
-                if len(tokenized) > 0:
-                    token_ids.extend(tokenized)
-                    self.label_to_token_ids[label] = tokenized
-                    logging.info(f"Label '{label}' -> {tokenized}")
+    #     for label in self.label_tokens:
+    #         if isinstance(label, int):
+    #             token_ids.append(label)
+    #             self.label_to_token_ids[label] = [label]
+    #         else:
+    #             tokenized = self.llama_tokenizer.encode(label, add_special_tokens=False)
+    #             if len(tokenized) > 0:
+    #                 token_ids.extend(tokenized)
+    #                 self.label_to_token_ids[label] = tokenized
+    #                 logging.info(f"Label '{label}' -> {tokenized}")
         
-        return token_ids
+    #     return token_ids
     
     def maybe_autocast(self):
         """Context manager for autocast"""
@@ -739,98 +739,98 @@ class MLPSalmonn(nn.Module):
             return nullcontext()
     
     # FIXED: Training mode methods
-    def freeze_mlp_weights(self):
-        """Freeze both input and output MLP weights"""
-        if self.bypass_mlp:
-            logging.info("BYPASS_MLP=True: No MLP weights to freeze")
-            return
+    # def freeze_mlp_weights(self):
+    #     """Freeze both input and output MLP weights"""
+    #     if self.bypass_mlp:
+    #         logging.info("BYPASS_MLP=True: No MLP weights to freeze")
+    #         return
             
-        frozen_count = 0
-        if self.input_mlp is not None:
-            for param in self.input_mlp.parameters():
-                param.requires_grad = False
-                frozen_count += 1
-        if self.output_mlp is not None:
-            for param in self.output_mlp.parameters():
-                param.requires_grad = False
-                frozen_count += 1
-        logging.info(f"Frozen {frozen_count} MLP parameters")
+    #     frozen_count = 0
+    #     if self.input_mlp is not None:
+    #         for param in self.input_mlp.parameters():
+    #             param.requires_grad = False
+    #             frozen_count += 1
+    #     if self.output_mlp is not None:
+    #         for param in self.output_mlp.parameters():
+    #             param.requires_grad = False
+    #             frozen_count += 1
+    #     logging.info(f"Frozen {frozen_count} MLP parameters")
 
-    def unfreeze_mlp_weights(self):
-        """Unfreeze both input and output MLP weights"""
-        if self.bypass_mlp:
-            logging.info("BYPASS_MLP=True: No MLP weights to unfreeze")
-            return
+    # def unfreeze_mlp_weights(self):
+    #     """Unfreeze both input and output MLP weights"""
+    #     if self.bypass_mlp:
+    #         logging.info("BYPASS_MLP=True: No MLP weights to unfreeze")
+    #         return
             
-        unfrozen_count = 0
-        if self.input_mlp is not None:
-            for param in self.input_mlp.parameters():
-                param.requires_grad = True
-                unfrozen_count += 1
-        if self.output_mlp is not None:
-            for param in self.output_mlp.parameters():
-                param.requires_grad = True
-                unfrozen_count += 1
-        logging.info(f"Unfrozen {unfrozen_count} MLP parameters")
+    #     unfrozen_count = 0
+    #     if self.input_mlp is not None:
+    #         for param in self.input_mlp.parameters():
+    #             param.requires_grad = True
+    #             unfrozen_count += 1
+    #     if self.output_mlp is not None:
+    #         for param in self.output_mlp.parameters():
+    #             param.requires_grad = True
+    #             unfrozen_count += 1
+    #     logging.info(f"Unfrozen {unfrozen_count} MLP parameters")
 
-    def freeze_lora_weights(self):
-        """FIXED: Freeze LoRA weights AND ALL other components except MLPs"""
-        frozen_count = 0
+    # def freeze_lora_weights(self):
+    #     """FIXED: Freeze LoRA weights AND ALL other components except MLPs"""
+    #     frozen_count = 0
         
-        # Freeze ALL SALMONN parameters (including LLaMA, QFormer, etc.)
-        for param in self.salmonn.parameters():
-            param.requires_grad = False
-            frozen_count += 1
+    #     # Freeze ALL SALMONN parameters (including LLaMA, QFormer, etc.)
+    #     for param in self.salmonn.parameters():
+    #         param.requires_grad = False
+    #         frozen_count += 1
         
-        logging.info(f"Frozen ALL base model parameters ({frozen_count} parameters)")
+    #     logging.info(f"Frozen ALL base model parameters ({frozen_count} parameters)")
 
-    def unfreeze_lora_weights(self):
-        """FIXED: Unfreeze LoRA weights AND trainable components for LoRA training"""
-        unfrozen_count = 0
+    # def unfreeze_lora_weights(self):
+    #     """FIXED: Unfreeze LoRA weights AND trainable components for LoRA training"""
+    #     unfrozen_count = 0
         
-        # Unfreeze LoRA weights
-        for name, param in self.named_parameters():
-            if 'lora' in name.lower():
-                param.requires_grad = True
-                unfrozen_count += 1
+    #     # Unfreeze LoRA weights
+    #     for name, param in self.named_parameters():
+    #         if 'lora' in name.lower():
+    #             param.requires_grad = True
+    #             unfrozen_count += 1
         
-        # Unfreeze QFormer components (since freeze_speech_QFormer=False in config)
-        if hasattr(self.salmonn, 'speech_Qformer'):
-            for name, param in self.salmonn.speech_Qformer.named_parameters():
-                param.requires_grad = True
-                unfrozen_count += 1
+    #     # Unfreeze QFormer components (since freeze_speech_QFormer=False in config)
+    #     if hasattr(self.salmonn, 'speech_Qformer'):
+    #         for name, param in self.salmonn.speech_Qformer.named_parameters():
+    #             param.requires_grad = True
+    #             unfrozen_count += 1
         
-        if hasattr(self.salmonn, 'speech_query_tokens'):
-            self.salmonn.speech_query_tokens.requires_grad = True
-            unfrozen_count += 1
+    #     if hasattr(self.salmonn, 'speech_query_tokens'):
+    #         self.salmonn.speech_query_tokens.requires_grad = True
+    #         unfrozen_count += 1
         
-        # Unfreeze speech_llama_proj (since freeze_speech_llama_proj=False in config)
-        if hasattr(self.salmonn, 'speech_llama_proj'):
-            for name, param in self.salmonn.speech_llama_proj.named_parameters():
-                param.requires_grad = True
-                unfrozen_count += 1
+    #     # Unfreeze speech_llama_proj (since freeze_speech_llama_proj=False in config)
+    #     if hasattr(self.salmonn, 'speech_llama_proj'):
+    #         for name, param in self.salmonn.speech_llama_proj.named_parameters():
+    #             param.requires_grad = True
+    #             unfrozen_count += 1
         
-        logging.info(f"Unfrozen LoRA and trainable components ({unfrozen_count} parameters)")
+    #     logging.info(f"Unfrozen LoRA and trainable components ({unfrozen_count} parameters)")
 
-    def set_mlp_training_mode(self):
-        """Set model to MLP training mode"""
-        if self.bypass_mlp:
-            logging.warning("BYPASS_MLP=True: Cannot set MLP training mode, no MLPs exist")
-            return
+    # def set_mlp_training_mode(self):
+    #     """Set model to MLP training mode"""
+    #     if self.bypass_mlp:
+    #         logging.warning("BYPASS_MLP=True: Cannot set MLP training mode, no MLPs exist")
+    #         return
             
-        self.freeze_lora_weights()  # Freeze everything except MLPs
-        self.unfreeze_mlp_weights()  # Keep MLPs trainable
-        self.is_mlp_training = True  # NEW: Track MLP training mode
-        self.step_counter = 0  # NEW: Reset step counter
-        logging.info("✓ Set to MLP training mode - Only MLPs unfrozen")
+    #     self.freeze_lora_weights()  # Freeze everything except MLPs
+    #     self.unfreeze_mlp_weights()  # Keep MLPs trainable
+    #     self.is_mlp_training = True  # NEW: Track MLP training mode
+    #     self.step_counter = 0  # NEW: Reset step counter
+    #     logging.info("✓ Set to MLP training mode - Only MLPs unfrozen")
 
-    def set_lora_training_mode(self):
-        """Set model to LoRA training mode"""
-        self.freeze_mlp_weights()  # Freeze MLPs
-        self.unfreeze_lora_weights()  # Unfreeze LoRA and trainable components
-        self.is_mlp_training = False  # NEW: Track not MLP training
-        self.step_counter = 0  # NEW: Reset step counter
-        logging.info("✓ Set to LoRA training mode - LoRA and trainable components unfrozen, MLPs frozen")
+    # def set_lora_training_mode(self):
+    #     """Set model to LoRA training mode"""
+    #     self.freeze_mlp_weights()  # Freeze MLPs
+    #     self.unfreeze_lora_weights()  # Unfreeze LoRA and trainable components
+    #     self.is_mlp_training = False  # NEW: Track not MLP training
+    #     self.step_counter = 0  # NEW: Reset step counter
+    #     logging.info("✓ Set to LoRA training mode - LoRA and trainable components unfrozen, MLPs frozen")
 
     def update_label_tokens(self, symbol_mappings):
         """Update tracked label tokens from symbol mappings"""
