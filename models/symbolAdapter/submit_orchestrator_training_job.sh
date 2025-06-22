@@ -6,16 +6,16 @@ model_type="salmonn"  # Options: "salmonn" or "qwen2"
 dataset_type="voxceleb-hvb"  # Dataset type(s) to use
 device="cuda:0"  # GPU device
 
-hold_job_id="142552"
+hold_job_id=""
 
 # Training parameters
 lora_lr=1e-5
 mlp_lr=1e-5
 
-lora_epochs=5
-lora_final_epochs=1 
+lora_epochs=4
+lora_final_epochs=4 
 
-mlp_epochs=1
+mlp_epochs=2
 total_cycles=1
 
 # MLP Architecture parameters
@@ -30,13 +30,13 @@ batch_size=1
 
 gradient_accumulation_steps=8
 max_grad_norm=1.0
-max_samples=2000 # Set reasonable default
+max_samples=1000 # Set reasonable default
 
 # NEW: Orchestrator-specific parameters
-schedule_type="joint_training"  # Options: "lora_first", "mlp_first", "joint_training"
+schedule_type="lora_mlp_joint"  # Options: "lora_first", "mlp_first", "joint_training","lora_mlp_joint"
 
 
-dynamic_symbols_per_epoch=True  # Generate new symbols each epoch
+dynamic_symbols_per_epoch=False  # Generate new symbols each epoch
 
 # Set conda environment
 export CONDA_ENV="salmon"
@@ -125,11 +125,11 @@ echo "=========================================="
 # Submit job
 qsub -q gpu.q -V -cwd \
     $HOLD_FLAG \
-    -l hostname=compute-0-9 \
+    -l hostname=compute-0-8 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=2,\
+    -v CUDA_VISIBLE_DEVICES=0,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

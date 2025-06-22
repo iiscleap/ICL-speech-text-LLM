@@ -88,16 +88,22 @@ class UnifiedTrainer:
     
     def _setup_training_phase(self, step: TrainingStep):
         """Setup model parameters and optimizer based on training phase"""
+        
+        # ✅ UPDATE: Check and set bypass_mlp flag
+        if hasattr(step, 'bypass_mlp'):
+            if hasattr(self.model, 'bypass_mlp'):
+                self.model.bypass_mlp = step.bypass_mlp
+                logging.info(f"Set model.bypass_mlp = {step.bypass_mlp} for {step.phase} phase")
+            else:
+                logging.warning(f"Model doesn't have bypass_mlp attribute, cannot set to {step.bypass_mlp}")
+        
         if step.phase == "lora":
-            # Setup LoRA training
             self._setup_lora_training(step)
             
         elif step.phase == "mlp":
-            # Setup MLP training
             self._setup_mlp_training(step)
             
         elif step.phase == "joint":
-            # Setup joint training (both LoRA and MLP)
             self._setup_joint_training(step)
         
         else:
@@ -106,6 +112,12 @@ class UnifiedTrainer:
     def _setup_lora_training(self, step: TrainingStep):
         """Setup LoRA parameters for training"""
         logging.info(f"Setting up LoRA training for {step.description}")
+        
+        # ✅ NEW: Set bypass_mlp based on step flag
+        bypass_mlp = getattr(step, 'bypass_mlp', False)
+        if hasattr(self.model, 'set_bypass_mlp'):
+            self.model.set_bypass_mlp(bypass_mlp)
+            logging.info(f"✅ MLP bypass set to {bypass_mlp} for LoRA training")
         
         # Freeze MLP parameters and unfreeze LoRA parameters
         self._freeze_mlp_parameters()
@@ -126,9 +138,15 @@ class UnifiedTrainer:
         """Setup MLP parameters for training"""
         logging.info(f"Setting up MLP training for {step.description}")
         
-        # Check if MLP training is possible
-        if getattr(self.model, 'bypass_mlp', False):
-            raise ValueError("Cannot perform MLP training when bypass_mlp=True. No MLP layers exist.")
+        # ✅ NEW: Set bypass_mlp based on step flag (should be False for MLP training)
+        bypass_mlp = getattr(step, 'bypass_mlp', False)
+        if hasattr(self.model, 'set_bypass_mlp'):
+            self.model.set_bypass_mlp(bypass_mlp)
+            logging.info(f"✅ MLP bypass set to {bypass_mlp} for MLP training")
+            
+            # ✅ SAFETY CHECK: MLP training requires bypass_mlp=False
+            if bypass_mlp:
+                logging.warning("⚠️  Warning: MLP training with bypass_mlp=True - MLP won't be used!")
         
         # Freeze LoRA parameters and unfreeze MLP parameters
         self._freeze_lora_parameters()
@@ -149,9 +167,15 @@ class UnifiedTrainer:
         """Setup joint LoRA + MLP training"""
         logging.info(f"Setting up Joint MLP+LoRA training for {step.description}")
         
-        # Check if this is effectively LoRA-only training
-        if getattr(self.model, 'bypass_mlp', False):
-            logging.warning("BYPASS_MLP=True: Joint training will only train LoRA + SALMONN (no MLP layers)")
+        # ✅ NEW: Set bypass_mlp based on step flag
+        bypass_mlp = getattr(step, 'bypass_mlp', False)
+        if hasattr(self.model, 'set_bypass_mlp'):
+            self.model.set_bypass_mlp(bypass_mlp)
+            logging.info(f"✅ MLP bypass set to {bypass_mlp} for Joint training")
+            
+            # ✅ SAFETY CHECK: Joint training usually requires bypass_mlp=False
+            if bypass_mlp:
+                logging.warning("⚠️  Warning: Joint training with bypass_mlp=True - only LoRA will be trained!")
         
         # Unfreeze both MLP and LoRA parameters
         self._unfreeze_mlp_parameters()
@@ -398,22 +422,10 @@ class UnifiedTrainer:
             weight_decay=self.config.lora_config.weight_decay
         )
         
-        # ✅ ADD: Learning rate scheduler for LoRA training
-        total_steps = len(self.train_dataloader) * step.epochs
-        warmup_steps = min(100, total_steps // 10)  # 10% warmup or 100 steps max
-        
-        from transformers import get_scheduler
-        self.scheduler = get_scheduler(
-            name="linear",  # ✅ Linear scheduler (like your old train.py default)
-            optimizer=self.optimizer,
-            num_warmup_steps=warmup_steps,
-            num_training_steps=total_steps
-        )
+        # ✅ SIMPLIFIED: Use centralized scheduler creation
+        self.scheduler = self._create_scheduler(step, "lora")
         
         logging.info(f"✅ Created AdamW optimizer for {len(symbol_lora_params)} Symbol LoRA parameters")
-        logging.info(f"✅ Created linear scheduler for LoRA training:")
-        logging.info(f"   Total steps: {total_steps}")
-        logging.info(f"   Warmup steps: {warmup_steps}")
         logging.info(f"Learning rate: {step.learning_rate or self.config.lora_config.learning_rate}")
         logging.info("🚫 SALMONN's original LoRA and components are FROZEN")
     
@@ -435,25 +447,12 @@ class UnifiedTrainer:
             weight_decay=self.config.mlp_config.weight_decay
         )
         
-        # ✅ ADD: Learning rate scheduler for MLP training
-        total_steps = len(self.train_dataloader) * step.epochs
-        warmup_steps = min(100, total_steps // 10)  # 10% warmup
+        # ✅ SIMPLIFIED: Use centralized scheduler creation
+        self.scheduler = self._create_scheduler(step, "mlp")
         
-        from transformers import get_scheduler
-        self.scheduler = get_scheduler(
-            name="linear",  # ✅ Linear scheduler
-            optimizer=self.optimizer,
-            num_warmup_steps=warmup_steps,
-            num_training_steps=total_steps
-        )
-        
-        logging.info(f"✅ Created AdamW optimizer for {len(mlp_params)} MLP parameter groups")
-        logging.info(f"✅ Created linear scheduler for MLP training:")
-        logging.info(f"   Total steps: {total_steps}")
-        logging.info(f"   Warmup steps: {warmup_steps}")
+        logging.info(f"✅ Created AdamW optimizer for {len(mlp_params)} MLP parameters")
         logging.info(f"Learning rate: {step.learning_rate or self.config.mlp_config.learning_rate}")
-        logging.info(f"Weight decay: {self.config.mlp_config.weight_decay}")
-    
+
     def _setup_joint_optimizer(self, step: TrainingStep):
         """Setup optimizer for MLP + Symbol LoRA (not SALMONN components)"""
         
@@ -560,24 +559,12 @@ class UnifiedTrainer:
         # Create optimizer
         self.optimizer = torch.optim.AdamW(param_groups)
         
-        # ✅ ADD: Learning rate scheduler for joint training
-        total_steps = len(self.train_dataloader) * step.epochs
-        warmup_steps = min(100, total_steps // 10)  # 10% warmup or 100 steps max
-        
-        from transformers import get_scheduler
-        self.scheduler = get_scheduler(
-            name="linear",  # ✅ Linear scheduler (like your old train.py default)
-            optimizer=self.optimizer,
-            num_warmup_steps=warmup_steps,
-            num_training_steps=total_steps
-        )
+        # ✅ SIMPLIFIED: Use centralized scheduler creation
+        self.scheduler = self._create_scheduler(step, "joint")
         
         logging.info(f"✅ Created Joint AdamW optimizer with {len(param_groups)} parameter groups:")
         for group in param_groups:
             logging.info(f"  {group['name']}: {len(group['params'])} params, LR={group['lr']:.2e}")
-        logging.info(f"✅ Created linear scheduler for joint training:")
-        logging.info(f"   Total steps: {total_steps}")
-        logging.info(f"   Warmup steps: {warmup_steps}")
         logging.info("🚫 SALMONN's original LoRA and components are FROZEN")
     
     def _train_epoch(self, step: TrainingStep, epoch: int) -> float:
@@ -848,3 +835,50 @@ class UnifiedTrainer:
                    f"epoch {step_info.get('epoch', 'unknown')}")
         
         return checkpoint
+    
+    def _create_scheduler(self, step: TrainingStep, phase: str):
+        """Create scheduler with global override"""
+        total_steps = len(self.train_dataloader) * step.epochs
+        
+        # ✅ FIXED HIERARCHY: Global first
+        if hasattr(self.config, 'scheduler') and self.config.scheduler != "linear":
+            # Global scheduler specified - use it for all phases
+            scheduler_name = self.config.scheduler
+            warmup_ratio = getattr(self.config, 'warmup_ratio', 0.1)
+            logging.info(f"Using global scheduler '{scheduler_name}' for {phase.upper()} phase")
+        
+        elif phase == "lora" and hasattr(self.config.lora_config, 'scheduler'):
+            # Phase-specific scheduler
+            scheduler_name = self.config.lora_config.scheduler
+            warmup_ratio = getattr(self.config.lora_config, 'warmup_ratio', 0.1)
+            logging.info(f"Using LoRA-specific scheduler '{scheduler_name}'")
+        
+        elif phase == "mlp" and hasattr(self.config.mlp_config, 'scheduler'):
+            # Phase-specific scheduler  
+            scheduler_name = self.config.mlp_config.scheduler
+            warmup_ratio = getattr(self.config.mlp_config, 'warmup_ratio', 0.1)
+            logging.info(f"Using MLP-specific scheduler '{scheduler_name}'")
+        
+        else:
+            scheduler_name = "linear"
+            warmup_ratio = 0.1
+            logging.info(f"Using fallback scheduler '{scheduler_name}' for {phase.upper()}")
+        
+        # Calculate warmup steps
+        warmup_steps = int(total_steps * warmup_ratio)
+        warmup_steps = max(min(warmup_steps, 500), 50)  # Between 50-500 steps
+        
+        from transformers import get_scheduler
+        scheduler = get_scheduler(
+            name=scheduler_name,
+            optimizer=self.optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps
+        )
+        
+        logging.info(f"✅ Created {scheduler_name} scheduler for {phase.upper()} training:")
+        logging.info(f"   Total steps: {total_steps}")
+        logging.info(f"   Warmup steps: {warmup_steps} ({warmup_ratio*100:.1f}%)")
+        logging.info(f"   Scheduler: {scheduler_name}")
+        
+        return scheduler

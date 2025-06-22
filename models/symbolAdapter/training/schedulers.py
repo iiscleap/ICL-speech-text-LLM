@@ -27,6 +27,7 @@ class TrainingStep:
     freeze_lora: bool = True      # Whether to freeze LoRA weights
     use_symbols: bool = True      # Whether to use symbol replacement
     dynamic_symbols: bool = False # Whether to generate new symbols this step
+    bypass_mlp: bool = False      # ✅ ADD: Whether to bypass MLP layers completely
     
     def __post_init__(self):
         """Set training flags based on phase"""
@@ -45,7 +46,6 @@ class TrainingStep:
             self.freeze_lora = True
             self.use_symbols = False
             self.dynamic_symbols = False
-        
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization"""
@@ -62,6 +62,7 @@ class TrainingStep:
             "freeze_lora": self.freeze_lora,
             "use_symbols": self.use_symbols,
             "dynamic_symbols": self.dynamic_symbols,
+            "bypass_mlp": self.bypass_mlp,  # ✅ ADD THIS LINE
         }
 
 
@@ -84,6 +85,8 @@ class TrainingScheduler:
             self.schedule = self._generate_bypass_mlp_sym_schedule()
         elif self.config.mode == TrainingMode.BYPASS_MLP_ORG:
             self.schedule = self._generate_bypass_mlp_org_schedule()
+        elif self.config.mode == TrainingMode.LORA_MLP_JOINT:  # ✅ ADD THIS
+            self.schedule = self._generate_lora_mlp_joint_schedule()  # ✅ ADD THIS
         else:
             raise ValueError(f"Unknown training mode: {self.config.mode}")
         
@@ -298,6 +301,56 @@ class TrainingScheduler:
         
         return schedule
 
+    def _generate_lora_mlp_joint_schedule(self) -> List[TrainingStep]:
+        """
+        Generate LoRA-MLP-Joint schedule:
+        LoRA only → MLP only → Joint training (no cycles)
+        """
+        schedule = []
+        step_id = 0
+        
+        # Phase 1: Pure LoRA training (bypass MLP)
+        schedule.append(TrainingStep(
+            phase="lora",
+            epochs=self.config.lora_config.epochs,  # e.g., 5-8 epochs
+            cycle=0,  # ✅ Keep cycle for consistency
+            step_id=step_id,
+            description="Initial LoRA training - bypass MLP completely",
+            learning_rate=self.config.lora_config.learning_rate,
+            gradient_accumulation_steps=self.config.lora_config.gradient_accumulation_steps,
+            max_grad_norm=self.config.lora_config.max_grad_norm,
+            bypass_mlp=True,  # ✅ No MLP interference
+        ))
+        step_id += 1
+        
+        # Phase 2: Pure MLP training (freeze LoRA)
+        schedule.append(TrainingStep(
+            phase="mlp", 
+            epochs=self.config.mlp_config.epochs,  # e.g., 2-3 epochs
+            cycle=0,
+            step_id=step_id,
+            description="MLP training - LoRA frozen, build on stable foundation",
+            learning_rate=self.config.mlp_config.learning_rate,
+            gradient_accumulation_steps=self.config.mlp_config.gradient_accumulation_steps,
+            max_grad_norm=self.config.mlp_config.max_grad_norm,
+            bypass_mlp=False,  # ✅ MLP layers active
+        ))
+        step_id += 1
+        
+        # Phase 3: Joint training (both active)
+        schedule.append(TrainingStep(
+            phase="joint",
+            epochs=self.config.lora_config.final_epochs,  # e.g., 1-2 epochs
+            cycle=0,
+            step_id=step_id,
+            description="Joint training - fine-tune both LoRA and MLP together",
+            learning_rate=min(self.config.lora_config.learning_rate, self.config.mlp_config.learning_rate) / 2,
+            gradient_accumulation_steps=self.config.lora_config.gradient_accumulation_steps,
+            max_grad_norm=self.config.lora_config.max_grad_norm,
+            bypass_mlp=False,  # ✅ Both active
+        ))
+        
+        return schedule
 
     
     
@@ -403,6 +456,7 @@ class TrainingScheduler:
             step.freeze_lora = step_data["freeze_lora"]
             step.use_symbols = step_data["use_symbols"]
             step.dynamic_symbols = step_data["dynamic_symbols"]
+            step.bypass_mlp = step_data["bypass_mlp"]  # ✅ ADD THIS LINE
             
             self.schedule.append(step)
         

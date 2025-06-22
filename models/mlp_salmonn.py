@@ -713,23 +713,6 @@ class MLPSalmonn(nn.Module):
             audio_padding_mask=audio_padding_mask
         )
     
-    # def _get_label_token_ids(self):
-    #     """Convert label tokens to token IDs"""
-    #     token_ids = []
-    #     self.label_to_token_ids = {}
-        
-    #     for label in self.label_tokens:
-    #         if isinstance(label, int):
-    #             token_ids.append(label)
-    #             self.label_to_token_ids[label] = [label]
-    #         else:
-    #             tokenized = self.llama_tokenizer.encode(label, add_special_tokens=False)
-    #             if len(tokenized) > 0:
-    #                 token_ids.extend(tokenized)
-    #                 self.label_to_token_ids[label] = tokenized
-    #                 logging.info(f"Label '{label}' -> {tokenized}")
-        
-    #     return token_ids
     
     def maybe_autocast(self):
         """Context manager for autocast"""
@@ -737,100 +720,6 @@ class MLPSalmonn(nn.Module):
             return torch.cuda.amp.autocast(enabled=True)
         else:
             return nullcontext()
-    
-    # FIXED: Training mode methods
-    # def freeze_mlp_weights(self):
-    #     """Freeze both input and output MLP weights"""
-    #     if self.bypass_mlp:
-    #         logging.info("BYPASS_MLP=True: No MLP weights to freeze")
-    #         return
-            
-    #     frozen_count = 0
-    #     if self.input_mlp is not None:
-    #         for param in self.input_mlp.parameters():
-    #             param.requires_grad = False
-    #             frozen_count += 1
-    #     if self.output_mlp is not None:
-    #         for param in self.output_mlp.parameters():
-    #             param.requires_grad = False
-    #             frozen_count += 1
-    #     logging.info(f"Frozen {frozen_count} MLP parameters")
-
-    # def unfreeze_mlp_weights(self):
-    #     """Unfreeze both input and output MLP weights"""
-    #     if self.bypass_mlp:
-    #         logging.info("BYPASS_MLP=True: No MLP weights to unfreeze")
-    #         return
-            
-    #     unfrozen_count = 0
-    #     if self.input_mlp is not None:
-    #         for param in self.input_mlp.parameters():
-    #             param.requires_grad = True
-    #             unfrozen_count += 1
-    #     if self.output_mlp is not None:
-    #         for param in self.output_mlp.parameters():
-    #             param.requires_grad = True
-    #             unfrozen_count += 1
-    #     logging.info(f"Unfrozen {unfrozen_count} MLP parameters")
-
-    # def freeze_lora_weights(self):
-    #     """FIXED: Freeze LoRA weights AND ALL other components except MLPs"""
-    #     frozen_count = 0
-        
-    #     # Freeze ALL SALMONN parameters (including LLaMA, QFormer, etc.)
-    #     for param in self.salmonn.parameters():
-    #         param.requires_grad = False
-    #         frozen_count += 1
-        
-    #     logging.info(f"Frozen ALL base model parameters ({frozen_count} parameters)")
-
-    # def unfreeze_lora_weights(self):
-    #     """FIXED: Unfreeze LoRA weights AND trainable components for LoRA training"""
-    #     unfrozen_count = 0
-        
-    #     # Unfreeze LoRA weights
-    #     for name, param in self.named_parameters():
-    #         if 'lora' in name.lower():
-    #             param.requires_grad = True
-    #             unfrozen_count += 1
-        
-    #     # Unfreeze QFormer components (since freeze_speech_QFormer=False in config)
-    #     if hasattr(self.salmonn, 'speech_Qformer'):
-    #         for name, param in self.salmonn.speech_Qformer.named_parameters():
-    #             param.requires_grad = True
-    #             unfrozen_count += 1
-        
-    #     if hasattr(self.salmonn, 'speech_query_tokens'):
-    #         self.salmonn.speech_query_tokens.requires_grad = True
-    #         unfrozen_count += 1
-        
-    #     # Unfreeze speech_llama_proj (since freeze_speech_llama_proj=False in config)
-    #     if hasattr(self.salmonn, 'speech_llama_proj'):
-    #         for name, param in self.salmonn.speech_llama_proj.named_parameters():
-    #             param.requires_grad = True
-    #             unfrozen_count += 1
-        
-    #     logging.info(f"Unfrozen LoRA and trainable components ({unfrozen_count} parameters)")
-
-    # def set_mlp_training_mode(self):
-    #     """Set model to MLP training mode"""
-    #     if self.bypass_mlp:
-    #         logging.warning("BYPASS_MLP=True: Cannot set MLP training mode, no MLPs exist")
-    #         return
-            
-    #     self.freeze_lora_weights()  # Freeze everything except MLPs
-    #     self.unfreeze_mlp_weights()  # Keep MLPs trainable
-    #     self.is_mlp_training = True  # NEW: Track MLP training mode
-    #     self.step_counter = 0  # NEW: Reset step counter
-    #     logging.info("✓ Set to MLP training mode - Only MLPs unfrozen")
-
-    # def set_lora_training_mode(self):
-    #     """Set model to LoRA training mode"""
-    #     self.freeze_mlp_weights()  # Freeze MLPs
-    #     self.unfreeze_lora_weights()  # Unfreeze LoRA and trainable components
-    #     self.is_mlp_training = False  # NEW: Track not MLP training
-    #     self.step_counter = 0  # NEW: Reset step counter
-    #     logging.info("✓ Set to LoRA training mode - LoRA and trainable components unfrozen, MLPs frozen")
 
     def update_label_tokens(self, symbol_mappings):
         """Update tracked label tokens from symbol mappings"""
@@ -916,16 +805,16 @@ class MLPSalmonn(nn.Module):
                     **generation_kwargs
                 )
         
-        else:
-            logging.info("Using Symbol LoRA Model - applying Output MLP during generation")
+        # else:
+        #     logging.info("Using Symbol LoRA Model - applying Output MLP during generation")
             
-            # Custom generation loop with Symbol LoRA Model + Output MLP
-            outputs = self._generate_with_output_mlp(
-                wrapped_embeds, 
-                wrapped_atts, 
-                generation_kwargs,
-                model_to_use  # ✅ Pass Symbol LoRA model
-            )
+        #     # Custom generation loop with Symbol LoRA Model + Output MLP
+        #     outputs = self._generate_with_output_mlp(
+        #         wrapped_embeds, 
+        #         wrapped_atts, 
+        #         generation_kwargs,
+        #         model_to_use  # ✅ Pass Symbol LoRA model
+        #     )
         
         # Decode predictions
         predictions = self.llama_tokenizer.batch_decode(outputs, skip_special_tokens=True)
@@ -934,157 +823,157 @@ class MLPSalmonn(nn.Module):
         logging.info(f"Generation with Symbol LoRA took {time.time() - start_time:.2f} seconds")
         return predictions
 
-    def _generate_with_output_mlp(self, input_embeds, attention_mask, generation_kwargs, model_to_use=None):
-        """Custom generation loop using Symbol LoRA Model + Output MLP"""
+    # def _generate_with_output_mlp(self, input_embeds, attention_mask, generation_kwargs, model_to_use=None):
+    #     """Custom generation loop using Symbol LoRA Model + Output MLP"""
         
-        # ✅ Use provided model or default to Symbol LoRA model
-        if model_to_use is None:
-            model_to_use = self.symbol_lora_model if self.symbol_lora_model is not None else self.llama_model
+    #     # ✅ Use provided model or default to Symbol LoRA model
+    #     if model_to_use is None:
+    #         model_to_use = self.symbol_lora_model if self.symbol_lora_model is not None else self.llama_model
         
-        # Safety check
-        if self.bypass_mlp or self.output_mlp is None:
-            logging.warning("Output MLP generation called but MLP is bypassed or None, falling back to standard")
-            with torch.inference_mode():
-                return model_to_use.generate(  # ✅ Use Symbol LoRA model
-                    inputs_embeds=input_embeds,
-                    attention_mask=attention_mask,
-                    **generation_kwargs
-                )
+    #     # Safety check
+    #     if self.bypass_mlp or self.output_mlp is None:
+    #         logging.warning("Output MLP generation called but MLP is bypassed or None, falling back to standard")
+    #         with torch.inference_mode():
+    #             return model_to_use.generate(  # ✅ Use Symbol LoRA model
+    #                 inputs_embeds=input_embeds,
+    #                 attention_mask=attention_mask,
+    #                 **generation_kwargs
+    #             )
         
-        batch_size = input_embeds.shape[0]
+    #     batch_size = input_embeds.shape[0]
         
-        # Extract parameters (SAME AS STANDARD GENERATION)
-        max_new_tokens = generation_kwargs.get("max_new_tokens", 10)
-        temperature = generation_kwargs.get("temperature", 0.8)
-        top_p = generation_kwargs.get("top_p", 0.9)
-        do_sample = generation_kwargs.get("do_sample", False)
-        repetition_penalty = generation_kwargs.get("repetition_penalty", 1.0)
-        num_beams = generation_kwargs.get("num_beams", 1)
-        pad_token_id = generation_kwargs.get("pad_token_id", self.llama_tokenizer.pad_token_id)
-        eos_token_id = generation_kwargs.get("eos_token_id", self.llama_tokenizer.eos_token_id)
+    #     # Extract parameters (SAME AS STANDARD GENERATION)
+    #     max_new_tokens = generation_kwargs.get("max_new_tokens", 10)
+    #     temperature = generation_kwargs.get("temperature", 0.8)
+    #     top_p = generation_kwargs.get("top_p", 0.9)
+    #     do_sample = generation_kwargs.get("do_sample", False)
+    #     repetition_penalty = generation_kwargs.get("repetition_penalty", 1.0)
+    #     num_beams = generation_kwargs.get("num_beams", 1)
+    #     pad_token_id = generation_kwargs.get("pad_token_id", self.llama_tokenizer.pad_token_id)
+    #     eos_token_id = generation_kwargs.get("eos_token_id", self.llama_tokenizer.eos_token_id)
         
-        # For beam search, we'd need more complex logic, so for now only support greedy/sampling
-        if num_beams > 1:
-            logging.warning("Beam search not supported with Output MLP, falling back to greedy/sampling")
+    #     # For beam search, we'd need more complex logic, so for now only support greedy/sampling
+    #     if num_beams > 1:
+    #         logging.warning("Beam search not supported with Output MLP, falling back to greedy/sampling")
         
-        # Initialize generation
-        generated_tokens = []
-        current_embeds = input_embeds
-        current_attention = attention_mask
-        finished = torch.zeros(batch_size, dtype=torch.bool, device=input_embeds.device)
+    #     # Initialize generation
+    #     generated_tokens = []
+    #     current_embeds = input_embeds
+    #     current_attention = attention_mask
+    #     finished = torch.zeros(batch_size, dtype=torch.bool, device=input_embeds.device)
         
-        with torch.inference_mode():
-            for step in range(max_new_tokens):
-                try:
-                    # ✅ Forward pass through Symbol LoRA Model
-                    outputs = model_to_use(  # ✅ Use Symbol LoRA model
-                        inputs_embeds=current_embeds,
-                        attention_mask=current_attention,
-                        output_hidden_states=True,
-                        return_dict=True,
-                        use_cache=False
-                    )
+    #     with torch.inference_mode():
+    #         for step in range(max_new_tokens):
+    #             try:
+    #                 # ✅ Forward pass through Symbol LoRA Model
+    #                 outputs = model_to_use(  # ✅ Use Symbol LoRA model
+    #                     inputs_embeds=current_embeds,
+    #                     attention_mask=current_attention,
+    #                     output_hidden_states=True,
+    #                     return_dict=True,
+    #                     use_cache=False
+    #                 )
                     
-                    # Get last hidden state (batch_size, seq_len, hidden_size)
-                    last_hidden_state = outputs.hidden_states[-1]
+    #                 # Get last hidden state (batch_size, seq_len, hidden_size)
+    #                 last_hidden_state = outputs.hidden_states[-1]
                     
-                    # Get the last token's hidden state for each sample in batch
-                    last_token_hidden = last_hidden_state[:, -1:, :]  # (batch_size, 1, hidden_size)
+    #                 # Get the last token's hidden state for each sample in batch
+    #                 last_token_hidden = last_hidden_state[:, -1:, :]  # (batch_size, 1, hidden_size)
                     
-                    # Apply Output MLP transformation with dtype fix
-                    if self.output_mlp is not None:
-                        # FIXED: Ensure dtype compatibility before Output MLP
-                        last_token_hidden = self._ensure_dtype_compatibility(last_token_hidden, self.output_mlp)
-                        transformed_hidden = self.output_mlp(last_token_hidden)
-                    else:
-                        transformed_hidden = last_token_hidden
+    #                 # Apply Output MLP transformation with dtype fix
+    #                 if self.output_mlp is not None:
+    #                     # FIXED: Ensure dtype compatibility before Output MLP
+    #                     last_token_hidden = self._ensure_dtype_compatibility(last_token_hidden, self.output_mlp)
+    #                     transformed_hidden = self.output_mlp(last_token_hidden)
+    #                 else:
+    #                     transformed_hidden = last_token_hidden
                     
-                    # Apply lm_head to get vocabulary logits with dtype fix
-                    # FIXED: Ensure dtype compatibility before lm_head
-                    transformed_hidden = self._ensure_dtype_compatibility(transformed_hidden, self.lm_head)
-                    logits = self.lm_head(transformed_hidden)  # (batch_size, 1, vocab_size)
-                    logits = logits.squeeze(1)  # (batch_size, vocab_size)
+    #                 # Apply lm_head to get vocabulary logits with dtype fix
+    #                 # FIXED: Ensure dtype compatibility before lm_head
+    #                 transformed_hidden = self._ensure_dtype_compatibility(transformed_hidden, self.lm_head)
+    #                 logits = self.lm_head(transformed_hidden)  # (batch_size, 1, vocab_size)
+    #                 logits = logits.squeeze(1)  # (batch_size, vocab_size)
                     
-                    # Apply repetition penalty (SAME AS STANDARD)
-                    if repetition_penalty != 1.0 and step > 0:
-                        # Simple repetition penalty on previously generated tokens
-                        for i in range(batch_size):
-                            if len(generated_tokens) > 0:
-                                prev_tokens = generated_tokens[i] if len(generated_tokens) > i else []
-                                for token_id in prev_tokens:
-                                    if logits[i, token_id] < 0:
-                                        logits[i, token_id] *= repetition_penalty
-                                    else:
-                                        logits[i, token_id] /= repetition_penalty
+    #                 # Apply repetition penalty (SAME AS STANDARD)
+    #                 if repetition_penalty != 1.0 and step > 0:
+    #                     # Simple repetition penalty on previously generated tokens
+    #                     for i in range(batch_size):
+    #                         if len(generated_tokens) > 0:
+    #                             prev_tokens = generated_tokens[i] if len(generated_tokens) > i else []
+    #                             for token_id in prev_tokens:
+    #                                 if logits[i, token_id] < 0:
+    #                                     logits[i, token_id] *= repetition_penalty
+    #                                 else:
+    #                                     logits[i, token_id] /= repetition_penalty
                     
-                    # Apply temperature scaling (SAME AS STANDARD)
-                    if temperature != 1.0:
-                        logits = logits / temperature
+    #                 # Apply temperature scaling (SAME AS STANDARD)
+    #                 if temperature != 1.0:
+    #                     logits = logits / temperature
                     
-                    # Sample next token (SAME LOGIC AS STANDARD)
-                    if do_sample:
-                        # Top-p sampling (SAME AS STANDARD)
-                        if top_p < 1.0:
-                            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-                            cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
+    #                 # Sample next token (SAME LOGIC AS STANDARD)
+    #                 if do_sample:
+    #                     # Top-p sampling (SAME AS STANDARD)
+    #                     if top_p < 1.0:
+    #                         sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+    #                         cumulative_probs = torch.cumsum(torch.softmax(sorted_logits, dim=-1), dim=-1)
                             
-                            # Remove tokens with cumulative probability above the threshold
-                            sorted_indices_to_remove = cumulative_probs > top_p
-                            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
-                            sorted_indices_to_remove[..., 0] = 0
+    #                         # Remove tokens with cumulative probability above the threshold
+    #                         sorted_indices_to_remove = cumulative_probs > top_p
+    #                         sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+    #                         sorted_indices_to_remove[..., 0] = 0
                             
-                            indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
-                            logits = logits.masked_fill(indices_to_remove, float('-inf'))
+    #                         indices_to_remove = sorted_indices_to_remove.scatter(1, sorted_indices, sorted_indices_to_remove)
+    #                         logits = logits.masked_fill(indices_to_remove, float('-inf'))
                         
-                        # Sample from the filtered distribution
-                        probs = torch.softmax(logits, dim=-1)
-                        next_token = torch.multinomial(probs, num_samples=1)
-                    else:
-                        # Greedy sampling (SAME AS STANDARD)
-                        next_token = torch.argmax(logits, dim=-1, keepdim=True)
+    #                     # Sample from the filtered distribution
+    #                     probs = torch.softmax(logits, dim=-1)
+    #                     next_token = torch.multinomial(probs, num_samples=1)
+    #                 else:
+    #                     # Greedy sampling (SAME AS STANDARD)
+    #                     next_token = torch.argmax(logits, dim=-1, keepdim=True)
                     
-                    # Mask finished sequences
-                    next_token = next_token.masked_fill(finished.unsqueeze(-1), pad_token_id)
+    #                 # Mask finished sequences
+    #                 next_token = next_token.masked_fill(finished.unsqueeze(-1), pad_token_id)
                     
-                    # Store generated token
-                    if step == 0:
-                        generated_tokens = next_token
-                    else:
-                        generated_tokens = torch.cat([generated_tokens, next_token], dim=1)
+    #                 # Store generated token
+    #                 if step == 0:
+    #                     generated_tokens = next_token
+    #                 else:
+    #                     generated_tokens = torch.cat([generated_tokens, next_token], dim=1)
                     
-                    # Check for EOS token
-                    finished = finished | (next_token.squeeze(-1) == eos_token_id)
-                    if torch.all(finished):
-                        break
+    #                 # Check for EOS token
+    #                 finished = finished | (next_token.squeeze(-1) == eos_token_id)
+    #                 if torch.all(finished):
+    #                     break
                     
-                    # Prepare for next iteration
-                    # Convert next_token to embeddings
-                    next_token_embeds = self.embed_module(next_token)  # (batch_size, 1, hidden_size)
+    #                 # Prepare for next iteration
+    #                 # Convert next_token to embeddings
+    #                 next_token_embeds = self.embed_module(next_token)  # (batch_size, 1, hidden_size)
                     
-                    # Apply Input MLP to next token embeddings if they are label tokens
-                    next_token_embeds = self.apply_input_mlp_transformation(
-                        next_token_embeds, 
-                        next_token.squeeze(-1)
-                    )
+    #                 # Apply Input MLP to next token embeddings if they are label tokens
+    #                 next_token_embeds = self.apply_input_mlp_transformation(
+    #                     next_token_embeds, 
+    #                     next_token.squeeze(-1)
+    #                 )
                     
-                    # Concatenate to current embeddings
-                    current_embeds = torch.cat([current_embeds, next_token_embeds], dim=1)
+    #                 # Concatenate to current embeddings
+    #                 current_embeds = torch.cat([current_embeds, next_token_embeds], dim=1)
                     
-                    # Update attention mask
-                    next_attention = torch.ones(batch_size, 1, dtype=current_attention.dtype, device=current_attention.device)
-                    current_attention = torch.cat([current_attention, next_attention], dim=1)
+    #                 # Update attention mask
+    #                 next_attention = torch.ones(batch_size, 1, dtype=current_attention.dtype, device=current_attention.device)
+    #                 current_attention = torch.cat([current_attention, next_attention], dim=1)
                     
-                except Exception as e:
-                    logging.error(f"Error in generation step {step}: {e}")
-                    logging.error(f"Error details: {type(e).__name__}: {str(e)}")
-                    # Return what we have so far
-                    if step == 0:
-                        # If first step fails, return empty tokens
-                        return torch.zeros((batch_size, 1), dtype=torch.long, device=input_embeds.device)
-                    else:
-                        break
+    #             except Exception as e:
+    #                 logging.error(f"Error in generation step {step}: {e}")
+    #                 logging.error(f"Error details: {type(e).__name__}: {str(e)}")
+    #                 # Return what we have so far
+    #                 if step == 0:
+    #                     # If first step fails, return empty tokens
+    #                     return torch.zeros((batch_size, 1), dtype=torch.long, device=input_embeds.device)
+    #                 else:
+    #                     break
         
-        return generated_tokens
+    #     return generated_tokens
 
     def debug_salmonn_lora_targets(self):
         """Debug what SALMONN's LoRA actually targets"""

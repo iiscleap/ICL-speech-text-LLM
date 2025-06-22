@@ -15,8 +15,9 @@ class TrainingMode(Enum):
     LORA_FIRST = "lora_first"          # Original alternating LoRA-MLP cycles
     MLP_FIRST = "mlp_first"            # MLP first, then alternating cycles
     JOINT_TRAINING = "joint_training"  # Train MLP and LoRA simultaneously
-    BYPASS_MLP_SYM = "bypass_mlp_sym"          # Pure LoRA training with dynamic symbols
-    BYPASS_MLP_ORG = "bypass_mlp_org"            # Pure LoRA training (no symbols)
+    BYPASS_MLP_SYM = "bypass_mlp_sym"  # Pure LoRA training with dynamic symbols
+    BYPASS_MLP_ORG = "bypass_mlp_org"  # Pure LoRA training (no symbols)
+    LORA_MLP_JOINT = "lora_mlp_joint"  # ✅ ADD: LoRA only → MLP only → Joint
 
 class SymbolMode(Enum):
     """Symbol handling modes"""
@@ -47,6 +48,8 @@ class MLPConfig:
     initial_epochs: int = 1
     gradient_accumulation_steps: int = 8
     max_grad_norm: float = 1.0
+    scheduler: str = "linear"  # ✅ ADD THIS
+    warmup_ratio: float = 0.1  # ✅ ADD THIS
     
     def __post_init__(self):
         if not self.use_input_mlp and not self.use_output_mlp:
@@ -73,6 +76,8 @@ class LoRAConfig:
     initial_epochs: int = 1
     gradient_accumulation_steps: int = 8
     max_grad_norm: float = 1.0
+    scheduler: str = "linear"  # ✅ ADD THIS
+    warmup_ratio: float = 0.1  # ✅ ADD THIS
 
 @dataclass
 class SymbolConfig:
@@ -132,6 +137,9 @@ class TrainingConfig:
     inference_mode: bool = False
     
     only_original: bool = False  # Only use original labels without symbols
+
+    scheduler: str = "cosine_with_restarts"  # ✅ ADD GLOBAL SCHEDULER
+    warmup_ratio: float = 0.1  # ✅ ADD GLOBAL WARMUP
 
     def __post_init__(self):
         """Validate configuration after initialization"""
@@ -310,6 +318,8 @@ class TrainingConfig:
             training_mode = TrainingMode.JOINT_TRAINING
         elif getattr(args, 'schedule_type','joint_training') == 'mlp_first':
             training_mode = TrainingMode.MLP_FIRST
+        elif getattr(args, 'schedule_type','joint_training') == 'lora_mlp_joint':  # ✅ ADD THIS
+            training_mode = TrainingMode.LORA_MLP_JOINT  # ✅ ADD THIS
         else:
             training_mode = TrainingMode.LORA_FIRST
         
@@ -324,6 +334,8 @@ class TrainingConfig:
             output_dir=args.output_dir,
             run_name=args.run_name,
             device=args.device,
+            scheduler=args.scheduler,  # ✅ ADD: Global scheduler
+            warmup_ratio=args.warmup_ratio,  # ✅ ADD: Global warmup
         )
 
 
@@ -426,10 +438,17 @@ def parse_training_args() -> argparse.Namespace:
     parser.add_argument("--dynamic_symbols_per_epoch", action="store_true", 
                        help="Generate new symbols each epoch")
     parser.add_argument("--schedule_type", type=str, default="lora_first",
-                       choices=["lora_first", "mlp_first", "joint_training","bypass_mlp_sym", "bypass_mlp_org",""])
+                       choices=["lora_first", "mlp_first", "joint_training","bypass_mlp_sym", "bypass_mlp_org","lora_mlp_joint",""])
     
     # I/O arguments
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--run_name", type=str, required=True)
+    
+    # ✅ ADD: Scheduler arguments
+    parser.add_argument("--scheduler", type=str, default="cosine",
+                       choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant"],
+                       help="Learning rate scheduler type")
+    parser.add_argument("--warmup_ratio", type=float, default=0.1,
+                       help="Warmup ratio (0.1 = 10% of total steps)")
     
     return parser.parse_args()
