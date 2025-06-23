@@ -12,10 +12,10 @@ hold_job_id=""
 lora_lr=1e-5
 mlp_lr=1e-5
 
-lora_epochs=4
-lora_final_epochs=4 
+lora_epochs=5
+lora_final_epochs=5 
 
-mlp_epochs=2
+mlp_epochs=4
 total_cycles=1
 
 # MLP Architecture parameters
@@ -125,11 +125,11 @@ echo "=========================================="
 # Submit job
 qsub -q gpu.q -V -cwd \
     $HOLD_FLAG \
-    -l hostname=compute-0-8 \
+    -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=0,\
+    -v CUDA_VISIBLE_DEVICES=2,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\
