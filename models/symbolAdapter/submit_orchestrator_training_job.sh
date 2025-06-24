@@ -12,10 +12,12 @@ hold_job_id=""
 lora_lr=1e-5
 mlp_lr=1e-5
 
-lora_epochs=5
-lora_final_epochs=5 
+lora_epochs=1
+lora_final_epochs=1 
 
-mlp_epochs=4
+mlp_epochs=1
+
+
 total_cycles=1
 
 # MLP Architecture parameters
@@ -30,10 +32,10 @@ batch_size=1
 
 gradient_accumulation_steps=8
 max_grad_norm=1.0
-max_samples=1000 # Set reasonable default
+max_samples=10 # Set reasonable default
 
 # NEW: Orchestrator-specific parameters
-schedule_type="lora_mlp_joint"  # Options: "lora_first", "mlp_first", "joint_training","lora_mlp_joint"
+schedule_type="joint_training"  # Options: "lora_first", "mlp_first", "joint_training","lora_mlp_joint"
 
 
 dynamic_symbols_per_epoch=False  # Generate new symbols each epoch

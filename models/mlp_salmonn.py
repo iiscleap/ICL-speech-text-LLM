@@ -90,7 +90,7 @@ class MLPSalmonn(nn.Module):
                 lora_alpha=8,          # ✅ Strong adaptation
                 lora_dropout=0.1,
                 target_modules=[        
-                    "q_proj", "k_proj", "v_proj", "o_proj"    
+                    "q_proj", "k_proj", "v_proj", "o_proj",    
                     "gate_proj", "up_proj", "down_proj",  
                 ],
                 bias="none"
@@ -207,6 +207,15 @@ class MLPSalmonn(nn.Module):
 
     def apply_input_mlp_transformation(self, embeddings, token_ids):
         """Apply Input MLP to specific token positions (can be bypassed)"""
+
+        bypass_inference = hasattr(self, 'bypass_mlp_for_inference') and self.bypass_mlp_for_inference
+    
+        # ✅ Use logging instead of print
+        logging.info(f"🔍 MLP TRANSFORM DEBUG:")
+        logging.info(f"  bypass_mlp: {self.bypass_mlp}")
+        logging.info(f"  bypass_mlp_for_inference: {bypass_inference}")
+        logging.info(f"  input_mlp exists: {self.input_mlp is not None}")
+        logging.info(f"  label_token_ids: {len(self.label_token_ids)} tokens")
         
         # NEW: Return unchanged if MLP is bypassed
         if self.bypass_mlp or self.input_mlp is None:
@@ -328,91 +337,91 @@ class MLPSalmonn(nn.Module):
         
         return tensor
 
-    def compute_mlp_loss(self, wrapped_embeds, wrapped_atts, target_tokens):
-        """UNIFIED: Input MLP → Symbol LoRA Model → [Optional Output MLP] → Cross-entropy"""
+    # def compute_mlp_loss(self, wrapped_embeds, wrapped_atts, target_tokens):
+    #     """UNIFIED: Input MLP → Symbol LoRA Model → [Optional Output MLP] → Cross-entropy"""
         
-        # NEW: If MLP is bypassed, use standard loss
-        if self.bypass_mlp:
-            logging.info("BYPASS_MLP=True: Using standard loss function")
-            return self.compute_standard_loss(wrapped_embeds, wrapped_atts, target_tokens)
+    #     # NEW: If MLP is bypassed, use standard loss
+    #     if self.bypass_mlp:
+    #         logging.info("BYPASS_MLP=True: Using standard loss function")
+    #         return self.compute_standard_loss(wrapped_embeds, wrapped_atts, target_tokens)
         
-        logging.info(f"=== MLP Architecture Loss (Input MLP → Symbol LoRA → {'Output MLP → ' if self.use_output_mlp else ''}Cross-entropy) ===")
+    #     logging.info(f"=== MLP Architecture Loss (Input MLP → Symbol LoRA → {'Output MLP → ' if self.use_output_mlp else ''}Cross-entropy) ===")
         
-        try:
-            # 1. Apply Input MLP to target embeddings (ALWAYS applied when not bypassed)
-            target_embeds = self.embed_module(target_tokens.input_ids)
-            transformed_target_embeds = self.apply_input_mlp_transformation(
-                target_embeds, target_tokens.input_ids
-            )
+    #     try:
+    #         # 1. Apply Input MLP to target embeddings (ALWAYS applied when not bypassed)
+    #         target_embeds = self.embed_module(target_tokens.input_ids)
+    #         transformed_target_embeds = self.apply_input_mlp_transformation(
+    #             target_embeds, target_tokens.input_ids
+    #         )
             
-            # 2. Combine prompt + transformed target embeddings
-            combined_embeds = torch.cat([wrapped_embeds, transformed_target_embeds], dim=1)
-            combined_attention_mask = torch.cat([wrapped_atts, target_tokens.attention_mask], dim=1)
+    #         # 2. Combine prompt + transformed target embeddings
+    #         combined_embeds = torch.cat([wrapped_embeds, transformed_target_embeds], dim=1)
+    #         combined_attention_mask = torch.cat([wrapped_atts, target_tokens.attention_mask], dim=1)
             
-            # ✅ 3. Forward through Symbol LoRA Model (NOT base llama_model)
-            model_to_use = self.symbol_lora_model if self.symbol_lora_model is not None else self.llama_model
+    #         # ✅ 3. Forward through Symbol LoRA Model (NOT base llama_model)
+    #         model_to_use = self.symbol_lora_model if self.symbol_lora_model is not None else self.llama_model
             
-            if self.use_output_mlp:
-                # Get hidden states for output MLP
-                with self.maybe_autocast():
-                    outputs = model_to_use(  # ✅ Use Symbol LoRA model
-                        inputs_embeds=combined_embeds,
-                        attention_mask=combined_attention_mask,
-                        output_hidden_states=True,
-                        return_dict=True,
-                        use_cache=False
-                    )
+    #         if self.use_output_mlp:
+    #             # Get hidden states for output MLP
+    #             with self.maybe_autocast():
+    #                 outputs = model_to_use(  # ✅ Use Symbol LoRA model
+    #                     inputs_embeds=combined_embeds,
+    #                     attention_mask=combined_attention_mask,
+    #                     output_hidden_states=True,
+    #                     return_dict=True,
+    #                     use_cache=False
+    #                 )
                 
-                # 4. Extract target portion of output hidden states
-                prompt_length = wrapped_embeds.size(1)
-                target_output_hiddens = outputs.hidden_states[-1][:, prompt_length:, :]
+    #             # 4. Extract target portion of output hidden states
+    #             prompt_length = wrapped_embeds.size(1)
+    #             target_output_hiddens = outputs.hidden_states[-1][:, prompt_length:, :]
                 
-                # 5. Apply Output MLP transformation with dtype fix
-                target_output_hiddens = self._ensure_dtype_compatibility(target_output_hiddens, self.output_mlp)
-                reconstructed_embeds = self.output_mlp(target_output_hiddens)
+    #             # 5. Apply Output MLP transformation with dtype fix
+    #             target_output_hiddens = self._ensure_dtype_compatibility(target_output_hiddens, self.output_mlp)
+    #             reconstructed_embeds = self.output_mlp(target_output_hiddens)
                 
-                # 6. Project to vocab space using lm_head with dtype fix
-                reconstructed_embeds = self._ensure_dtype_compatibility(reconstructed_embeds, self.lm_head)
-                logits = self.lm_head(reconstructed_embeds)
+    #             # 6. Project to vocab space using lm_head with dtype fix
+    #             reconstructed_embeds = self._ensure_dtype_compatibility(reconstructed_embeds, self.lm_head)
+    #             logits = self.lm_head(reconstructed_embeds)
                 
-            else:
-                # Direct forward without output MLP
-                # Create labels for standard forward
-                prompt_length = wrapped_embeds.size(1)
-                labels = torch.full(
-                    (combined_embeds.size(0), combined_embeds.size(1)),
-                    fill_value=-100,
-                    dtype=torch.long,
-                    device=combined_embeds.device
-                )
-                labels[:, prompt_length:] = target_tokens.input_ids
+    #         else:
+    #             # Direct forward without output MLP
+    #             # Create labels for standard forward
+    #             prompt_length = wrapped_embeds.size(1)
+    #             labels = torch.full(
+    #                 (combined_embeds.size(0), combined_embeds.size(1)),
+    #                 fill_value=-100,
+    #                 dtype=torch.long,
+    #                 device=combined_embeds.device
+    #             )
+    #             labels[:, prompt_length:] = target_tokens.input_ids
                 
-                with self.maybe_autocast():
-                    outputs = model_to_use(  # ✅ Use Symbol LoRA model
-                        inputs_embeds=combined_embeds,
-                        attention_mask=combined_attention_mask,
-                        labels=labels,
-                        return_dict=True,
-                        use_cache=False
-                    )
+    #             with self.maybe_autocast():
+    #                 outputs = model_to_use(  # ✅ Use Symbol LoRA model
+    #                     inputs_embeds=combined_embeds,
+    #                     attention_mask=combined_attention_mask,
+    #                     labels=labels,
+    #                     return_dict=True,
+    #                     use_cache=False
+    #                 )
                 
-                logits = outputs.logits[:, prompt_length:, :]  # Extract target portion
+    #             logits = outputs.logits[:, prompt_length:, :]  # Extract target portion
             
-            # 7. Cross-entropy loss with original target token IDs
-            loss = F.cross_entropy(
-                logits.view(-1, logits.size(-1)),
-                target_tokens.input_ids.view(-1),
-                ignore_index=-100
-            )
+    #         # 7. Cross-entropy loss with original target token IDs
+    #         loss = F.cross_entropy(
+    #             logits.view(-1, logits.size(-1)),
+    #             target_tokens.input_ids.view(-1),
+    #             ignore_index=-100
+    #         )
             
-            logging.info(f"Symbol LoRA Model loss: {loss:.6f}")
+    #         logging.info(f"Symbol LoRA Model loss: {loss:.6f}")
             
-            return {"loss": loss, "logits": logits}
+    #         return {"loss": loss, "logits": logits}
             
-        except Exception as e:
-            logging.error(f"Symbol LoRA loss computation failed: {e}")
-            logging.error(f"Error details: {type(e).__name__}: {str(e)}")
-            return {"loss": torch.tensor(0.0, device=self.device, requires_grad=True)}
+    #     except Exception as e:
+    #         logging.error(f"Symbol LoRA loss computation failed: {e}")
+    #         logging.error(f"Error details: {type(e).__name__}: {str(e)}")
+    #         return {"loss": torch.tensor(0.0, device=self.device, requires_grad=True)}
 
     def compute_standard_loss(self, wrapped_embeds, wrapped_atts, target_tokens):
         """Standard loss function for LoRA training - Use Symbol LoRA Model"""
@@ -473,7 +482,7 @@ class MLPSalmonn(nn.Module):
         self.batch_counter += 1
 
         # ALWAYS use MLP loss (since MLPs are always in architecture)
-        return self.compute_mlp_loss(wrapped_embeds, wrapped_atts, target_tokens)
+        return self.compute_standard_loss(wrapped_embeds, wrapped_atts, target_tokens)
 
     def get_speech_embeddings(self, samples):
         """Process speech inputs to generate embeddings - KEPT FROM ORIGINAL"""

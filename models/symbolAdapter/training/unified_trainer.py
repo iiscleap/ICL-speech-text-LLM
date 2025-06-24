@@ -301,7 +301,7 @@ class UnifiedTrainer:
         # Unfreeze input MLP if enabled
         if self.config.mlp_config.use_input_mlp:
             for name, param in self.model.named_parameters():
-                if 'input_mlp' in name.lower() or 'symbol_mlp' in name.lower():
+                if 'input_mlp' in name.lower() in name.lower():
                     param.requires_grad = True
                     mlp_param_count += param.numel()
         
