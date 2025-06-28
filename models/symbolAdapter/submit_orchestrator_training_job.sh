@@ -27,12 +27,12 @@ use_output_mlp=False  # Enable/disable output MLP
 bypass_mlp=False 
 
 
-hidden_dim=4
+hidden_dim=128
 batch_size=1
 
 gradient_accumulation_steps=8
 max_grad_norm=1.0
-max_samples=10 # Set reasonable default
+max_samples=30 # Set reasonable default
 
 # NEW: Orchestrator-specific parameters
 schedule_type="joint_training"  # Options: "lora_first", "mlp_first", "joint_training","lora_mlp_joint"

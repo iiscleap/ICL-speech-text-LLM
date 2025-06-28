@@ -59,6 +59,7 @@ class ValidationManager:
         original_bypass_state = getattr(model, 'bypass_mlp_for_inference', False)
         model.bypass_mlp_for_inference = bypass_mlp
         
+
         # Get symbols for validation using SymbolManager methods
         if use_original_labels:
             symbol_mappings = {}  # No symbol replacement
@@ -163,13 +164,15 @@ class ValidationManager:
                     if use_original_labels:
                         # Use original batch without symbol replacement
                         updated_batch = batch
-                    elif use_dynamic_symbols:
-                        # For dynamic symbols, use the fresh mappings directly
-                        updated_batch = self.symbol_manager.replace_symbols_in_batch(batch, mappings=symbol_mappings)
+                    # elif use_dynamic_symbols:
+                    #     # For dynamic symbols, use the fresh mappings directly
+                    #     updated_batch = self.symbol_manager.replace_symbols_in_batch(batch, mappings=symbol_mappings)
+                    # else:
+                    #     # For fixed symbols, replace using SymbolManager's method with the epoch
+                    #     updated_batch = self.symbol_manager.replace_symbols_in_batch(batch, mappings=symbol_mappings)
                     else:
-                        # For fixed symbols, replace using SymbolManager's method with the epoch
-                        updated_batch = self.symbol_manager.replace_symbols_in_batch(batch, epoch=epoch)
-                    
+                        updated_batch = self.symbol_manager.replace_symbols_in_batch(batch, mappings=symbol_mappings)
+
                     # ✅ Log first validation prompt
                     if log_first_prompt:
                         logging.info("=" * 80)
@@ -188,8 +191,7 @@ class ValidationManager:
                             if use_dynamic_symbols:
                                 logging.info(f"Using Fresh Symbols: {symbol_mappings}")
                             else:
-                                current_symbols = self.symbol_manager.get_symbols_for_epoch(epoch)
-                                logging.info(f"Using Fixed Symbols: {current_symbols}")
+                                logging.info(f"Using Fixed Symbols: {symbol_mappings}")
                         else:
                             logging.info("Using Original Labels (no symbols)")
                         
@@ -215,10 +217,11 @@ class ValidationManager:
                         # Convert symbols back to original labels using SymbolManager
                         converted_pred = pred
                         if not use_original_labels and symbol_mappings:
-                            if use_dynamic_symbols:
-                                converted_pred = self.symbol_manager.convert_symbols_back(pred, mappings=symbol_mappings)
-                            else:
-                                converted_pred = self.symbol_manager.convert_symbols_back(pred, epoch=epoch)
+                            converted_pred = self.symbol_manager.convert_symbols_back(pred, mappings=symbol_mappings)
+                            # if use_dynamic_symbols:
+                            #     converted_pred = self.symbol_manager.convert_symbols_back(pred, mappings=symbol_mappings)
+                            # else:
+                            #     converted_pred = self.symbol_manager.convert_symbols_back(pred, mappings=symbol_mappings)
                         
                         # Clean the prediction using utils.evaluation_utils
                         try:
@@ -241,15 +244,15 @@ class ValidationManager:
                         processed_samples += 1
                         
                         # ✅ Log first prediction conversion
-                        if batch_idx < 5 and i == 0:
-                            logging.info("=" * 60)
-                            logging.info("FIRST VALIDATION PREDICTION CONVERSION:")
-                            logging.info(f"Raw Prediction: {pred}")
-                            logging.info(f"Converted Prediction: {converted_pred}")
-                            logging.info(f"Cleaned Prediction: {cleaned_pred}")
-                            logging.info(f"True Label: {true_label}")
-                            logging.info(f"Dataset Type: {dt_key}")
-                            logging.info("=" * 60)
+                        # if batch_idx < 5 and i == 0:
+                        logging.info("=" * 60)
+                        logging.info("FIRST VALIDATION PREDICTION CONVERSION:")
+                        logging.info(f"Raw Prediction: {pred}")
+                        logging.info(f"Converted Prediction: {converted_pred}")
+                        logging.info(f"Cleaned Prediction: {cleaned_pred}")
+                        logging.info(f"True Label: {true_label}")
+                        logging.info(f"Dataset Type: {dt_key}")
+                        logging.info("=" * 60)
                     
                     # Update progress bar
                     progress_bar.set_postfix({
@@ -487,13 +490,15 @@ class ValidationManager:
                 validation_results[mode_key] =  composite_metric
                 validation_results[f"{mode_key}_loss"] = metrics["loss"]
                 # validation_results[f"{mode_key}_composite"] = composite_metric
-
+                                                          
+                logging.info(f"Accumulated detailed metrics for {mode_key}: {composite_metric}")
                 
                 if self.is_inference_mode:
                     if hasattr(self, 'computed_detailed_metrics'):
                         for dataset_name, dataset_metrics in self.computed_detailed_metrics.items():
                             key = f"{dataset_name}_{mode_key}"  # e.g., "voxceleb_mlp_symbols"
                             accumulated_detailed_metrics[key] = dataset_metrics
+
                     
                     # Collect predictions with mode information
                     if hasattr(self, 'all_results'):
@@ -507,6 +512,8 @@ class ValidationManager:
                 validation_results[mode_key] = 0.0
                 # validation_results[f"{mode_key}_composite"] = "error:0.000000"
                 validation_results[f"{mode_key}_loss"] = float('inf')
+
+
         
         # Return based on mode
         if self.is_inference_mode:

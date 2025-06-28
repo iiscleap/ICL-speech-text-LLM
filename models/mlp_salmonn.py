@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import time
 from typing import Dict, List, Optional, Tuple, Union, Any
 from contextlib import nullcontext
+import sys
 
 # Import PEFT for LoRA
 from peft import LoraConfig, TaskType, get_peft_model
@@ -15,6 +16,8 @@ from transformers import WhisperFeatureExtractor
 # Path setup for SALMONN import
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from SALMONN.models.salmonn_org import SALMONN
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', stream=sys.stdout, force=True)
 
 class MLPSalmonn(nn.Module):
     """CLEAN SALMONN with Input/Output MLP Architecture"""
@@ -73,7 +76,7 @@ class MLPSalmonn(nn.Module):
         logging.info(f"LoRA Rank: {lora_rank}, Alpha: {lora_alpha}")
 
         logging.info("🔄 Loading base SALMONN model...")
-        import sys
+        
         sys.stdout.flush()  # ✅ Force flush stdout
         logging.getLogger().handlers[0].flush() 
         # Initialize SALMONN
@@ -81,6 +84,7 @@ class MLPSalmonn(nn.Module):
         self.salmonn = SALMONN.from_config(salmonn_config)
         logging.info("Base SALMONN model loaded successfully")
         self.salmonn.to(self.device)
+        sys.stdout.flush() 
         
         # ✅ ADD: Symbol LoRA adapter on top of SALMONN
         if hasattr(self.salmonn, 'llama_model'):
@@ -104,8 +108,10 @@ class MLPSalmonn(nn.Module):
             )
             
             logging.info("✅ Added Symbol LoRA adapter with rank 32")
+            sys.stdout.flush() 
         else:
             logging.warning("⚠️ Could not add Symbol LoRA - llama_model not found")
+            sys.stdout.flush() 
             self.symbol_lora_model = None
         
         # Essential attributes only
@@ -215,7 +221,9 @@ class MLPSalmonn(nn.Module):
         logging.info(f"  bypass_mlp: {self.bypass_mlp}")
         logging.info(f"  bypass_mlp_for_inference: {bypass_inference}")
         logging.info(f"  input_mlp exists: {self.input_mlp is not None}")
+        logging.info(f"  token ids: {self.label_token_ids}")
         logging.info(f"  label_token_ids: {len(self.label_token_ids)} tokens")
+        sys.stdout.flush() 
         
         # NEW: Return unchanged if MLP is bypassed
         if self.bypass_mlp or self.input_mlp is None:
@@ -227,6 +235,7 @@ class MLPSalmonn(nn.Module):
         if hasattr(self, 'bypass_mlp_for_inference') and self.bypass_mlp_for_inference:
             if self.batch_counter == 0:  # Log only for first batch
                 logging.info("BYPASSING Input MLP transformation for inference")
+                sys.stdout.flush()
             return embeddings
         
         # MLPs are ALWAYS applied during training (but may be frozen)
@@ -768,6 +777,7 @@ class MLPSalmonn(nn.Module):
         
         if self.batch_counter == 0:
             logging.info(f"Prompt example:\n{samples['prompt'][0]}")
+            sys.stdout.flush() 
         
         # Get number of examples per sample
         num_examples = samples.get("num_examples", torch.zeros(len(samples["prompt"]), dtype=torch.long))
@@ -779,10 +789,10 @@ class MLPSalmonn(nn.Module):
         )
         
         # Check if MLPs should be bypassed
-        bypass_mlp = (
-            self.bypass_mlp or  # Architecture-level bypass
-            (hasattr(self, 'bypass_mlp_for_inference') and self.bypass_mlp_for_inference)
-        )
+        # bypass_mlp = (
+        #     self.bypass_mlp or  # Architecture-level bypass
+        #     (hasattr(self, 'bypass_mlp_for_inference') and self.bypass_mlp_for_inference)
+        # )
         
         # Extract generation parameters
         generation_kwargs = {
@@ -803,16 +813,17 @@ class MLPSalmonn(nn.Module):
         # ✅ Use Symbol LoRA Model for generation
         model_to_use = self.symbol_lora_model if self.symbol_lora_model is not None else self.llama_model
         
-        if bypass_mlp or not self.use_output_mlp or self.output_mlp is None:
-            logging.info("Using Symbol LoRA Model - bypassing Output MLP")
+        # if bypass_mlp or not self.use_output_mlp or self.output_mlp is None:
+        #     logging.info("Using Symbol LoRA Model - bypassing Output MLP")
+        #     sys.stdout.flush() 
             
             # Standard generation with Symbol LoRA Model
-            with torch.inference_mode():
-                outputs = model_to_use.generate(  # ✅ Use Symbol LoRA model
-                    inputs_embeds=wrapped_embeds,
-                    attention_mask=wrapped_atts,
-                    **generation_kwargs
-                )
+        with torch.inference_mode():
+            outputs = model_to_use.generate(  # ✅ Use Symbol LoRA model
+                inputs_embeds=wrapped_embeds,
+                attention_mask=wrapped_atts,
+                **generation_kwargs
+            )
         
         # else:
         #     logging.info("Using Symbol LoRA Model - applying Output MLP during generation")
