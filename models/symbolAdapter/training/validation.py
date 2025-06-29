@@ -244,15 +244,15 @@ class ValidationManager:
                         processed_samples += 1
                         
                         # ✅ Log first prediction conversion
-                        # if batch_idx < 5 and i == 0:
-                        logging.info("=" * 60)
-                        logging.info("FIRST VALIDATION PREDICTION CONVERSION:")
-                        logging.info(f"Raw Prediction: {pred}")
-                        logging.info(f"Converted Prediction: {converted_pred}")
-                        logging.info(f"Cleaned Prediction: {cleaned_pred}")
-                        logging.info(f"True Label: {true_label}")
-                        logging.info(f"Dataset Type: {dt_key}")
-                        logging.info("=" * 60)
+                        if batch_idx < 5 and i == 0:
+                            logging.info("=" * 60)
+                            logging.info("FIRST VALIDATION PREDICTION CONVERSION:")
+                            logging.info(f"Raw Prediction: {pred}")
+                            logging.info(f"Converted Prediction: {converted_pred}")
+                            logging.info(f"Cleaned Prediction: {cleaned_pred}")
+                            logging.info(f"True Label: {true_label}")
+                            logging.info(f"Dataset Type: {dt_key}")
+                            logging.info("=" * 60)
                     
                     # Update progress bar
                     progress_bar.set_postfix({

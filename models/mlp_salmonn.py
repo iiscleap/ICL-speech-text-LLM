@@ -199,14 +199,35 @@ class MLPSalmonn(nn.Module):
 
         self.debug_salmonn_lora_targets()
     
+    # def _initialize_mlp_weights(self, mlp):
+    #     """Xavier initialization for MLP layers"""
+    #     with torch.no_grad():
+    #         for layer in mlp:
+    #             if isinstance(layer, nn.Linear):
+    #                 torch.nn.init.xavier_uniform_(layer.weight, gain=1.0)
+    #                 if layer.bias is not None:
+    #                     torch.nn.init.zeros_(layer.bias)
+    #             elif isinstance(layer, nn.LayerNorm):
+    #                 torch.nn.init.constant_(layer.weight, 1.0)
+    #                 torch.nn.init.constant_(layer.bias, 0.0)
+
+
     def _initialize_mlp_weights(self, mlp):
-        """Xavier initialization for MLP layers"""
+        """Initialize MLP to be identity transformation initially"""
         with torch.no_grad():
-            for layer in mlp:
+            for i, layer in enumerate(mlp):
                 if isinstance(layer, nn.Linear):
-                    torch.nn.init.xavier_uniform_(layer.weight, gain=1.0)
-                    if layer.bias is not None:
+                    if i == len(mlp) - 2:  # Last Linear layer before final LayerNorm
+                        # Initialize to output zeros -> residual connection gives identity
+                        torch.nn.init.zeros_(layer.weight)
                         torch.nn.init.zeros_(layer.bias)
+                        logging.info("Initialized final MLP layer to zeros (identity residual)")
+                    else:
+                        # Small random initialization for other layers
+                        torch.nn.init.normal_(layer.weight, mean=0.0, std=0.01)
+                        if layer.bias is not None:
+                            torch.nn.init.zeros_(layer.bias)
+                            
                 elif isinstance(layer, nn.LayerNorm):
                     torch.nn.init.constant_(layer.weight, 1.0)
                     torch.nn.init.constant_(layer.bias, 0.0)
@@ -217,12 +238,12 @@ class MLPSalmonn(nn.Module):
         bypass_inference = hasattr(self, 'bypass_mlp_for_inference') and self.bypass_mlp_for_inference
     
         # ✅ Use logging instead of print
-        logging.info(f"🔍 MLP TRANSFORM DEBUG:")
-        logging.info(f"  bypass_mlp: {self.bypass_mlp}")
-        logging.info(f"  bypass_mlp_for_inference: {bypass_inference}")
-        logging.info(f"  input_mlp exists: {self.input_mlp is not None}")
-        logging.info(f"  token ids: {self.label_token_ids}")
-        logging.info(f"  label_token_ids: {len(self.label_token_ids)} tokens")
+        # logging.info(f"🔍 MLP TRANSFORM DEBUG:")
+        # logging.info(f"  bypass_mlp: {self.bypass_mlp}")
+        # logging.info(f"  bypass_mlp_for_inference: {bypass_inference}")
+        # logging.info(f"  input_mlp exists: {self.input_mlp is not None}")
+        # logging.info(f"  token ids: {self.label_token_ids}")
+        # logging.info(f"  label_token_ids: {len(self.label_token_ids)} tokens")
         sys.stdout.flush() 
         
         # NEW: Return unchanged if MLP is bypassed
@@ -264,7 +285,23 @@ class MLPSalmonn(nn.Module):
         try:
             # FIXED: Ensure dtype compatibility
             to_transform = to_transform.to(dtype=self.input_mlp[0].weight.dtype)
+            
+            # Before MLP
+            
+            
             mlp_output = self.input_mlp(to_transform)
+
+            orig_norm = torch.norm(to_transform, dim=-1).mean()
+            mlp_norm = torch.norm(mlp_output, dim=-1).mean()
+
+            scale_factor = 0.001
+            transformed =  (scale_factor * mlp_output) + to_transform
+            
+            # After MLP  
+            final_norm = torch.norm(transformed, dim=-1).mean()
+            
+            logging.info(f"MLP Transform - Orig: {orig_norm:.4f}, MLP: {mlp_norm:.4f}, Scale: {scale_factor:.4f}, Final: {final_norm:.4f}")
+            sys.stdout.flush()
             
             # CONTINUOUS EMBEDDINGS: Use MLP output directly (not quantized)
             transformed = mlp_output + to_transform # Direct MLP output for training
@@ -436,6 +473,13 @@ class MLPSalmonn(nn.Module):
         """Standard loss function for LoRA training - Use Symbol LoRA Model"""
         # Get target embeddings (no MLP transformation)
         target_embeds = self.embed_module(target_tokens.input_ids)
+
+
+        if not self.bypass_mlp and self.input_mlp is not None and self.label_token_ids:
+            target_embeds = self.apply_input_mlp_transformation(
+                target_embeds, target_tokens.input_ids
+            )
+            logging.info("✅ Applied MLP transformation to target embeddings")
         
         # Create labels for standard training
         prompt_length = wrapped_embeds.size(1)

@@ -77,7 +77,6 @@ def load_datasets_for_config(config: TrainingConfig, inference_mode: bool = Fals
                 # ✅ TRAINING MODE: Load train and validation splits
                 logging.info(f"📚 Loading train/val splits for {dataset_name}")
                 full_train_dataset = load_dataset(dataset_type, split="train")
-                # full_val_dataset = load_dataset(dataset_type, split="validation")
                 
                 if config.data_config.max_samples > 0:
                     train_datasets[dataset_type] = full_train_dataset.select(range(config.data_config.max_samples))
@@ -96,8 +95,8 @@ def load_datasets_for_config(config: TrainingConfig, inference_mode: bool = Fals
         dataset_type = DatasetType(dataset_name)
         if not inference_mode:
             try:
-                # full_val_dataset = load_dataset(dataset_type, split="validation")
-                full_val_dataset = load_dataset(dataset_type, split="train")
+                full_val_dataset = load_dataset(dataset_type, split="validation")
+                # full_val_dataset = load_dataset(dataset_type, split="train")
                 if config.data_config.val_max_samples > 0:
                     val_samples = min(config.data_config.val_max_samples, len(full_val_dataset))
                     val_datasets[dataset_type] = full_val_dataset.select(range(val_samples))

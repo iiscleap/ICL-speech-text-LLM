@@ -103,6 +103,7 @@ class DataConfig:
     val_frequency: int = 1  # Validate every N epochs
     val_dataset_type: str = "voxceleb-hvb-meld_emotion-voxpopuli"  # Default validation dataset type
 
+
 @dataclass
 class TrainingConfig:
     """Main training configuration"""
