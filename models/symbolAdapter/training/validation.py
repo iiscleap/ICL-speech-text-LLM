@@ -491,7 +491,7 @@ class ValidationManager:
                 validation_results[f"{mode_key}_loss"] = metrics["loss"]
                 # validation_results[f"{mode_key}_composite"] = composite_metric
                                                           
-                logging.info(f"Accumulated detailed metrics for {mode_key}: {composite_metric}")
+                # logging.info(f"Accumulated detailed metrics for {mode_key}: {composite_metric}")
                 
                 if self.is_inference_mode:
                     if hasattr(self, 'computed_detailed_metrics'):
