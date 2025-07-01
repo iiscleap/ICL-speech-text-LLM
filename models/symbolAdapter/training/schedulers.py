@@ -267,7 +267,8 @@ class TrainingScheduler:
                 freeze_mlp=True,  # MLPs don't exist anyway
                 freeze_lora=False,
                 use_symbols=True,
-                dynamic_symbols=True
+                dynamic_symbols=True,
+                bypass_mlp=True,
             ))
             step_id += 1
         
@@ -295,7 +296,8 @@ class TrainingScheduler:
                 freeze_mlp=True,  # MLPs don't exist anyway
                 freeze_lora=False,
                 use_symbols=False,
-                dynamic_symbols=False
+                dynamic_symbols=False,
+                bypass_mlp=True,
             ))
             step_id += 1
         

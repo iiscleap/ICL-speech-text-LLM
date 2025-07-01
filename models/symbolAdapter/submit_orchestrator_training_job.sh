@@ -3,29 +3,28 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxceleb-hvb"  # Dataset type(s) to use
+dataset_type="melp-hvb"  # Dataset type(s) to use
 device="cuda:0"  # GPU device
 
-hold_job_id=""
+hold_job_id="143235"
 
 # Training parameters
 lora_lr=1e-5
-mlp_lr=1e-5
-
 lora_epochs=10
+
 lora_final_epochs=1 
+total_cycles=1
 
 mlp_epochs=1
+mlp_lr=1e-5
 
 
-total_cycles=1
 
 # MLP Architecture parameters
 use_output_mlp=False  # Enable/disable output MLP
+bypass_mlp=True 
 
-
-bypass_mlp=False 
-
+dynamic_symbols_per_epoch=True  # Generate new symbols each epoch
 
 hidden_dim=32
 batch_size=1
@@ -35,10 +34,10 @@ max_grad_norm=1.0
 max_samples=0 # Set reasonable default
 
 # NEW: Orchestrator-specific parameters
-schedule_type="joint_training"  # Options: "lora_first", "mlp_first", "joint_training","lora_mlp_joint"
+schedule_type=""  # Options: "lora_first", "mlp_first", "joint_training","lora_mlp_joint"
 
 
-dynamic_symbols_per_epoch=False  # Generate new symbols each epoch
+
 
 # Set conda environment
 export CONDA_ENV="salmon"
@@ -80,7 +79,8 @@ TODAY=$(date +"%Y-%m-%d")
 
 # Directory setup
 OUTPUT_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training"
-LOG_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training/logs/${TODAY}"
+# LOG_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training/logs/${TODAY}"
+LOG_DIR="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/logs/${TODAY}"
 
 # Create directories
 for dir in "$LOG_DIR" "$OUTPUT_DIR"; do
@@ -131,7 +131,7 @@ qsub -q longgpu.q -V -cwd \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=2,\
+    -v CUDA_VISIBLE_DEVICES=1,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

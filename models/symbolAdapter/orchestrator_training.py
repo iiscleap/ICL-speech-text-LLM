@@ -180,16 +180,12 @@ def initialize_model(config: TrainingConfig, tokenizer, symbol_manager) -> MLPSa
     # Initialize model
     model = MLPSalmonn(
         device=config.device,
-        label_tokens=list(initial_symbol_mappings.values()),
-        hidden_dim=config.mlp_config.hidden_dim,
         dropout=config.mlp_config.dropout,
         lora=True,
         lora_rank=config.lora_config.rank,
         lora_alpha=config.lora_config.alpha,
         lora_dropout=config.lora_config.dropout,
         low_resource=False,
-        use_output_mlp=config.mlp_config.use_output_mlp,
-        bypass_mlp=bypass_mlp  # NEW: Pass bypass_mlp parameter
     )
     
 

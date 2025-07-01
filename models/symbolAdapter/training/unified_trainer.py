@@ -99,30 +99,13 @@ class UnifiedTrainer:
         
         if step.phase == "lora":
             self._setup_lora_training(step)
-            
-        elif step.phase == "mlp":
-            self._setup_mlp_training(step)
-            
-        elif step.phase == "joint":
-            self._setup_joint_training(step)
-        
         else:
             raise ValueError(f"Unknown training phase: {step.phase}")
     
     def _setup_lora_training(self, step: TrainingStep):
         """Setup LoRA parameters for training"""
         logging.info(f"Setting up LoRA training for {step.description}")
-        
-        # ✅ NEW: Set bypass_mlp based on step flag
-        bypass_mlp = getattr(step, 'bypass_mlp', False)
-        if hasattr(self.model, 'set_bypass_mlp'):
-            self.model.set_bypass_mlp(bypass_mlp)
-            logging.info(f"✅ MLP bypass set to {bypass_mlp} for LoRA training")
-        
-        # Freeze MLP parameters and unfreeze LoRA parameters
-        self._freeze_mlp_parameters()
-        self._unfreeze_lora_parameters()
-        
+
         # Log parameter status
         self._log_parameter_status("LoRA")
         
@@ -134,188 +117,6 @@ class UnifiedTrainer:
         
         logging.info("✓ LoRA training setup complete")
     
-    def _setup_mlp_training(self, step: TrainingStep):
-        """Setup MLP parameters for training"""
-        logging.info(f"Setting up MLP training for {step.description}")
-        
-        # ✅ NEW: Set bypass_mlp based on step flag (should be False for MLP training)
-        bypass_mlp = getattr(step, 'bypass_mlp', False)
-        if hasattr(self.model, 'set_bypass_mlp'):
-            self.model.set_bypass_mlp(bypass_mlp)
-            logging.info(f"✅ MLP bypass set to {bypass_mlp} for MLP training")
-            
-            # ✅ SAFETY CHECK: MLP training requires bypass_mlp=False
-            if bypass_mlp:
-                logging.warning("⚠️  Warning: MLP training with bypass_mlp=True - MLP won't be used!")
-        
-        # Freeze LoRA parameters and unfreeze MLP parameters
-        self._freeze_lora_parameters()
-        self._unfreeze_mlp_parameters()
-        
-        # Log parameter status
-        self._log_parameter_status("MLP")
-        
-        # Setup optimizer for MLP parameters only
-        self._setup_mlp_optimizer(step)
-        
-        # Set model to training mode
-        self.model.train()
-        
-        logging.info("✓ MLP training setup complete")
-    
-    def _setup_joint_training(self, step: TrainingStep):
-        """Setup joint LoRA + MLP training"""
-        logging.info(f"Setting up Joint MLP+LoRA training for {step.description}")
-        
-        # ✅ NEW: Set bypass_mlp based on step flag
-        bypass_mlp = getattr(step, 'bypass_mlp', False)
-        if hasattr(self.model, 'set_bypass_mlp'):
-            self.model.set_bypass_mlp(bypass_mlp)
-            logging.info(f"✅ MLP bypass set to {bypass_mlp} for Joint training")
-            
-            # ✅ SAFETY CHECK: Joint training usually requires bypass_mlp=False
-            if bypass_mlp:
-                logging.warning("⚠️  Warning: Joint training with bypass_mlp=True - only LoRA will be trained!")
-        
-        # Unfreeze both MLP and LoRA parameters
-        self._unfreeze_mlp_parameters()
-        self._unfreeze_lora_parameters()
-        
-        # Log parameter status
-        self._log_parameter_status("Joint")
-        
-        # Setup optimizer for both MLP and LoRA parameters
-        self._setup_joint_optimizer(step)
-        
-        # Set model to training mode
-        self.model.train()
-        
-        logging.info("✓ Joint MLP+LoRA training setup complete")
-    
-    def _freeze_mlp_parameters(self):
-        """Freeze all MLP parameters (if any exist)"""
-        mlp_param_count = 0
-        
-        # Check if MLPs are bypassed at the model level
-        if getattr(self.model, 'bypass_mlp', False):
-            logging.info("BYPASS_MLP=True: No MLP parameters to freeze")
-            return
-        
-        # Only count actual MLP layers from our architecture
-        for name, param in self.model.named_parameters():
-            # Only count our specific MLP layers
-            if ('input_mlp' in name or 'output_mlp' in name) and 'lora' not in name.lower():
-                param.requires_grad = False
-                mlp_param_count += param.numel()
-        
-        if mlp_param_count > 0:
-            logging.info(f"Frozen {mlp_param_count:,} MLP parameters")
-        else:
-            logging.info("No MLP parameters found to freeze")
-    
-    def _freeze_lora_parameters(self):
-        """Freeze SALMONN's original LoRA + our Symbol LoRA"""
-        # ✅ Freeze SALMONN's original LoRA
-        for name, param in self.model.named_parameters():
-            if 'lora' in name.lower():
-                param.requires_grad = False
-        
-        # ✅ Freeze our Symbol LoRA
-        if hasattr(self.model, 'symbol_lora_model') and self.model.symbol_lora_model:
-            for name, param in self.model.symbol_lora_model.named_parameters():
-                if 'lora' in name.lower():
-                    param.requires_grad = False
-        
-        # ✅ COMMENTED OUT: Don't train SALMONN components for now
-        # if hasattr(self.model, 'salmonn'):
-        #     # Freeze QFormer components during MLP training
-        #     if hasattr(self.model.salmonn, 'speech_Qformer'):
-        #         for name, param in self.model.salmonn.speech_Qformer.named_parameters():
-        #             param.requires_grad = False
-        #     
-        #     # Freeze speech_query_tokens
-        #     if hasattr(self.model.salmonn, 'speech_query_tokens'):
-        #         self.model.salmonn.speech_query_tokens.requires_grad = False
-        #     
-        #     # Freeze speech_llama_proj
-        #     if hasattr(self.model.salmonn, 'speech_llama_proj'):
-        #         for name, param in self.model.salmonn.speech_llama_proj.named_parameters():
-        #             param.requires_grad = False
-    
-    def _unfreeze_lora_parameters(self):
-        """Unfreeze ONLY our Symbol LoRA (keep SALMONN's LoRA frozen)"""
-        if not hasattr(self.model, 'symbol_lora_model') or self.model.symbol_lora_model is None:
-            logging.warning("⚠️ No Symbol LoRA model found to unfreeze")
-            return 0
-        
-        symbol_lora_param_count = 0
-        
-        # ✅ SALMONN's original LoRA stays FROZEN
-        for name, param in self.model.named_parameters():
-            if 'lora' in name.lower():
-                param.requires_grad = False  # ✅ Keep SALMONN LoRA frozen
-        
-        # ✅ Unfreeze ONLY our Symbol LoRA
-        for name, param in self.model.symbol_lora_model.named_parameters():
-            if 'lora' in name.lower() and param.requires_grad == False:
-                param.requires_grad = True
-                symbol_lora_param_count += param.numel()
-                logging.debug(f"✅ Unfrozen Symbol LoRA parameter: {name}")
-        
-        logging.info(f"Unfrozen {symbol_lora_param_count:,} Symbol LoRA parameters")
-        logging.info("SALMONN's original LoRA remains FROZEN")
-        
-        # ✅ COMMENTED OUT: Don't train SALMONN components for now
-        # speech_param_count = 0
-        # if hasattr(self.model, 'salmonn'):
-        #     # Unfreeze QFormer components
-        #     if hasattr(self.model.salmonn, 'speech_Qformer'):
-        #         for name, param in self.model.salmonn.speech_Qformer.named_parameters():
-        #             param.requires_grad = True
-        #             speech_param_count += param.numel()
-        #     
-        #     # Unfreeze speech_query_tokens
-        #     if hasattr(self.model.salmonn, 'speech_query_tokens'):
-        #         self.model.salmonn.speech_query_tokens.requires_grad = True
-        #         speech_param_count += self.model.salmonn.speech_query_tokens.numel() if hasattr(self.model.salmonn.speech_query_tokens, 'numel') else 1
-        #     
-        #     # Unfreeze speech_llama_proj
-        #     if hasattr(self.model.salmonn, 'speech_llama_proj'):
-        #         for name, param in self.model.salmonn.speech_llama_proj.named_parameters():
-        #             param.requires_grad = True
-        #             speech_param_count += param.numel()
-        # 
-        # if speech_param_count > 0:
-        #     logging.info(f"Unfrozen {speech_param_count:,} SALMONN speech parameters")
-    
-    def _unfreeze_mlp_parameters(self):
-        """Unfreeze MLP parameters based on configuration"""
-        
-        # Check if MLPs are bypassed at the model level
-        if getattr(self.model, 'bypass_mlp', False):
-            logging.warning("BYPASS_MLP=True: No MLP parameters to unfreeze")
-            return
-        
-        mlp_param_count = 0
-        
-        # Unfreeze input MLP if enabled
-        if self.config.mlp_config.use_input_mlp:
-            for name, param in self.model.named_parameters():
-                if 'input_mlp' in name.lower() in name.lower():
-                    param.requires_grad = True
-                    mlp_param_count += param.numel()
-        
-        # Unfreeze output MLP if enabled
-        if self.config.mlp_config.use_output_mlp:
-            for name, param in self.model.named_parameters():
-                if 'output_mlp' in name.lower():
-                    param.requires_grad = True
-                    mlp_param_count += param.numel()
-        
-        if mlp_param_count > 0:
-            logging.info(f"Unfrozen {mlp_param_count:,} MLP parameters")
-        else:
-            logging.info("No MLP parameters found to unfreeze")
     
     def _log_parameter_status(self, training_mode: str):
         """Log current parameter training status with breakdown"""
@@ -350,223 +151,71 @@ class UnifiedTrainer:
         """Setup optimizer for Symbol LoRA parameters ONLY"""
         
         # ✅ COMMENTED OUT: Original LoRA + SALMONN parameter collection
-        # # Get trainable LoRA parameters
-        # lora_params = []
-        # salmonn_params = []
-        # 
-        # for name, param in self.model.named_parameters():
-        #     if param.requires_grad:
-        #         if 'lora' in name.lower():
-        #             lora_params.append(param)
-        #         elif ('speech_Qformer' in name or 'speech_query_tokens' in name or 'speech_llama_proj' in name):
-        #             salmonn_params.append(param)
-        # 
-        # if not lora_params and not salmonn_params:
-        #     raise ValueError("No trainable LoRA or SALMONN parameters found!")
-        # 
-        # # Create parameter groups with different learning rates if needed
-        # param_groups = []
-        # 
-        # if lora_params:
-        #     param_groups.append({
-        #         'params': lora_params,
-        #         'lr': step.learning_rate or self.config.lora_config.learning_rate,
-        #         'weight_decay': self.config.lora_config.weight_decay,
-        #         'name': 'lora'
-        #     })
-        # 
-        # if salmonn_params:
-        #     param_groups.append({
-        #         'params': salmonn_params,
-        #         'lr': (step.learning_rate or self.config.lora_config.learning_rate),
-        #         'weight_decay': self.config.lora_config.weight_decay,
-        #         'name': 'salmonn'
-        #     })
-        # 
-        # # Create optimizer
-        # self.optimizer = torch.optim.AdamW(param_groups)
-        # 
-        # logging.info(f"Created AdamW optimizer with {len(param_groups)} parameter groups:")
-        # for group in param_groups:
-        #     logging.info(f"  {group['name']}: {len(group['params'])} layers, LR={group['lr']}")
+        # Get trainable LoRA parameters
+        lora_params = []
+        salmonn_params = []
         
-        # ✅ NEW: Symbol LoRA parameter collection ONLY
-        symbol_lora_params = []
-        
-        if hasattr(self.model, 'symbol_lora_model') and self.model.symbol_lora_model:
-            # ✅ FIXED: Use named_parameters() instead of peft_modules
-            for name, param in self.model.symbol_lora_model.named_parameters():
-                if 'lora' in name.lower() and param.requires_grad:
-                    symbol_lora_params.append(param)
-                    logging.debug(f"✅ Added Symbol LoRA parameter to optimizer: {name}")
-
-        if not symbol_lora_params:
-            # ✅ FALLBACK: Try to find LoRA parameters through model hierarchy
-            logging.warning("No Symbol LoRA parameters found via named_parameters(), trying fallback...")
-            
-            for name, param in self.model.named_parameters():
-                if 'lora' in name.lower() and param.requires_grad:
-                    # Check if this is our Symbol LoRA (not SALMONN's)
-                    # Our Symbol LoRA should have 'symbol' in path or be in symbol_lora_model
-                    if 'symbol' in name.lower() or hasattr(self.model, 'symbol_lora_model'):
-                        symbol_lora_params.append(param)
-                        logging.debug(f"✅ Added fallback Symbol LoRA parameter: {name}")
-        
-        if not symbol_lora_params:
-            raise ValueError("No trainable Symbol LoRA parameters found!")
-        
-        # ✅ Create optimizer for Symbol LoRA only
-        self.optimizer = torch.optim.AdamW(
-            symbol_lora_params,
-            lr=step.learning_rate or self.config.lora_config.learning_rate,
-            weight_decay=self.config.lora_config.weight_decay
-        )
-        
-        # ✅ SIMPLIFIED: Use centralized scheduler creation
-        self.scheduler = self._create_scheduler(step, "lora")
-        
-        logging.info(f"✅ Created AdamW optimizer for {len(symbol_lora_params)} Symbol LoRA parameters")
-        logging.info(f"Learning rate: {step.learning_rate or self.config.lora_config.learning_rate}")
-        logging.info("🚫 SALMONN's original LoRA and components are FROZEN")
-    
-    def _setup_mlp_optimizer(self, step: TrainingStep):
-        """Setup optimizer for MLP parameters with scheduler"""
-        # Get trainable MLP parameters
-        mlp_params = []
         for name, param in self.model.named_parameters():
-            if param.requires_grad and ('input_mlp' in name.lower() or 'output_mlp' in name.lower()):
-                mlp_params.append(param)
+            if param.requires_grad:
+                if 'lora' in name.lower():
+                    lora_params.append(param)
+                elif ('speech_Qformer' in name or 'speech_query_tokens' in name or 'speech_llama_proj' in name):
+                    salmonn_params.append(param)
         
-        if not mlp_params:
-            raise ValueError("No trainable MLP parameters found!")
+        if not lora_params and not salmonn_params:
+            raise ValueError("No trainable LoRA or SALMONN parameters found!")
         
-        # Create optimizer
-        self.optimizer = torch.optim.AdamW(
-            mlp_params,
-            lr=step.learning_rate or self.config.mlp_config.learning_rate,
-            weight_decay=self.config.mlp_config.weight_decay
-        )
-        
-        # ✅ SIMPLIFIED: Use centralized scheduler creation
-        self.scheduler = self._create_scheduler(step, "mlp")
-        
-        logging.info(f"✅ Created AdamW optimizer for {len(mlp_params)} MLP parameters")
-        logging.info(f"Learning rate: {step.learning_rate or self.config.mlp_config.learning_rate}")
-
-    def _setup_joint_optimizer(self, step: TrainingStep):
-        """Setup optimizer for MLP + Symbol LoRA (not SALMONN components)"""
-        
-        # ✅ COMMENTED OUT: Original joint parameter collection
-        # # Get different parameter groups
-        # mlp_params = []
-        # lora_params = []
-        # salmonn_params = []
-        # 
-        # for name, param in self.model.named_parameters():
-        #     if param.requires_grad:
-        #         if 'lora' in name.lower():
-        #             lora_params.append(param)
-        #         elif ('input_mlp' in name.lower() or 'output_mlp' in name.lower()  or 'symbol' in name.lower()) and 'lora' not in name.lower():
-        #             mlp_params.append(param)
-        #         elif ('speech_Qformer' in name or 'speech_query_tokens' in name or 'speech_llama_proj' in name):
-        #             salmonn_params.append(param)
-        # 
-        # if not mlp_params and not lora_params and not salmonn_params:
-        #     raise ValueError("No trainable parameters found for joint training!")
-        # 
-        # # Create parameter groups with different learning rates
-        # param_groups = []
-        # 
-        # # MLP parameters - use MLP learning rate
-        # if mlp_params:
-        #     param_groups.append({
-        #         'params': mlp_params,
-        #         'lr': step.learning_rate or self.config.mlp_config.learning_rate,
-        #         'weight_decay': self.config.mlp_config.weight_decay,
-        #         'name': 'mlp'
-        #     })
-        # 
-        # # LoRA parameters - use LoRA learning rate
-        # if lora_params:
-        #     param_groups.append({
-        #         'params': lora_params,
-        #         'lr': (step.learning_rate or self.config.lora_config.learning_rate),  
-        #         'weight_decay': self.config.lora_config.weight_decay,
-        #         'name': 'lora'
-        #     })
-        # 
-        # # SALMONN parameters - use lowest learning rate
-        # if salmonn_params:
-        #     param_groups.append({
-        #         'params': salmonn_params,
-        #         'lr': (step.learning_rate or self.config.lora_config.learning_rate),  
-        #         'weight_decay': self.config.lora_config.weight_decay,
-        #         'name': 'salmonn'
-        #     })
-        # 
-        # # Create optimizer
-        # self.optimizer = torch.optim.AdamW(param_groups)
-        # 
-        # logging.info(f"Created Joint AdamW optimizer with {len(param_groups)} parameter groups:")
-        # for group in param_groups:
-        #     logging.info(f"  {group['name']}: {len(group['params'])} params, LR={group['lr']:.2e}, WD={group['weight_decay']}")
-        
-        # ✅ NEW: Joint parameter collection (MLP + Symbol LoRA only)
-        mlp_params = []
-        symbol_lora_params = []
-        
-        # ✅ MLP parameters
-        for name, param in self.model.named_parameters():
-            if param.requires_grad and ('input_mlp' in name.lower() or 'output_mlp' in name.lower() or 'symbol' in name.lower()) and 'lora' not in name.lower():
-                mlp_params.append(param)
-        
-        # ✅ Symbol LoRA parameters - FIXED METHOD
-        if hasattr(self.model, 'symbol_lora_model') and self.model.symbol_lora_model:
-            for name, param in self.model.symbol_lora_model.named_parameters():
-                if 'lora' in name.lower() and param.requires_grad:
-                    symbol_lora_params.append(param)
-        
-        # ✅ FALLBACK: If no Symbol LoRA found via symbol_lora_model
-        if not symbol_lora_params:
-            logging.warning("No Symbol LoRA parameters found via symbol_lora_model, trying fallback...")
-            for name, param in self.model.named_parameters():
-                if 'lora' in name.lower() and param.requires_grad:
-                    if 'symbol' in name.lower():  # Our Symbol LoRA should have 'symbol' in name
-                        symbol_lora_params.append(param)
-            
-        if not mlp_params and not symbol_lora_params:
-            raise ValueError("No trainable parameters found for joint training!")
-        
-        # Create parameter groups
+        # Create parameter groups with different learning rates if needed
         param_groups = []
         
-        if mlp_params:
+        if lora_params:
             param_groups.append({
-                'params': mlp_params,
-                'lr': step.learning_rate or self.config.mlp_config.learning_rate,
-                'weight_decay': self.config.mlp_config.weight_decay,
-                'name': 'mlp'
-            })
-        
-        if symbol_lora_params:
-            param_groups.append({
-                'params': symbol_lora_params,
+                'params': lora_params,
                 'lr': step.learning_rate or self.config.lora_config.learning_rate,
-                'weight_decay': self.config.lora_config.weight_decay,
-                'name': 'symbol_lora'
+                'name': 'lora'
             })
         
-        # Create optimizer
-        self.optimizer = torch.optim.AdamW(param_groups)
+        if salmonn_params:
+            param_groups.append({
+                'params': salmonn_params,
+                'lr': (step.learning_rate or self.config.lora_config.learning_rate),
+                'name': 'salmonn'
+            })
         
-        # ✅ SIMPLIFIED: Use centralized scheduler creation
-        self.scheduler = self._create_scheduler(step, "joint")
         
-        logging.info(f"✅ Created Joint AdamW optimizer with {len(param_groups)} parameter groups:")
+        logging.info(f"Created AdamW optimizer with {len(param_groups)} parameter groups:")
         for group in param_groups:
-            logging.info(f"  {group['name']}: {len(group['params'])} params, LR={group['lr']:.2e}")
-        logging.info("🚫 SALMONN's original LoRA and components are FROZEN")
-    
+            logging.info(f"  {group['name']}: {len(group['params'])} layers, LR={group['lr']}")
+ 
+        
+
+        optimizer = torch.optim.AdamW(
+            self.model.parameters(),
+            lr=self.config.lora_config.learning_rate,
+            betas=(0.9, 0.999),
+            eps=1e-8,
+            weight_decay=0.01
+        )
+        
+        # Create learning rate scheduler
+        total_steps = len(self.train_dataloader) * step.epochs // step.gradient_accumulation_steps
+        warmup_ratio = getattr(self.config.lora_config, 'warmup_ratio', 0.1)
+        warmup_steps = int(total_steps * warmup_ratio)
+        warmup_steps = max(min(warmup_steps, 500), 50)
+
+        # Create scheduler based on user choice
+        scheduler = get_scheduler(
+            name=self.config.lora_config.scheduler,
+            optimizer=optimizer,
+            num_warmup_steps=warmup_steps,
+            num_training_steps=total_steps
+        )
+        
+        self.optimizer = torch.optim.AdamW(param_groups)
+        self.scheduler = self._create_scheduler(step, "lora")
+
+
+ 
     def _train_epoch(self, step: TrainingStep, epoch: int) -> float:
         """Train for one epoch with scheduler and gradient accumulation"""
         self.model.train()
@@ -584,20 +233,20 @@ class UnifiedTrainer:
         )
         
         # ✅ KEEP: Gradient accumulation steps (NOT REMOVED)
-        if step.phase == "lora":
-            accumulation_steps = step.gradient_accumulation_steps or self.config.lora_config.gradient_accumulation_steps
-        elif step.phase == "mlp":
-            accumulation_steps = step.gradient_accumulation_steps or self.config.mlp_config.gradient_accumulation_steps
-        else:  # joint
-            accumulation_steps = step.gradient_accumulation_steps or max(
-                self.config.mlp_config.gradient_accumulation_steps,
-                self.config.lora_config.gradient_accumulation_steps
-            )
+        accumulation_steps = step.gradient_accumulation_steps or self.config.lora_config.gradient_accumulation_steps
+
         
         try:
             for batch_idx, batch in enumerate(progress_bar):
                 try:
                     # DETAILED BATCH LOGGING FOR FIRST BATCH
+
+                    if batch_idx > 0 and batch_idx % 50 == 0:
+                        logger.info(f"Clearing memory at step {batch_idx}")
+                        gc.collect()
+                        torch.cuda.empty_cache()
+
+
                     if batch_idx == 0:
                         logging.info(f"=== {step.phase.upper()} EPOCH BATCH 1 CONTENT ===")
                         if "prompt" in batch:
@@ -658,24 +307,18 @@ class UnifiedTrainer:
                     if (batch_idx + 1) % accumulation_steps == 0:
                         # Gradient clipping
                         max_grad_norm = getattr(self.config, 'max_grad_norm', 0)
-                        if step.phase == "lora":
-                            max_grad_norm = max_grad_norm or self.config.lora_config.max_grad_norm
-                        elif step.phase == "mlp":
-                            max_grad_norm = max_grad_norm or self.config.mlp_config.max_grad_norm
-                        else:  # joint
-                            max_grad_norm = max_grad_norm or min(
-                                self.config.mlp_config.max_grad_norm if self.config.mlp_config.max_grad_norm > 0 else float('inf'),
-                                self.config.lora_config.max_grad_norm if self.config.lora_config.max_grad_norm > 0 else float('inf')
-                            )
+ 
+                        max_grad_norm =  self.config.lora_config.max_grad_norm
+
                         
                         if max_grad_norm > 0:
                             torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
                         
                         # ✅ CRITICAL: Update optimizer AND scheduler
                         self.optimizer.step()
+                        optimizer.zero_grad(set_to_none=True)
                         if hasattr(self, 'scheduler') and self.scheduler:
                             self.scheduler.step()  # ✅ ADD THIS LINE
-                        self.optimizer.zero_grad()
                     
                     # Update metrics
                     total_loss += loss.item() * accumulation_steps
@@ -702,28 +345,6 @@ class UnifiedTrainer:
         
         finally:
             progress_bar.close()
-        
-        # ✅ KEEP: Final gradient step if needed (NOT REMOVED)
-        if num_batches % accumulation_steps != 0:
-            max_grad_norm = getattr(self.config, 'max_grad_norm', 0)
-            if step.phase == "lora":
-                max_grad_norm = max_grad_norm or self.config.lora_config.max_grad_norm
-            elif step.phase == "mlp":
-                max_grad_norm = max_grad_norm or self.config.mlp_config.max_grad_norm
-            else:  # joint
-                max_grad_norm = max_grad_norm or min(
-                    self.config.mlp_config.max_grad_norm if self.config.mlp_config.max_grad_norm > 0 else float('inf'),
-                    self.config.lora_config.max_grad_norm if self.config.lora_config.max_grad_norm > 0 else float('inf')
-                )
-            
-            if max_grad_norm > 0:
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_grad_norm)
-            
-            # ✅ CRITICAL: Final optimizer AND scheduler step
-            self.optimizer.step()
-            if hasattr(self, 'scheduler') and self.scheduler:
-                self.scheduler.step()  # ✅ ADD THIS LINE
-            self.optimizer.zero_grad()
         
         return total_loss / max(num_batches, 1)
     
@@ -835,50 +456,4 @@ class UnifiedTrainer:
                    f"epoch {step_info.get('epoch', 'unknown')}")
         
         return checkpoint
-    
-    def _create_scheduler(self, step: TrainingStep, phase: str):
-        """Create scheduler with global override"""
-        total_steps = len(self.train_dataloader) * step.epochs
-        
-        # ✅ FIXED HIERARCHY: Global first
-        if hasattr(self.config, 'scheduler') and self.config.scheduler != "linear":
-            # Global scheduler specified - use it for all phases
-            scheduler_name = self.config.scheduler
-            warmup_ratio = getattr(self.config, 'warmup_ratio', 0.1)
-            logging.info(f"Using global scheduler '{scheduler_name}' for {phase.upper()} phase")
-        
-        elif phase == "lora" and hasattr(self.config.lora_config, 'scheduler'):
-            # Phase-specific scheduler
-            scheduler_name = self.config.lora_config.scheduler
-            warmup_ratio = getattr(self.config.lora_config, 'warmup_ratio', 0.1)
-            logging.info(f"Using LoRA-specific scheduler '{scheduler_name}'")
-        
-        elif phase == "mlp" and hasattr(self.config.mlp_config, 'scheduler'):
-            # Phase-specific scheduler  
-            scheduler_name = self.config.mlp_config.scheduler
-            warmup_ratio = getattr(self.config.mlp_config, 'warmup_ratio', 0.1)
-            logging.info(f"Using MLP-specific scheduler '{scheduler_name}'")
-        
-        else:
-            scheduler_name = "linear"
-            warmup_ratio = 0.1
-            logging.info(f"Using fallback scheduler '{scheduler_name}' for {phase.upper()}")
-        
-        # Calculate warmup steps
-        warmup_steps = int(total_steps * warmup_ratio)
-        warmup_steps = max(min(warmup_steps, 500), 50)  # Between 50-500 steps
-        
-        from transformers import get_scheduler
-        scheduler = get_scheduler(
-            name=scheduler_name,
-            optimizer=self.optimizer,
-            num_warmup_steps=warmup_steps,
-            num_training_steps=total_steps
-        )
-        
-        logging.info(f"✅ Created {scheduler_name} scheduler for {phase.upper()} training:")
-        logging.info(f"   Total steps: {total_steps}")
-        logging.info(f"   Warmup steps: {warmup_steps} ({warmup_ratio*100:.1f}%)")
-        logging.info(f"   Scheduler: {scheduler_name}")
-        
-        return scheduler
+   

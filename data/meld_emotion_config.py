@@ -4,9 +4,12 @@ import random
 MELD_EMOTION_CONFIG = DatasetConfig(
     name=DatasetType.MELD_EMOTION,
     paths={
-        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/meld_train",
-        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/meld_validation",
-        # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/meld_test",
+        # DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/meld_train",
+        # DatasetSplit.VAL: "/data2/neeraja/neeraja/data/meld_validation",
+        # # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/meld_test",
+        # DatasetSplit.TEST: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_test_embedding_topk5",
+        DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_train_embedding_topk5",
+        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_test_embedding_topk5",
         DatasetSplit.TEST: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_test_embedding_topk5",
     },
     prompt_template="""You are an emotion recognition expert. Based on the input, respond with EXACTLY ONE WORD from these options: neutral, joy, sadness, anger, fear, disgust, or surprise.
@@ -24,8 +27,12 @@ Guidelines:
     completion_key="emotion_label",
     text_key="text",
     audio_lookup_paths={
-        DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/meld_train",
-        DatasetSplit.VAL: "/data2/neeraja/neeraja/data/meld_validation",
+        # DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/meld_train",
+        # DatasetSplit.VAL: "/data2/neeraja/neeraja/data/meld_validation",
+        # # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/meld_train",
+        # DatasetSplit.TEST: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_test_audio_lookup",
+        DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_train_audio_lookup",
+        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_test_audio_lookup",
         # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/meld_train",
         DatasetSplit.TEST: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_test_audio_lookup",
     }
