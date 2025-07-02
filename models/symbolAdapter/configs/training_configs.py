@@ -49,7 +49,7 @@ class MLPConfig:
     gradient_accumulation_steps: int = 8
     max_grad_norm: float = 1.0
     scheduler: str = "linear"  # ✅ ADD THIS
-    warmup_ratio: float = 0.1  # ✅ ADD THIS
+    warmup_steps: float = 100  # ✅ ADD THIS
     
     def __post_init__(self):
         if not self.use_input_mlp and not self.use_output_mlp:
@@ -77,7 +77,7 @@ class LoRAConfig:
     gradient_accumulation_steps: int = 8
     max_grad_norm: float = 1.0
     scheduler: str = "linear"  # ✅ ADD THIS
-    warmup_ratio: float = 0.1  # ✅ ADD THIS
+    warmup_steps: float = 100  # ✅ ADD THIS
 
 @dataclass
 class SymbolConfig:
@@ -121,7 +121,9 @@ class TrainingConfig:
     total_cycles: int = 2
     
     # I/O parameters
-    output_dir: str = "/data2/neeraja/neeraja/results/model_ICL"
+    # output_dir: str = "/data2/neeraja/neeraja/results/model_ICL"
+
+    output_dir: str = "/data1/chandnia/neeraja/results/model_ICL"  # Default output directory
     run_name: str = "symbol_training_run"
     checkpoint_frequency: int = 1  # Save checkpoint every N epochs
     
@@ -139,8 +141,8 @@ class TrainingConfig:
     
     only_original: bool = False  # Only use original labels without symbols
 
-    scheduler: str = "cosine_with_restarts"  # ✅ ADD GLOBAL SCHEDULER
-    warmup_ratio: float = 0.1  # ✅ ADD GLOBAL WARMUP
+    scheduler: str = "cosine"  # ✅ ADD GLOBAL SCHEDULER
+    warmup_steps: float = 100  # ✅ ADD GLOBAL WARMUP
 
     def __post_init__(self):
         """Validate configuration after initialization"""
@@ -336,7 +338,7 @@ class TrainingConfig:
             run_name=args.run_name,
             device=args.device,
             scheduler=args.scheduler,  # ✅ ADD: Global scheduler
-            warmup_ratio=args.warmup_ratio,  # ✅ ADD: Global warmup
+            warmup_steps=args.warmup_steps,  # ✅ ADD: Global warmup
         )
 
 
@@ -449,7 +451,7 @@ def parse_training_args() -> argparse.Namespace:
     parser.add_argument("--scheduler", type=str, default="cosine",
                        choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant"],
                        help="Learning rate scheduler type")
-    parser.add_argument("--warmup_ratio", type=float, default=0.1,
-                       help="Warmup ratio (0.1 = 10% of total steps)")
+    parser.add_argument("--warmup_steps", type=float, default=0.1,
+                       help="warmup_steps")
     
     return parser.parse_args()

@@ -3,10 +3,10 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="melp-hvb"  # Dataset type(s) to use
+dataset_type="voxceleb-voxpopuli"  # Dataset type(s) to use
 device="cuda:0"  # GPU device
 
-hold_job_id="143235"
+hold_job_id=""
 
 # Training parameters
 lora_lr=1e-5
@@ -78,7 +78,9 @@ SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/models/symbolAdapter/orchestrator_t
 TODAY=$(date +"%Y-%m-%d")
 
 # Directory setup
-OUTPUT_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training"
+# OUTPUT_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training"
+OUTPUT_DIR="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training"
+
 # LOG_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training/logs/${TODAY}"
 LOG_DIR="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/logs/${TODAY}"
 
@@ -131,7 +133,7 @@ qsub -q longgpu.q -V -cwd \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=1,\
+    -v CUDA_VISIBLE_DEVICES=2,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

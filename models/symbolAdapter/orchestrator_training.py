@@ -173,9 +173,9 @@ def initialize_model(config: TrainingConfig, tokenizer, symbol_manager) -> MLPSa
     
     logging.info(f"Initial symbol mappings from SymbolManager: {initial_symbol_mappings}")
     
-    bypass_mlp = config.mode in [TrainingMode.BYPASS_MLP_SYM, TrainingMode.BYPASS_MLP_ORG]
+    # bypass_mlp = config.mode in [TrainingMode.BYPASS_MLP_SYM, TrainingMode.BYPASS_MLP_ORG]
     
-    logging.info(f"Training mode: {config.mode.value}, bypass_mlp: {bypass_mlp}")
+    # logging.info(f"Training mode: {config.mode.value}, bypass_mlp: {bypass_mlp}")
     
     # Initialize model
     model = MLPSalmonn(
@@ -189,7 +189,7 @@ def initialize_model(config: TrainingConfig, tokenizer, symbol_manager) -> MLPSa
     )
     
 
-    model.update_label_tokens(initial_symbol_mappings)
+    # model.update_label_tokens(initial_symbol_mappings)
     
     return model
 

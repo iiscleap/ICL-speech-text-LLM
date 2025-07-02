@@ -370,91 +370,91 @@ class ValidationManager:
             accumulated_predictions = []
 
         # Determine validation modes based on phase + model state + step config
-        if phase == "lora":
-            if bypass_mlp and use_symbols:
+        # if phase == "lora":
+            # if bypass_mlp and use_symbols:
                 # LoRA training with bypass_mlp=True and symbols
-                modes = [
-                    ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols (from training)
-                    ("no_mlp_fresh", True, False, True),      # NoMLP + Fresh Symbols
-                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
-                ]
-            elif bypass_mlp and not use_symbols:
-                # LoRA training with bypass_mlp=True and no symbols
-                modes = [
-                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
-                ]
-            elif not bypass_mlp and use_symbols:
-                # LoRA training with MLP enabled and symbols
-                modes = [
-                    ("mlp_symbols", False, False, False),     # MLP + Fixed Symbols
-                    ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols
-                    ("mlp_original", False, True, False),     # MLP + Original Labels
-                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
-                    ("mlp_fresh", False, False, True),     # MLP + Fresh Labels
-                    ("no_mlp_fresh", True, False, True),   # NoMLP + Fresh Labels
+        modes = [
+            ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols (from training)
+            ("no_mlp_fresh", True, False, True),      # NoMLP + Fresh Symbols
+            ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+        ]
+        #     elif bypass_mlp and not use_symbols:
+        #         # LoRA training with bypass_mlp=True and no symbols
+        #         modes = [
+        #             ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+        #         ]
+        #     elif not bypass_mlp and use_symbols:
+        #         # LoRA training with MLP enabled and symbols
+        #         modes = [
+        #             ("mlp_symbols", False, False, False),     # MLP + Fixed Symbols
+        #             ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols
+        #             ("mlp_original", False, True, False),     # MLP + Original Labels
+        #             ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+        #             ("mlp_fresh", False, False, True),     # MLP + Fresh Labels
+        #             ("no_mlp_fresh", True, False, True),   # NoMLP + Fresh Labels
 
-                ]
-            else:
-                # LoRA training with MLP enabled and no symbols
-                modes = [
-                    ("mlp_original", False, True, False),     # MLP + Original Labels
-                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
-                ]
+        #         ]
+        #     else:
+        #         # LoRA training with MLP enabled and no symbols
+        #         modes = [
+        #             ("mlp_original", False, True, False),     # MLP + Original Labels
+        #             ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+        #         ]
         
-        elif phase == "mlp":
-            if bypass_mlp:
-                # This should not happen - MLP training with bypass_mlp=True
-                logging.error("Cannot run MLP validation when bypass_mlp=True")
-                return {"error": 0.0}
-            else:
-                # Normal MLP training - always uses symbols
-                modes = [
-                    ("mlp_symbols", False, False, False),     # MLP + Fixed Symbols (main focus)
-                    ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols (comparison)
-                    ("mlp_original", False, True, False),     # MLP + Original Labels (baseline)
-                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels (baseline)
-                    ("mlp_fresh", False, False, True),     # MLP + Fresh Labels
-                    ("no_mlp_fresh", True, False, True),   # NoMLP + Fresh Labels
-                ]
+        # elif phase == "mlp":
+        #     if bypass_mlp:
+        #         # This should not happen - MLP training with bypass_mlp=True
+        #         logging.error("Cannot run MLP validation when bypass_mlp=True")
+        #         return {"error": 0.0}
+        #     else:
+        #         # Normal MLP training - always uses symbols
+        #         modes = [
+        #             ("mlp_symbols", False, False, False),     # MLP + Fixed Symbols (main focus)
+        #             ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols (comparison)
+        #             ("mlp_original", False, True, False),     # MLP + Original Labels (baseline)
+        #             ("no_mlp_original", True, True, False),   # NoMLP + Original Labels (baseline)
+        #             ("mlp_fresh", False, False, True),     # MLP + Fresh Labels
+        #             ("no_mlp_fresh", True, False, True),   # NoMLP + Fresh Labels
+        #         ]
         
-        elif phase == "joint":
-            if bypass_mlp and use_symbols:
-                # Joint training with bypass_mlp=True (effectively LoRA-only)
-                modes = [
-                    ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols
-                    ("no_mlp_fresh", True, False, True),      # NoMLP + Fresh Symbols
-                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
-                ]
-            elif bypass_mlp and not use_symbols:
-                # Joint training with bypass_mlp=True and no symbols
-                modes = [
-                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
-                ]
-            elif not bypass_mlp and use_symbols:
-                # Normal joint training with symbols
-                modes = [
-                    ("mlp_symbols", False, False, False),     # MLP + Fixed Symbols
-                    ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols
-                    ("mlp_original", False, True, False),     # MLP + Original Labels
-                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
-                    ("mlp_fresh", False, False, True),     # MLP + Fresh Labels
-                    ("no_mlp_fresh", True, False, True),   # NoMLP + Fresh Labels
-                ]
-            else:
-                # Joint training without symbols
-                modes = [
-                    ("mlp_original", False, True, False),     # MLP + Original Labels
-                    ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
-                ]
+        # elif phase == "joint":
+        #     if bypass_mlp and use_symbols:
+        #         # Joint training with bypass_mlp=True (effectively LoRA-only)
+        #         modes = [
+        #             ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols
+        #             ("no_mlp_fresh", True, False, True),      # NoMLP + Fresh Symbols
+        #             ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+        #         ]
+        #     elif bypass_mlp and not use_symbols:
+        #         # Joint training with bypass_mlp=True and no symbols
+        #         modes = [
+        #             ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+        #         ]
+        #     elif not bypass_mlp and use_symbols:
+        #         # Normal joint training with symbols
+        #         modes = [
+        #             ("mlp_symbols", False, False, False),     # MLP + Fixed Symbols
+        #             ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols
+        #             ("mlp_original", False, True, False),     # MLP + Original Labels
+        #             ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+        #             ("mlp_fresh", False, False, True),     # MLP + Fresh Labels
+        #             ("no_mlp_fresh", True, False, True),   # NoMLP + Fresh Labels
+        #         ]
+        #     else:
+        #         # Joint training without symbols
+        #         modes = [
+        #             ("mlp_original", False, True, False),     # MLP + Original Labels
+        #             ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+        #         ]
         
-        else:
-            # Default fallback
-            modes = [
-                ("mlp_symbols", False, False, False),
-                ("no_mlp_symbols", True, False, False),
-                ("mlp_original", False, True, False),
-                ("no_mlp_original", True, True, False),
-            ]
+        # else:
+        #     # Default fallback
+        #     modes = [
+        #         ("mlp_symbols", False, False, False),
+        #         ("no_mlp_symbols", True, False, False),
+        #         ("mlp_original", False, True, False),
+        #         ("no_mlp_original", True, True, False),
+        #     ]
         
         logging.info(f"Validation modes for {phase.upper()} (bypass_mlp={bypass_mlp}, use_symbols={use_symbols}):")
 

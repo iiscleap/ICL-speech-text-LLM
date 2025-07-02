@@ -38,7 +38,7 @@ class MLPSalmonn(nn.Module):
         super().__init__()
         
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-
+        self.use_fp16 = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 7.0
         
         # SALMONN config
         salmonn_config = {
@@ -66,8 +66,6 @@ class MLPSalmonn(nn.Module):
         logging.info("🔧 INITIALIZING MLP-SALMONN MODEL")
         logging.info("=" * 80)
         logging.info(f"Device: {self.device}")
-        logging.info(f"Bypass MLP: {self.bypass_mlp}")
-        logging.info(f"Use Output MLP: {self.use_output_mlp}")
         logging.info(f"LoRA Rank: {lora_rank}, Alpha: {lora_alpha}")
 
         logging.info("🔄 Loading base SALMONN model...")
@@ -83,6 +81,8 @@ class MLPSalmonn(nn.Module):
 
         self.batch_counter = 0
         self.speech_placeholder = "<SpeechHere>"
+
+        self.lora = lora
         
         # Get model components
         self.llama_model = self.salmonn.llama_model
@@ -97,91 +97,91 @@ class MLPSalmonn(nn.Module):
         else:
             self.embed_module = self.llama_model.embed_tokens
  
-        def forward(self, samples):
-            """
-            Forward pass for training.
-            """
-            start_time = time.time()
-            
-            # Process speech embeddings
-            speech_embeds, speech_atts, example_embeds, example_atts = self.get_speech_embeddings(samples)
-            
-            if self.batch_counter == 0:
-                logging.info("\n=== Embeddings Status ===")
-                logging.info(f"Main speech embeddings: {'Present' if speech_embeds is not None else 'None'}")
-                if speech_embeds is not None:
-                    if isinstance(speech_embeds, tuple):
-                        # For SQA dataset with question and document embeddings
-                        q_embeds, d_embeds = speech_embeds
-                        logging.info("SQA Speech data detected and processed")
-                        logging.info(f"Question embeddings device: {q_embeds.device}")
-                        logging.info(f"Question embeddings range: {q_embeds.min():.3f} to {q_embeds.max():.3f}")
-                        logging.info(f"Document embeddings device: {d_embeds.device}")
-                        logging.info(f"Document embeddings range: {d_embeds.min():.3f} to {d_embeds.max():.3f}")
-                    else:
-                        # Original logging for single speech embedding
-                        logging.info("Speech data detected and processed")
-                        logging.info(f"Speech embeddings device: {speech_embeds.device}")
-                        logging.info(f"Speech embeddings range: {speech_embeds.min():.3f} to {speech_embeds.max():.3f}")
+    def forward(self, samples):
+        """
+        Forward pass for training.
+        """
+        start_time = time.time()
+        
+        # Process speech embeddings
+        speech_embeds, speech_atts, example_embeds, example_atts = self.get_speech_embeddings(samples)
+        
+        if self.batch_counter == 0:
+            logging.info("\n=== Embeddings Status ===")
+            logging.info(f"Main speech embeddings: {'Present' if speech_embeds is not None else 'None'}")
+            if speech_embeds is not None:
+                if isinstance(speech_embeds, tuple):
+                    # For SQA dataset with question and document embeddings
+                    q_embeds, d_embeds = speech_embeds
+                    logging.info("SQA Speech data detected and processed")
+                    logging.info(f"Question embeddings device: {q_embeds.device}")
+                    logging.info(f"Question embeddings range: {q_embeds.min():.3f} to {q_embeds.max():.3f}")
+                    logging.info(f"Document embeddings device: {d_embeds.device}")
+                    logging.info(f"Document embeddings range: {d_embeds.min():.3f} to {d_embeds.max():.3f}")
                 else:
-                    logging.info("No speech data detected, using text-only mode")
-            
-            if self.batch_counter == 0:
-                logging.info(f"Prompt example:\n{samples['prompt'][0]}")
-                logging.info(f"Output:\n{samples['completion'][0]}")
-            
-            # Get number of examples per sample
-            num_examples = samples.get("num_examples", torch.zeros(len(samples["prompt"]), dtype=torch.long))
-            
-            # Wrap embeddings with prompts
-            wrapped_embeds, wrapped_atts = self.custom_prompt_wrap(
-                speech_embeds, speech_atts, samples["prompt"],
-                num_examples, example_embeds, example_atts
+                    # Original logging for single speech embedding
+                    logging.info("Speech data detected and processed")
+                    logging.info(f"Speech embeddings device: {speech_embeds.device}")
+                    logging.info(f"Speech embeddings range: {speech_embeds.min():.3f} to {speech_embeds.max():.3f}")
+            else:
+                logging.info("No speech data detected, using text-only mode")
+        
+        if self.batch_counter == 0:
+            logging.info(f"Prompt example:\n{samples['prompt'][0]}")
+            logging.info(f"Output:\n{samples['completion'][0]}")
+        
+        # Get number of examples per sample
+        num_examples = samples.get("num_examples", torch.zeros(len(samples["prompt"]), dtype=torch.long))
+        
+        # Wrap embeddings with prompts
+        wrapped_embeds, wrapped_atts = self.custom_prompt_wrap(
+            speech_embeds, speech_atts, samples["prompt"],
+            num_examples, example_embeds, example_atts
+        )
+        
+        if self.batch_counter == 0:
+            logging.info(f"Wrapped embeddings shape: {wrapped_embeds.shape}")
+            logging.info(f"Wrapped attention mask shape: {wrapped_atts.shape}")
+        
+        gen_start_time = time.time()
+        
+        # Process target text
+        target_tokens = self.llama_tokenizer(
+            samples["completion"],
+            padding='longest',
+            return_tensors="pt",
+            add_special_tokens=False,
+            return_attention_mask=True,
+        ).to(wrapped_embeds.device)
+        
+        target_embeds = self.llama_model.model.embed_tokens(target_tokens.input_ids) if not self.lora else self.llama_model.model.model.embed_tokens(target_tokens.input_ids)
+        prompt_length = wrapped_embeds.size(1)
+        
+        # Create labels tensor
+        labels = torch.full(
+            [wrapped_atts.shape[0], wrapped_atts.shape[1] + target_tokens.input_ids.size(1)],
+            fill_value=-100,
+            dtype=torch.long,
+            device=wrapped_embeds.device
+        )
+        labels[:, prompt_length:] = target_tokens.input_ids
+        
+        # Mask padding tokens
+        attention_mask = torch.cat([wrapped_atts, target_tokens.attention_mask], dim=1)
+        labels[attention_mask == 0] = -100
+        
+        # Forward through LLaMA
+        with self.maybe_autocast():
+            outputs = self.llama_model(
+                inputs_embeds=torch.cat([wrapped_embeds, target_embeds], dim=1),
+                attention_mask=attention_mask,
+                labels=labels,
+                return_dict=True
             )
-            
-            if self.batch_counter == 0:
-                logging.info(f"Wrapped embeddings shape: {wrapped_embeds.shape}")
-                logging.info(f"Wrapped attention mask shape: {wrapped_atts.shape}")
-            
-            gen_start_time = time.time()
-            
-            # Process target text
-            target_tokens = self.llama_tokenizer(
-                samples["completion"],
-                padding='longest',
-                return_tensors="pt",
-                add_special_tokens=False,
-                return_attention_mask=True,
-            ).to(wrapped_embeds.device)
-            
-            target_embeds = self.llama_model.model.embed_tokens(target_tokens.input_ids) if not self.lora else self.llama_model.model.model.embed_tokens(target_tokens.input_ids)
-            prompt_length = wrapped_embeds.size(1)
-            
-            # Create labels tensor
-            labels = torch.full(
-                [wrapped_atts.shape[0], wrapped_atts.shape[1] + target_tokens.input_ids.size(1)],
-                fill_value=-100,
-                dtype=torch.long,
-                device=wrapped_embeds.device
-            )
-            labels[:, prompt_length:] = target_tokens.input_ids
-            
-            # Mask padding tokens
-            attention_mask = torch.cat([wrapped_atts, target_tokens.attention_mask], dim=1)
-            labels[attention_mask == 0] = -100
-            
-            # Forward through LLaMA
-            with self.maybe_autocast():
-                outputs = self.llama_model(
-                    inputs_embeds=torch.cat([wrapped_embeds, target_embeds], dim=1),
-                    attention_mask=attention_mask,
-                    labels=labels,
-                    return_dict=True
-                )
-            
-            logging.info(f"Forward pass took {time.time() - gen_start_time:.2f} seconds")
-            self.batch_counter += 1
-            return {"loss": outputs.loss, "logits": outputs.logits, "labels": labels}
+        
+        logging.info(f"Forward pass took {time.time() - gen_start_time:.2f} seconds")
+        self.batch_counter += 1
+        return {"loss": outputs.loss, "logits": outputs.logits, "labels": labels}
 
     def get_speech_embeddings(self, samples):
         """Process speech inputs to generate embeddings - KEPT FROM ORIGINAL"""
@@ -411,6 +411,10 @@ class MLPSalmonn(nn.Module):
             audio_padding_mask=audio_padding_mask
         )
     
+    def maybe_autocast(self):
+        """Context manager for mixed precision training"""
+        return torch.cuda.amp.autocast() if self.use_fp16 else nullcontext()
+
     def generate_output(self, samples):
         """
         Generate predictions for speech or text input.

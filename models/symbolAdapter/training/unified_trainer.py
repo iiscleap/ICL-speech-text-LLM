@@ -10,6 +10,8 @@ from ..symbol_manager import SymbolManager
 from .validation import ValidationManager
 from .schedulers import TrainingStep
 
+from transformers import get_scheduler
+
 
 class UnifiedTrainer:
     """
@@ -88,14 +90,6 @@ class UnifiedTrainer:
     
     def _setup_training_phase(self, step: TrainingStep):
         """Setup model parameters and optimizer based on training phase"""
-        
-        # ✅ UPDATE: Check and set bypass_mlp flag
-        if hasattr(step, 'bypass_mlp'):
-            if hasattr(self.model, 'bypass_mlp'):
-                self.model.bypass_mlp = step.bypass_mlp
-                logging.info(f"Set model.bypass_mlp = {step.bypass_mlp} for {step.phase} phase")
-            else:
-                logging.warning(f"Model doesn't have bypass_mlp attribute, cannot set to {step.bypass_mlp}")
         
         if step.phase == "lora":
             self._setup_lora_training(step)
@@ -189,7 +183,7 @@ class UnifiedTrainer:
  
         
 
-        optimizer = torch.optim.AdamW(
+        self.optimizer = torch.optim.AdamW(
             self.model.parameters(),
             lr=self.config.lora_config.learning_rate,
             betas=(0.9, 0.999),
@@ -199,20 +193,17 @@ class UnifiedTrainer:
         
         # Create learning rate scheduler
         total_steps = len(self.train_dataloader) * step.epochs // step.gradient_accumulation_steps
-        warmup_ratio = getattr(self.config.lora_config, 'warmup_ratio', 0.1)
-        warmup_steps = int(total_steps * warmup_ratio)
-        warmup_steps = max(min(warmup_steps, 500), 50)
+        warmup_steps = getattr(self.config.lora_config, 'warmup_steps', 100)
+
 
         # Create scheduler based on user choice
-        scheduler = get_scheduler(
+        self.scheduler = get_scheduler(
             name=self.config.lora_config.scheduler,
-            optimizer=optimizer,
+            optimizer=self.optimizer,
             num_warmup_steps=warmup_steps,
             num_training_steps=total_steps
         )
         
-        self.optimizer = torch.optim.AdamW(param_groups)
-        self.scheduler = self._create_scheduler(step, "lora")
 
 
  
@@ -316,7 +307,7 @@ class UnifiedTrainer:
                         
                         # ✅ CRITICAL: Update optimizer AND scheduler
                         self.optimizer.step()
-                        optimizer.zero_grad(set_to_none=True)
+                        self.optimizer.zero_grad(set_to_none=True)
                         if hasattr(self, 'scheduler') and self.scheduler:
                             self.scheduler.step()  # ✅ ADD THIS LINE
                     
@@ -456,4 +447,3 @@ class UnifiedTrainer:
                    f"epoch {step_info.get('epoch', 'unknown')}")
         
         return checkpoint
-   
