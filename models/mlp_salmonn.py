@@ -27,7 +27,6 @@ class MLPSalmonn(nn.Module):
         llama_path="lmsys/vicuna-13b-v1.1",
         whisper_path="openai/whisper-large-v2",
         beats_path="/data2/neeraja/neeraja/BEATs_iter3_plus_AS2M_finetuned_on_AS2M_cpt2.pt",
-        dropout=0.1,
         lora=True,
         lora_rank=8,
         lora_alpha=32,

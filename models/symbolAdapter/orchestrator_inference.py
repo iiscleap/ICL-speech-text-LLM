@@ -49,7 +49,7 @@ class InferenceOrchestrator:
         self.max_val_samples = max_val_samples
         
         # Setup output directories
-        self.results_base = output_dir or "/data2/neeraja/neeraja/results/model_ICL"
+        self.results_base = output_dir or "/data1/chandnia/neeraja/results/model_ICL"
         self.metrics_dir = os.path.join(self.results_base, "orchestrator_metrics")
         self.logs_dir = os.path.join(self.results_base, "orchestrator_logs")
         
@@ -133,7 +133,7 @@ class InferenceOrchestrator:
             # Update config for inference
             self.config.data_config.dataset_type = self.dataset_type
 
-            self.config.data_config.val_max_samples = self.max_val_samples
+            self.config.data_config.max_samples = self.max_val_samples
             
             return checkpoint
             
@@ -162,18 +162,59 @@ class InferenceOrchestrator:
             dataset_labels = extract_dataset_labels(self.config)
             
             # Setup symbol manager (same as training)
-            self.symbol_manager = SymbolManager(
-                original_labels=dataset_labels,
-                tokenizer=tokenizer,
-                dynamic_per_epoch=(self.config.symbol_config.mode == SymbolMode.DYNAMIC_PER_EPOCH),
-                symbol_type=self.config.symbol_config.symbol_type
-            )
-            logging.info("✅ SymbolManager initialized")
+            if 'symbol_mappings' in checkpoint:
+                symbol_data = checkpoint['symbol_mappings']
+                logging.info("📋 Restoring symbol mappings from checkpoint...")
+                current_mappings = symbol_data['current_epoch_mappings']
+                logging.info(f"✅ Restored symbol mappings: {current_mappings}")
+            else:
+                logging.warning("⚠️ No symbol mappings found in checkpoint, using default setup")
+                # current_mappings = {
+                #         'acknowledge': 'augc', 'anger': 'zugi', 'answer_agree': 'acke',
+                #         'answer_dis': 'annj', 'answer_general': 'sbia', 'apology': 'pukh',
+                #         'backchannel': 'jsfd', 'disfluency': 'nrzy', 'disgust': 'cuurs',
+                #         'fear': 'phin', 'joy': 'pgky', 'law': 'dxzk',
+                #         'negative': 'mmoo', 'neutral': 'njtf', 'noemotion': 'wyzte',
+                #         'norp': 'vact', 'org': 'sejb', 'other': 'ouat',
+                #         'person': 'whij', 'place': 'bctx', 'positive': 'guzo',
+                #         'quant': 'zmzd', 'question_check': 'banx', 'question_general': 'ngtd',
+                #         'question_repeat': 'nrnb', 'sadness': 'sfwe', 'self': 'afux',
+                #         'statement_close': 'xlig', 'statement_general': 'ukng', 
+                #         'statement_instruct': 'israi', 'statement_open': 'dtwo',
+                #         'statement_problem': 'mvfw', 'surprise': 'fago', 'thanks': 'puhe',
+                #         'when': 'secd'
+                #     }
+
+                current_mappings = {
+                    'acknowledge': 'azqq', 'anger': 'qloy', 'answer_agree': 'xsno',
+                    'answer_dis': 'uibr', 'answer_general': 'runfn', 'apology': 'eesz',
+                    'backchannel': 'onbr', 'disfluency': 'busox', 'disgust': 'zwpy',
+                    'fear': 'skwt', 'joy': 'ptma', 'law': 'rcov',
+                    'negative': 'ajsp', 'neutral': 'vbkt', 'noemotion': 'ifig',
+                    'norp': 'punxf', 'org': 'elazu', 'other': 'edfs',
+                    'person': 'flnt', 'place': 'imamd', 'positive': 'xzem',
+                    'quant': 'dosh', 'question_check': 'brua', 'question_general': 'pkin',
+                    'question_repeat': 'zuka', 'sadness': 'oftam', 'self': 'tkfw',
+                    'statement_close': 'ngkm', 'statement_general': 'pezy', 
+                    'statement_instruct': 'oamt', 'statement_open': 'hayc',
+                    'statement_problem': 'bedr', 'surprise': 'jkil', 'thanks': 'odih',
+                    'when': 'exuj'
+                }
+
+                logging.info(f"symbol mappings: {current_mappings}")
+                
             
+            self.symbol_manager = SymbolManager(
+                    original_labels=dataset_labels,
+                    tokenizer=tokenizer,
+                    dynamic_per_epoch=False,
+                    symbol_type=self.config.symbol_config.symbol_type
+                )
+            self.current_mappings = current_mappings
             # ✅ FIX: Update config for TEST split inference
             self.config.data_config.split = 'test'  # Force test split for inference
 
-            self.config.data_config.val_max_samples = self.max_val_samples
+            self.config.data_config.max_samples = self.max_val_samples
             
             # Load datasets (same as training orchestrator)
             logging.info(f"📊 Loading datasets for: {self.dataset_type} (TEST split)")
@@ -187,7 +228,7 @@ class InferenceOrchestrator:
             
             # ✅ FIX: Create test dataloader (not validation)
             self.val_dataloader = create_combined_dataloader(
-                test_datasets,  # ✅ Use test datasets
+                test_datasets, 
                 processor,
                 self.config, 
                 shuffle=False
@@ -202,16 +243,16 @@ class InferenceOrchestrator:
             logging.info("🤖 Initializing model...")
             self.model = MLPSalmonn(
                 device=self.device,
-                label_tokens=list(initial_symbol_mappings.values()),
-                hidden_dim=self.config.mlp_config.hidden_dim,  # ✅ mlp_config.hidden_dim
-                dropout=self.config.mlp_config.dropout,        # ✅ mlp_config.dropout
+                # label_tokens=list(initial_symbol_mappings.values()),
+                # hidden_dim=self.config.mlp_config.hidden_dim,  # ✅ mlp_config.hidden_dim
+                # dropout=self.config.mlp_config.dropout,        # ✅ mlp_config.dropout
                 lora=True,
                 lora_rank=self.config.lora_config.rank,        # ✅ lora_config.rank
                 lora_alpha=self.config.lora_config.alpha,      # ✅ lora_config.alpha
                 lora_dropout=self.config.lora_config.dropout,  # ✅ lora_config.dropout
                 low_resource=False,
-                use_output_mlp=self.config.mlp_config.use_output_mlp,  # ✅ mlp_config.use_output_mlp
-                bypass_mlp=not self.config.mlp_config.use_input_mlp    # ✅ NOT use_input_mlp = bypass_mlp
+                # use_output_mlp=self.config.mlp_config.use_output_mlp,  # ✅ mlp_config.use_output_mlp
+                # bypass_mlp=not self.config.mlp_config.use_input_mlp    # ✅ NOT use_input_mlp = bypass_mlp
             )
             
             # Load model state from checkpoint
@@ -245,8 +286,7 @@ class InferenceOrchestrator:
             self.validator = ValidationManager(
                 config=self.config,
                 symbol_manager=self.symbol_manager,
-                tokenizer=tokenizer,
-                max_val_samples=getattr(self.config.data_config, 'val_max_samples', 0)  
+                tokenizer=tokenizer
             )
             
             logging.info("✅ ValidationManager initialized")
@@ -269,8 +309,8 @@ class InferenceOrchestrator:
             model=self.model,
             val_dataloader=self.val_dataloader,
             epoch=0,
-            phase='joint',  # Use 'joint' for comprehensive inference
-            cycle=0
+            phase='lora',  # Use 'joint' for comprehensive inference
+            symbol_mappings = self.current_mappings,
         )
         
         # Extract and return (ValidationManager did all the work)

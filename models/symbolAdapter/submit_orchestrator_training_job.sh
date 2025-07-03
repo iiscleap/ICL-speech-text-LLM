@@ -12,31 +12,26 @@ hold_job_id=""
 lora_lr=1e-5
 lora_epochs=10
 
-lora_final_epochs=1 
-total_cycles=1
-
-mlp_epochs=1
-mlp_lr=1e-5
-
-
-
-# MLP Architecture parameters
-use_output_mlp=False  # Enable/disable output MLP
-bypass_mlp=True 
-
-dynamic_symbols_per_epoch=True  # Generate new symbols each epoch
-
-hidden_dim=32
 batch_size=1
+
+dynamic_symbols_per_epoch=False  # Generate new symbols each epoch
 
 gradient_accumulation_steps=8
 max_grad_norm=1.0
 max_samples=0 # Set reasonable default
 
+
+
 # NEW: Orchestrator-specific parameters
 schedule_type=""  # Options: "lora_first", "mlp_first", "joint_training","lora_mlp_joint"
-
-
+lora_final_epochs=1 
+total_cycles=1
+mlp_epochs=1
+mlp_lr=1e-5
+# MLP Architecture parameters
+use_output_mlp=False  # Enable/disable output MLP
+bypass_mlp=True 
+hidden_dim=32
 
 
 # Set conda environment

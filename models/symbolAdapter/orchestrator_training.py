@@ -180,7 +180,6 @@ def initialize_model(config: TrainingConfig, tokenizer, symbol_manager) -> MLPSa
     # Initialize model
     model = MLPSalmonn(
         device=config.device,
-        dropout=config.mlp_config.dropout,
         lora=True,
         lora_rank=config.lora_config.rank,
         lora_alpha=config.lora_config.alpha,

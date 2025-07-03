@@ -417,7 +417,13 @@ class UnifiedTrainer:
             },
             'model_state': trainable_state,
             'optimizer_state': self.optimizer.state_dict() if self.optimizer else None,
-            'config': self.config
+            'config': self.config,
+            'symbol_mappings': {
+                'current_epoch_mappings': self.symbol_manager.get_symbols_for_epoch(epoch),
+                'original_labels': self.symbol_manager.original_labels,
+                'symbol_type': self.symbol_manager.symbol_type,
+                'dynamic_per_epoch': self.symbol_manager.dynamic_per_epoch
+            }
         }
         
         torch.save(checkpoint_data, checkpoint_path)

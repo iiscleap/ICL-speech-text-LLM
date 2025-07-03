@@ -36,7 +36,6 @@ class ValidationManager:
         self.config = config
         self.symbol_manager = symbol_manager
         self.tokenizer = tokenizer
-        self.max_val_samples = max_val_samples
         
     def validate_model(
         self,
@@ -47,39 +46,40 @@ class ValidationManager:
         cycle: int = 0,
         bypass_mlp: bool = False,
         use_original_labels: bool = False,
-        use_dynamic_symbols: bool = False
+        use_dynamic_symbols: bool = False,
+        symbol_mappings: Optional[Dict[str, str]] = None  # ✅ NEW PARAMETER
     ) -> Dict[str, float]:
         """
         Comprehensive validation function that handles all training modes
         Uses utils.evaluation_utils for evaluation
         """
         model.eval()
-        
-        # Set bypass flag for this validation run
-        original_bypass_state = getattr(model, 'bypass_mlp_for_inference', False)
-        model.bypass_mlp_for_inference = bypass_mlp
-        
 
         # Get symbols for validation using SymbolManager methods
         if use_original_labels:
-            symbol_mappings = {}  # No symbol replacement
+            symbol_mappings_to_use = {}  # No symbol replacement
             mode_name = "Original"
         elif use_dynamic_symbols:
             # Generate fresh symbols for this validation
-            symbol_mappings = self.symbol_manager._generate_symbol_mappings()
+            symbol_mappings_to_use = self.symbol_manager._generate_symbol_mappings()
             mode_name = "Fresh-Symbols"
         else:
-            # Use symbols from training epoch
-            symbol_mappings = self.symbol_manager.get_symbols_for_epoch(epoch)
-            mode_name = "Fixed-Symbols"
+            # ✅ Use provided mappings if in inference mode, otherwise use epoch mappings
+            if self.is_inference_mode and symbol_mappings is not None:
+                symbol_mappings_to_use = symbol_mappings
+                mode_name = "Fixed-Symbols"
+            else:
+                # Use symbols from training epoch
+                symbol_mappings_to_use = self.symbol_manager.get_symbols_for_epoch(epoch)
+                mode_name = "Fixed-Symbols"
         
         # Configure validation mode name
         mlp_mode = "NoMLP" if bypass_mlp else "MLP"
         full_mode_name = f"{mlp_mode}+{mode_name}"
         
         logging.info(f"=== Validation: {full_mode_name} (Epoch {epoch}, {phase.upper()}) ===")
-        if symbol_mappings:
-            logging.info(f"Using symbols: {symbol_mappings}")
+        if symbol_mappings_to_use:
+            logging.info(f"Using symbols: {symbol_mappings_to_use}")
         
         # Run validation using utils.evaluation_utils
         try:
@@ -87,7 +87,7 @@ class ValidationManager:
                 metrics = self._run_validation_with_utils(
                     model=model,
                     val_dataloader=val_dataloader,
-                    symbol_mappings=symbol_mappings,
+                    symbol_mappings=symbol_mappings_to_use,  # ✅ USE THE DETERMINED MAPPINGS
                     mode_name=full_mode_name,
                     epoch=epoch,
                     phase=phase,
@@ -103,8 +103,6 @@ class ValidationManager:
             return {"accuracy": 0.0, "loss": float('inf'), "total_samples": 0}
         
         finally:
-            # Restore original bypass state
-            model.bypass_mlp_for_inference = original_bypass_state
             model.train()  # Reset to training mode
 
     def _run_validation_with_utils(
@@ -348,7 +346,8 @@ class ValidationManager:
         epoch: int,
         phase: str,  # This comes from TrainingStep.phase: "lora", "mlp", "joint"
         cycle: int = 0,
-        step: Optional[TrainingStep] = None  # Add step parameter
+        step: Optional[TrainingStep] = None,  # Add step parameter
+        symbol_mappings: Optional[Dict[str, str]] = None  # ✅ NEW PARAMETER
     ) -> Union[Dict[str, float], Dict[str, Any]]:
         """
         Run comprehensive validation with all modes (MLP+Symbols, NoMLP+Symbols, etc.)
@@ -462,9 +461,9 @@ class ValidationManager:
         # Run each validation mode
         for mode_key, bypass_mlp_val, use_original, use_dynamic in modes:
 
-            if self.is_inference_mode and dynamic_symbols_enabled:
+            if self.is_inference_mode:
                 # Skip fixed symbol modes (use_dynamic=False) when dynamic symbols are enabled
-                if not use_dynamic and not use_original:
+                if  use_dynamic or use_original:
                     logging.info(f"⏭️ Skipping {mode_key} (fixed symbols) - dynamic symbols enabled in inference")
                     continue
 
@@ -483,7 +482,8 @@ class ValidationManager:
                     cycle=cycle,
                     bypass_mlp=bypass_mlp_val,
                     use_original_labels=use_original,
-                    use_dynamic_symbols=use_dynamic
+                    use_dynamic_symbols=use_dynamic,
+                    symbol_mappings=symbol_mappings  # ✅ PASS PARAMETER
                 )
                 composite_metric = metrics.get("composite_accuracy", "no_data:0.000000")
                 # validation_results[mode_key] = metrics["accuracy"]
