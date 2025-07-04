@@ -8,8 +8,8 @@ VOXPOPULI_CONFIG = DatasetConfig(
         # DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_test_20fewshots",
         # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_test_20fewshots",
         DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/voxpopuli/asapp-slue_voxpopuli_train_embedding_topk5",
+        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/voxpopuli/asapp-slue_voxpopuli_validation_embedding_topk5",
         DatasetSplit.TEST: "/data1/harshanj/data/Embedding/voxpopuli/asapp-slue_voxpopuli_test_embedding_topk5",
-        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/voxpopuli/asapp-slue_voxpopuli_test_embedding_topk5",
     },
     prompt_template="""You are an Entity Type Classification system. For the given input, identify which of the following entity types are present:
 
@@ -32,8 +32,8 @@ Guidelines:
         # DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_audio_lookup",
         # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_audio_lookup",
         DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/voxpopuli/asapp-slue_voxpopuli_train_audio_lookup",
+        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/voxpopuli/asapp-slue_voxpopuli_validation_audio_lookup",
         DatasetSplit.TEST: "/data1/harshanj/data/Embedding/voxpopuli/asapp-slue_voxpopuli_test_audio_lookup",
-        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/voxpopuli/asapp-slue_voxpopuli_test_audio_lookup",
     }
     # audio_lookup_paths={
     #     DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue_voxpopuli_train_1fewshots",

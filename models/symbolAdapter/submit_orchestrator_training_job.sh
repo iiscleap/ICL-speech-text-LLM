@@ -3,21 +3,21 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxceleb-voxpopuli"  # Dataset type(s) to use
+dataset_type="meld_emotion-hvb"  # Dataset type(s) to use
 device="cuda:0"  # GPU device
 
 hold_job_id=""
 
 # Training parameters
 lora_lr=1e-5
-lora_epochs=10
+lora_epochs=15
 
 batch_size=1
 
-dynamic_symbols_per_epoch=False  # Generate new symbols each epoch
+dynamic_symbols_per_epoch=True  # Generate new symbols each epoch
 
 gradient_accumulation_steps=8
-max_grad_norm=1.0
+max_grad_norm=0.3
 max_samples=0 # Set reasonable default
 
 
@@ -122,13 +122,13 @@ echo "Log File: ${LOG_DIR}/${RUN_NAME}.log"
 echo "=========================================="
 
 # Submit job
-qsub -q longgpu.q -V -cwd \
+qsub -q gpu.q -V -cwd \
     $HOLD_FLAG \
     -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=2,\
+    -v CUDA_VISIBLE_DEVICES=1,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

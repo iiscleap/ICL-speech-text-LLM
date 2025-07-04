@@ -47,6 +47,7 @@ class SymbolManager:
         # Generate initial symbols
         if not self.dynamic_per_epoch:
             self.fixed_mappings = self._generate_symbol_mappings()
+            self.list_of_symbols = list(self.fixed_mappings.values())
             logging.info(f"Generated fixed symbol mappings: {self.fixed_mappings}")
         else:
             logging.info("Dynamic symbol mode - symbols will be generated per epoch")
@@ -181,6 +182,13 @@ class SymbolManager:
         
         updated_batch = batch.copy()
         
+
+    # a1 -> x1, b1 -> y1, c1 -> z1, [x1, y1, z1] -> [y1, x1, z1]
+    # a1 -> y1, b1 -> z1, c1 -> x1, 
+    # symbol_list = [x1, y1, z1], if swap: new new_sym_list = perm(symbol_list) [y1, x1, z1], new_mapping = zip(org, swapped_sym)
+    # new_mapping[symbol_mappings[orginal_label]] = new_symbol
+
+
         # Replace in prompts
         if "prompt" in batch:
             updated_prompts = []

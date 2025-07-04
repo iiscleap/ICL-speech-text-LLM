@@ -30,8 +30,8 @@ VOXCELEB_CONFIG = DatasetConfig(
         # DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_validation_5fewshots_new",
 
         DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_train_embedding_topk5",
+        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_validation_embedding_topk5",
         DatasetSplit.TEST: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_test_embedding_topk5",
-        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_test_embedding_topk5",
     },
     prompt_template="""You are a sentiment analysis expert. Based on the input, respond with EXACTLY ONE WORD from these options: positive, negative, or neutral.
 
@@ -47,8 +47,8 @@ Guidelines:
         # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_test_audio_lookup",
         # DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_validation_audio_lookup_new",
         DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_train_audio_lookup",
+        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_validation_audio_lookup",
         DatasetSplit.TEST: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_test_audio_lookup",
-        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_test_audio_lookup",
     }
 )
 

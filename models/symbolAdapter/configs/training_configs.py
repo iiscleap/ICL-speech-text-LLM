@@ -76,7 +76,7 @@ class LoRAConfig:
     initial_epochs: int = 1
     gradient_accumulation_steps: int = 8
     max_grad_norm: float = 1.0
-    scheduler: str = "linear"  # ✅ ADD THIS
+    scheduler: str = "cosine"  # ✅ ADD THIS
     warmup_steps: float = 100  # ✅ ADD THIS
 
 @dataclass
@@ -336,9 +336,7 @@ class TrainingConfig:
             total_cycles=args.total_cycles,
             output_dir=args.output_dir,
             run_name=args.run_name,
-            device=args.device,
-            scheduler=args.scheduler,  # ✅ ADD: Global scheduler
-            warmup_steps=args.warmup_steps,  # ✅ ADD: Global warmup
+            device=args.device
         )
 
 
@@ -447,11 +445,6 @@ def parse_training_args() -> argparse.Namespace:
     parser.add_argument("--output_dir", type=str, required=True)
     parser.add_argument("--run_name", type=str, required=True)
     
-    # ✅ ADD: Scheduler arguments
-    parser.add_argument("--scheduler", type=str, default="cosine",
-                       choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant"],
-                       help="Learning rate scheduler type")
-    parser.add_argument("--warmup_steps", type=float, default=0.1,
-                       help="warmup_steps")
+
     
     return parser.parse_args()

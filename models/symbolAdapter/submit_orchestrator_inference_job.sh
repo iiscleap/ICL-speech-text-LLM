@@ -5,11 +5,13 @@
 # Configuration - Edit these values as needed
 # ========================================
 # checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0207_0137_orchestrator__1c_10le_1me_bypass_mlp_sym_salmonn_voxceleb_voxpopuli/lora_step0_cycle0_epoch4_periodic.pt"
-checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0207_0136_orchestrator__1c_10le_1me_bypass_mlp_sym_salmonn_meld_emotion_hvb/lora_step0_cycle0_epoch2_periodic.pt"
-
+# checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0207_0136_orchestrator__1c_10le_1me_bypass_mlp_sym_salmonn_meld_emotion_hvb/lora_step0_cycle0_epoch2_periodic.pt"
+checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0207_0137_orchestrator__1c_10le_1me_bypass_mlp_sym_salmonn_voxceleb_voxpopuli/lora_step0_cycle0_epoch10_periodic.pt"
 
 dataset_type="hvb-voxceleb-voxpopuli-meld_emotion"  # Dataset type to evaluate on
 max_val_samples=0           # 0 = use all samples
+
+num_examples=1 
 
 # Optional parameters
 device="cuda:0"
@@ -18,7 +20,7 @@ output_dir="/data1/chandnia/neeraja/results/model_ICL"
 # Node configuration
 queue_name="longgpu.q"
 hostname="compute-0-9"
-cuda_device=1
+cuda_device=2
 
 # ========================================
 # Validation and Setup
@@ -43,9 +45,18 @@ CLEAN_DATASET_TYPE=$(echo $dataset_type | tr ',' '-' | tr -d ' ')
 # Get current date and time
 CURRENT_DATETIME=$(date +"%d%m_%H%M")
 
-# Generate run name (same logic as orchestrator_inference.py)
-CHECKPOINT_NAME=$(basename "$checkpoint_path" | sed 's/\.pt$//' | sed 's/\.pth$//')
-RUN_NAME="${CURRENT_DATETIME}_inference_${CHECKPOINT_NAME}_${CLEAN_DATASET_TYPE}"
+
+
+# Extract training timestamp and epoch from checkpoint path
+TRAINING_TIMESTAMP=$(basename "$(dirname "$checkpoint_path")" | cut -d'_' -f1-2)
+EPOCH_NUM=$(basename "$checkpoint_path" | sed -n 's/.*epoch\([0-9]\+\).*/\1/p')
+
+# Create compact checkpoint identifier
+CHECKPOINT_NAME="${TRAINING_TIMESTAMP}_ep${EPOCH_NUM}"
+
+# Update RUN_NAME
+RUN_NAME="${CURRENT_DATETIME}_inference_${CHECKPOINT_NAME}_${CLEAN_DATASET_TYPE}_${num_examples}ex"
+
 
 # Set script path
 SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/models/symbolAdapter/orchestrator_inference.py"
@@ -93,6 +104,7 @@ SCRIPT_PATH=${SCRIPT_PATH},\
 checkpoint_path=${checkpoint_path},\
 dataset_type=${dataset_type},\
 max_val_samples=${max_val_samples},\
+num_examples=${num_examples},\
 device=${device},\
 output_dir=${output_dir} \
     -S /bin/bash << 'EOF'
@@ -146,6 +158,7 @@ python ${SCRIPT_PATH} \
     --dataset_type "${dataset_type}" \
     --device "${device}" \
     --max_val_samples ${max_val_samples} \
+    --num_examples ${num_examples} \
     --output_dir "${output_dir}"
 
 EXIT_CODE=$?

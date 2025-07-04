@@ -41,12 +41,14 @@ class InferenceOrchestrator:
         dataset_type: str,
         device: str = "cuda:0",
         max_val_samples: int = 0,  # 0 = all samples
+        num_examples: int = 5,
         output_dir: Optional[str] = None
     ):
         self.checkpoint_path = checkpoint_path
         self.dataset_type = dataset_type
         self.device = device
         self.max_val_samples = max_val_samples
+        self.num_examples = num_examples
         
         # Setup output directories
         self.results_base = output_dir or "/data1/chandnia/neeraja/results/model_ICL"
@@ -231,7 +233,8 @@ class InferenceOrchestrator:
                 test_datasets, 
                 processor,
                 self.config, 
-                shuffle=False
+                shuffle=False,
+                num_examples=self.num_examples  # ✅ Use num_examples from args
             )
             
             logging.info(f"✅ Test dataloader created: {len(self.val_dataloader)} batches")
@@ -395,8 +398,12 @@ def main():
                        help="Device to use for inference")
     parser.add_argument("--max_val_samples", type=int, default=0,
                        help="Maximum validation samples (0 = all)")
+    parser.add_argument("--num_examples", type=int, default=5,  # ✅ NEW
+                       help="Number of few-shot examples (default: 5)")
     parser.add_argument("--output_dir", type=str, default=None,
                        help="Output directory for results")
+
+
     
     args = parser.parse_args()
     
@@ -412,6 +419,7 @@ def main():
             dataset_type=args.dataset_type,
             device=args.device,
             max_val_samples=args.max_val_samples,
+            num_examples=args.num_examples,
             output_dir=args.output_dir
         )
         

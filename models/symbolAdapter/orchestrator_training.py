@@ -110,9 +110,11 @@ def load_datasets_for_config(config: TrainingConfig, inference_mode: bool = Fals
     return train_datasets, val_datasets
 
 
-def create_combined_dataloader(datasets, processor, config: TrainingConfig, shuffle=False):
+def create_combined_dataloader(datasets, processor, config: TrainingConfig, shuffle=False,num_examples: int = None):
     """Create combined dataloader from datasets"""
     dataset_types = list(datasets.keys())
+
+    examples_count = num_examples if num_examples is not None else 5
     
     combined_dataset = DatasetFactory.create_dataset(
         dataset_type=dataset_types,
@@ -121,7 +123,7 @@ def create_combined_dataloader(datasets, processor, config: TrainingConfig, shuf
         is_training=shuffle,
         input_mode="speech_only",
         fewshot_mode="text",
-        num_examples=5,
+        num_examples=examples_count,
         random_examples=False,
         model_type=config.model_type.value,
         run_name=config.run_name,
