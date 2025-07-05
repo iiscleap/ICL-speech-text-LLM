@@ -68,16 +68,22 @@ class LoRAConfig:
     alpha: int = 32
     dropout: float = 0.1
     learning_rate: float = 1e-5
-    weight_decay: float = 1e-5
+    weight_decay: float = 0.01
     
     # Training parameters
-    epochs: int = 2
+    epochs: int = 1
     final_epochs: int = 1
     initial_epochs: int = 1
     gradient_accumulation_steps: int = 8
     max_grad_norm: float = 1.0
     scheduler: str = "cosine"  # ✅ ADD THIS
-    warmup_steps: float = 100  # ✅ ADD THIS
+
+                 
+    
+    warmup_per_epoch: bool = True        # Restart warmup each epoch
+    warmup_steps_per_epoch: int = 300     # Steps per epoch if warmup_per_epoch=True
+    warmup_ratio: float = 0.1             # Percentage of total training
+    warmup_steps: int = 1500 # Absolute number of steps
 
 @dataclass
 class SymbolConfig:

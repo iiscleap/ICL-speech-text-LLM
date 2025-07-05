@@ -3,14 +3,14 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="meld_emotion-hvb"  # Dataset type(s) to use
+dataset_type="voxceleb-voxpopuli"  # Dataset type(s) to use
 device="cuda:0"  # GPU device
 
 hold_job_id=""
 
 # Training parameters
 lora_lr=1e-5
-lora_epochs=15
+lora_epochs=8
 
 batch_size=1
 
@@ -128,7 +128,7 @@ qsub -q gpu.q -V -cwd \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=1,\
+    -v CUDA_VISIBLE_DEVICES=0,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

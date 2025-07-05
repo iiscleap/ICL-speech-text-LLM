@@ -4,6 +4,7 @@ import torch
 from typing import Dict, Any, Optional
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+import gc
 
 from ..configs.training_configs import TrainingConfig
 from ..symbol_manager import SymbolManager
@@ -188,27 +189,69 @@ class UnifiedTrainer:
             lr=self.config.lora_config.learning_rate,
             betas=(0.9, 0.999),
             eps=1e-8,
-            weight_decay=0.01
+            weight_decay=self.config.lora_config.weight_decay,
         )
         
         # Create learning rate scheduler
         total_steps = len(self.train_dataloader) * step.epochs // step.gradient_accumulation_steps
-        warmup_steps = getattr(self.config.lora_config, 'warmup_steps', 100)
+ 
+
+        if self.config.lora_config.warmup_per_epoch:
+        # Use per-epoch warmup
+            warmup_steps = self.config.lora_config.warmup_steps_per_epoch
+            logging.info(f"Using per-epoch warmup: {warmup_steps} steps per epoch")
+        elif self.config.lora_config.warmup_ratio > 0:
+            # Use ratio-based warmup
+            warmup_steps = int(total_steps * self.config.lora_config.warmup_ratio)
+            logging.info(f"Using ratio-based warmup: {warmup_steps} steps ({self.config.lora_config.warmup_ratio*100}% of {total_steps})")
+        else:
+            # Use absolute warmup steps
+            warmup_steps = self.config.lora_config.warmup_steps
+            logging.info(f"Using absolute warmup: {warmup_steps} steps")
+
+        if self.config.lora_config.warmup_per_epoch:
+            # Create custom scheduler that restarts warmup each epoch
+            self.scheduler = self._create_per_epoch_scheduler(warmup_steps, total_steps)
+        else:
+            # Standard scheduler
+            self.scheduler = get_scheduler(
+                name=self.config.lora_config.scheduler,
+                optimizer=self.optimizer,
+                num_warmup_steps=warmup_steps,
+                num_training_steps=total_steps
+            )
+            
+        logging.info(f"Scheduler: {self.config.lora_config.scheduler}, Warmup: {warmup_steps}, Total: {total_steps}")
 
 
-        # Create scheduler based on user choice
-        self.scheduler = get_scheduler(
-            name=self.config.lora_config.scheduler,
-            optimizer=self.optimizer,
-            num_warmup_steps=warmup_steps,
-            num_training_steps=total_steps
-        )
+    def _create_per_epoch_scheduler(self, warmup_steps_per_epoch: int, total_steps: int):
+        """Create scheduler that restarts warmup at each epoch"""
+    
+        def lr_lambda(step):
+            epoch_length = len(self.train_dataloader) // self.config.lora_config.gradient_accumulation_steps
+            current_epoch = step // epoch_length
+            step_in_epoch = step % epoch_length
+            
+            # Warmup phase within epoch
+            if step_in_epoch < warmup_steps_per_epoch:
+                return step_in_epoch / warmup_steps_per_epoch
+            
+            # Cosine decay phase within epoch
+            progress = (step_in_epoch - warmup_steps_per_epoch) / (epoch_length - warmup_steps_per_epoch)
+            import math
+            return 0.5 * (1 + math.cos(math.pi * progress))
         
-
-
+        from torch.optim.lr_scheduler import LambdaLR
+        return LambdaLR(self.optimizer, lr_lambda)
  
     def _train_epoch(self, step: TrainingStep, epoch: int) -> float:
         """Train for one epoch with scheduler and gradient accumulation"""
+        
+        # ✅ NEW: Reset scheduler if using per-epoch warmup
+        if self.config.lora_config.warmup_per_epoch and epoch > 0:
+            logging.info(f"Restarting warmup for epoch {epoch}")
+            # Scheduler automatically handles this with our custom lr_lambda
+        
         self.model.train()
         total_loss = 0.0
         num_batches = 0
@@ -233,7 +276,7 @@ class UnifiedTrainer:
                     # DETAILED BATCH LOGGING FOR FIRST BATCH
 
                     if batch_idx > 0 and batch_idx % 50 == 0:
-                        logger.info(f"Clearing memory at step {batch_idx}")
+                        logging.info(f"Clearing memory at step {batch_idx}")
                         gc.collect()
                         torch.cuda.empty_cache()
 
@@ -296,8 +339,6 @@ class UnifiedTrainer:
                     
                     # ✅ KEEP: Gradient accumulation with scheduler (NOT REMOVED)
                     if (batch_idx + 1) % accumulation_steps == 0:
-                        # Gradient clipping
-                        max_grad_norm = getattr(self.config, 'max_grad_norm', 0)
  
                         max_grad_norm =  self.config.lora_config.max_grad_norm
 
