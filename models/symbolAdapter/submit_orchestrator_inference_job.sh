@@ -4,14 +4,18 @@
 # ========================================
 # Configuration - Edit these values as needed
 # ========================================
-# checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0207_0137_orchestrator__1c_10le_1me_bypass_mlp_sym_salmonn_voxceleb_voxpopuli/lora_step0_cycle0_epoch4_periodic.pt"
-# checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0207_0136_orchestrator__1c_10le_1me_bypass_mlp_sym_salmonn_meld_emotion_hvb/lora_step0_cycle0_epoch2_periodic.pt"
-checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0207_0137_orchestrator__1c_10le_1me_bypass_mlp_sym_salmonn_voxceleb_voxpopuli/lora_step0_cycle0_epoch10_periodic.pt"
+
+#vox + vop
+checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1713_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_voxceleb_voxpopuli/lora_step0_cycle0_epoch5_periodic.pt"
+#vox + hvb
+# checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1713_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_voxceleb_hvb/lora_step0_cycle0_epoch2_periodic.pt"
+#meld + hvb
+# checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1712_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_meld_emotion_hvb/lora_step0_cycle0_epoch3_periodic.pt"
 
 dataset_type="hvb-voxceleb-voxpopuli-meld_emotion"  # Dataset type to evaluate on
 max_val_samples=0           # 0 = use all samples
 
-num_examples=1 
+num_examples=0 
 
 # Optional parameters
 device="cuda:0"
@@ -46,16 +50,33 @@ CLEAN_DATASET_TYPE=$(echo $dataset_type | tr ',' '-' | tr -d ' ')
 CURRENT_DATETIME=$(date +"%d%m_%H%M")
 
 
-
-# Extract training timestamp and epoch from checkpoint path
-TRAINING_TIMESTAMP=$(basename "$(dirname "$checkpoint_path")" | cut -d'_' -f1-2)
+# Extract training timestamp, dataset, and epoch from checkpoint path
+CHECKPOINT_DIR=$(basename "$(dirname "$checkpoint_path")")
+TRAINING_TIMESTAMP=$(echo "$CHECKPOINT_DIR" | cut -d'_' -f1-2)
 EPOCH_NUM=$(basename "$checkpoint_path" | sed -n 's/.*epoch\([0-9]\+\).*/\1/p')
 
-# Create compact checkpoint identifier
-CHECKPOINT_NAME="${TRAINING_TIMESTAMP}_ep${EPOCH_NUM}"
+# ✅ IMPROVED: Extract everything after "salmonn_" to get full training dataset
+TRAINING_DATASET=$(echo "$CHECKPOINT_DIR" | sed 's/.*salmonn_//')
+
+clean_dataset_name() {
+    local dataset=$1
+    dataset=$(echo "$dataset" | sed 's/voxceleb/vox/g')
+    dataset=$(echo "$dataset" | sed 's/voxpopuli/vop/g') 
+    dataset=$(echo "$dataset" | sed 's/meld_emotion/meld/g')
+    dataset=$(echo "$dataset" | sed 's/_/-/g')  # Replace underscores with hyphens
+    echo "$dataset"
+}
+
+TRAINING_DATASET_CLEAN=$(clean_dataset_name "$TRAINING_DATASET")
+CLEAN_DATASET_TYPE_COMPACT=$(clean_dataset_name "$CLEAN_DATASET_TYPE")
+# Create compact checkpoint identifier with training dataset
+CHECKPOINT_NAME="${TRAINING_TIMESTAMP}_ep${EPOCH_NUM}_${TRAINING_DATASET_CLEAN}"
 
 # Update RUN_NAME
-RUN_NAME="${CURRENT_DATETIME}_inference_${CHECKPOINT_NAME}_${CLEAN_DATASET_TYPE}_${num_examples}ex"
+RUN_NAME="${CURRENT_DATETIME}_infer_${CHECKPOINT_NAME}_on_${CLEAN_DATASET_TYPE_COMPACT}_${num_examples}ex"
+
+
+
 
 
 # Set script path
@@ -159,7 +180,8 @@ python ${SCRIPT_PATH} \
     --device "${device}" \
     --max_val_samples ${max_val_samples} \
     --num_examples ${num_examples} \
-    --output_dir "${output_dir}"
+    --output_dir "${output_dir}"\
+    --run_name "${RUN_NAME}"
 
 EXIT_CODE=$?
 

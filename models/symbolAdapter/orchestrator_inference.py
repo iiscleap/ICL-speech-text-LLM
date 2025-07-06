@@ -42,6 +42,7 @@ class InferenceOrchestrator:
         device: str = "cuda:0",
         max_val_samples: int = 0,  # 0 = all samples
         num_examples: int = 5,
+        run_name: str = "",
         output_dir: Optional[str] = None
     ):
         self.checkpoint_path = checkpoint_path
@@ -63,10 +64,11 @@ class InferenceOrchestrator:
         os.makedirs(self.logs_output_dir, exist_ok=True)
         
         # Generate run name
-        timestamp = datetime.now().strftime("%d%m_%H%M")
-        checkpoint_name = os.path.basename(checkpoint_path).replace('.pt', '').replace('.pth', '')
-        self.run_name = f"{timestamp}_inference_{checkpoint_name}_{dataset_type}"
-        
+        # timestamp = datetime.now().strftime("%d%m_%H%M")
+        # checkpoint_name = os.path.basename(checkpoint_path).replace('.pt', '').replace('.pth', '')
+        # self.run_name = f"{timestamp}_inference_{checkpoint_name}_{dataset_type}"
+        self.run_name = run_name
+
         # Setup logging
         self._setup_logging()
         
@@ -169,41 +171,41 @@ class InferenceOrchestrator:
                 logging.info("📋 Restoring symbol mappings from checkpoint...")
                 current_mappings = symbol_data['current_epoch_mappings']
                 logging.info(f"✅ Restored symbol mappings: {current_mappings}")
-            else:
-                logging.warning("⚠️ No symbol mappings found in checkpoint, using default setup")
-                # current_mappings = {
-                #         'acknowledge': 'augc', 'anger': 'zugi', 'answer_agree': 'acke',
-                #         'answer_dis': 'annj', 'answer_general': 'sbia', 'apology': 'pukh',
-                #         'backchannel': 'jsfd', 'disfluency': 'nrzy', 'disgust': 'cuurs',
-                #         'fear': 'phin', 'joy': 'pgky', 'law': 'dxzk',
-                #         'negative': 'mmoo', 'neutral': 'njtf', 'noemotion': 'wyzte',
-                #         'norp': 'vact', 'org': 'sejb', 'other': 'ouat',
-                #         'person': 'whij', 'place': 'bctx', 'positive': 'guzo',
-                #         'quant': 'zmzd', 'question_check': 'banx', 'question_general': 'ngtd',
-                #         'question_repeat': 'nrnb', 'sadness': 'sfwe', 'self': 'afux',
-                #         'statement_close': 'xlig', 'statement_general': 'ukng', 
-                #         'statement_instruct': 'israi', 'statement_open': 'dtwo',
-                #         'statement_problem': 'mvfw', 'surprise': 'fago', 'thanks': 'puhe',
-                #         'when': 'secd'
-                #     }
+            # else:
+            #     logging.warning("⚠️ No symbol mappings found in checkpoint, using default setup")
+            #     # current_mappings = {
+            #     #         'acknowledge': 'augc', 'anger': 'zugi', 'answer_agree': 'acke',
+            #     #         'answer_dis': 'annj', 'answer_general': 'sbia', 'apology': 'pukh',
+            #     #         'backchannel': 'jsfd', 'disfluency': 'nrzy', 'disgust': 'cuurs',
+            #     #         'fear': 'phin', 'joy': 'pgky', 'law': 'dxzk',
+            #     #         'negative': 'mmoo', 'neutral': 'njtf', 'noemotion': 'wyzte',
+            #     #         'norp': 'vact', 'org': 'sejb', 'other': 'ouat',
+            #     #         'person': 'whij', 'place': 'bctx', 'positive': 'guzo',
+            #     #         'quant': 'zmzd', 'question_check': 'banx', 'question_general': 'ngtd',
+            #     #         'question_repeat': 'nrnb', 'sadness': 'sfwe', 'self': 'afux',
+            #     #         'statement_close': 'xlig', 'statement_general': 'ukng', 
+            #     #         'statement_instruct': 'israi', 'statement_open': 'dtwo',
+            #     #         'statement_problem': 'mvfw', 'surprise': 'fago', 'thanks': 'puhe',
+            #     #         'when': 'secd'
+            #     #     }
 
-                current_mappings = {
-                    'acknowledge': 'azqq', 'anger': 'qloy', 'answer_agree': 'xsno',
-                    'answer_dis': 'uibr', 'answer_general': 'runfn', 'apology': 'eesz',
-                    'backchannel': 'onbr', 'disfluency': 'busox', 'disgust': 'zwpy',
-                    'fear': 'skwt', 'joy': 'ptma', 'law': 'rcov',
-                    'negative': 'ajsp', 'neutral': 'vbkt', 'noemotion': 'ifig',
-                    'norp': 'punxf', 'org': 'elazu', 'other': 'edfs',
-                    'person': 'flnt', 'place': 'imamd', 'positive': 'xzem',
-                    'quant': 'dosh', 'question_check': 'brua', 'question_general': 'pkin',
-                    'question_repeat': 'zuka', 'sadness': 'oftam', 'self': 'tkfw',
-                    'statement_close': 'ngkm', 'statement_general': 'pezy', 
-                    'statement_instruct': 'oamt', 'statement_open': 'hayc',
-                    'statement_problem': 'bedr', 'surprise': 'jkil', 'thanks': 'odih',
-                    'when': 'exuj'
-                }
+            #     current_mappings = {
+            #         'acknowledge': 'azqq', 'anger': 'qloy', 'answer_agree': 'xsno',
+            #         'answer_dis': 'uibr', 'answer_general': 'runfn', 'apology': 'eesz',
+            #         'backchannel': 'onbr', 'disfluency': 'busox', 'disgust': 'zwpy',
+            #         'fear': 'skwt', 'joy': 'ptma', 'law': 'rcov',
+            #         'negative': 'ajsp', 'neutral': 'vbkt', 'noemotion': 'ifig',
+            #         'norp': 'punxf', 'org': 'elazu', 'other': 'edfs',
+            #         'person': 'flnt', 'place': 'imamd', 'positive': 'xzem',
+            #         'quant': 'dosh', 'question_check': 'brua', 'question_general': 'pkin',
+            #         'question_repeat': 'zuka', 'sadness': 'oftam', 'self': 'tkfw',
+            #         'statement_close': 'ngkm', 'statement_general': 'pezy', 
+            #         'statement_instruct': 'oamt', 'statement_open': 'hayc',
+            #         'statement_problem': 'bedr', 'surprise': 'jkil', 'thanks': 'odih',
+            #         'when': 'exuj'
+            #     }
 
-                logging.info(f"symbol mappings: {current_mappings}")
+            #     logging.info(f"symbol mappings: {current_mappings}")
                 
             
             self.symbol_manager = SymbolManager(
@@ -371,7 +373,10 @@ class InferenceOrchestrator:
             logging.info("=" * 60)
             for mode, score in validation_scores.items():
                 if not mode.endswith('_loss'):
-                    logging.info(f"{mode:<20}: {score:.4f}")
+                    if isinstance(score, (int, float)):
+                        logging.info(f"{mode:<20}: {score:.4f}")
+                    else:
+                        logging.info(f"{mode:<20}: {score}")  
             logging.info("=" * 60)
             
             logging.info("✅ Orchestrator Inference Pipeline completed successfully!")
@@ -402,10 +407,12 @@ def main():
                        help="Number of few-shot examples (default: 5)")
     parser.add_argument("--output_dir", type=str, default=None,
                        help="Output directory for results")
+    parser.add_argument("--run_name", type=str, required=True) 
 
 
     
     args = parser.parse_args()
+    run_name = args.run_name
     
     # Validate checkpoint path
     if not os.path.exists(args.checkpoint_path):
@@ -420,6 +427,7 @@ def main():
             device=args.device,
             max_val_samples=args.max_val_samples,
             num_examples=args.num_examples,
+            run_name=run_name,  # Pass run_name
             output_dir=args.output_dir
         )
         
