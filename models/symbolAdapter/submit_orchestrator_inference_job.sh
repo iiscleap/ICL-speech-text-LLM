@@ -6,26 +6,29 @@
 # ========================================
 
 #vox + vop
-checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1713_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_voxceleb_voxpopuli/lora_step0_cycle0_epoch5_periodic.pt"
+# checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1713_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_voxceleb_voxpopuli/lora_step0_cycle0_epoch5_periodic.pt"
+checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1713_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_voxceleb_voxpopuli/lora_step0_cycle0_epoch2_periodic.pt"
 #vox + hvb
 # checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1713_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_voxceleb_hvb/lora_step0_cycle0_epoch2_periodic.pt"
 #meld + hvb
 # checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1712_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_meld_emotion_hvb/lora_step0_cycle0_epoch3_periodic.pt"
+# checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1712_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_meld_emotion_hvb/lora_step0_cycle0_epoch2_periodic.pt"
 
 dataset_type="hvb-voxceleb-voxpopuli-meld_emotion"  # Dataset type to evaluate on
-max_val_samples=0           # 0 = use all samples
+max_val_samples=0          # 0 = use all samples
 
-num_examples=0 
+num_examples=2
 
 # Optional parameters
 device="cuda:0"
 output_dir="/data1/chandnia/neeraja/results/model_ICL"
 
 # Node configuration
-queue_name="longgpu.q"
-hostname="compute-0-9"
-cuda_device=2
+queue_name="gpu.q"
+hostname="compute-0-8"
+cuda_device=0
 
+hold_job_id="143852"
 # ========================================
 # Validation and Setup
 # ========================================
@@ -36,6 +39,17 @@ echo "Set conda environment to: $CONDA_ENV"
 source /home/share/anaconda3/etc/profile.d/conda.sh  
 conda deactivate
 conda activate $CONDA_ENV   
+
+
+if [ -n "$hold_job_id" ]; then
+    echo "Job will wait for completion of job: $hold_job_id"
+    HOLD_FLAG="-hold_jid $hold_job_id"
+else
+    HOLD_FLAG=""
+fi
+
+
+
 
 # Check if checkpoint exists
 if [ ! -f "$checkpoint_path" ]; then
@@ -114,6 +128,7 @@ echo "=========================================="
 # Submit Job
 # ========================================
 JOB_ID=$(qsub -q ${queue_name} -V -cwd \
+    ${HOLD_FLAG} \
     -l hostname=${hostname} \
     -l h_rt=24:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
