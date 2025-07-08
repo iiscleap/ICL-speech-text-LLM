@@ -29,9 +29,13 @@ VOXCELEB_CONFIG = DatasetConfig(
         # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_test_20fewshots",
         # DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue_voxceleb_validation_5fewshots_new",
 
-        DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_train_embedding_topk5",
-        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_validation_embedding_topk5",
-        DatasetSplit.TEST: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_test_embedding_topk5",
+        # DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_train_embedding_topk5",
+        # DatasetSplit.VAL: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_validation_embedding_topk5",
+        # DatasetSplit.TEST: "/data1/harshanj/data/Embedding/voxceleb/asapp-slue_voxceleb_test_embedding_topk5",
+
+        DatasetSplit.TRAIN: "/data1/harshanj/data/new/random/voxceleb/asapp-slue_voxceleb_train_random_topk10",
+        DatasetSplit.VAL: "/data1/harshanj/data/new/random/voxceleb/asapp-slue_voxceleb_validation_random_topk10",
+        DatasetSplit.TEST: "/data1/harshanj/data/new/random/voxceleb/asapp-slue_voxceleb_test_random_topk10",
     },
     prompt_template="""You are a sentiment analysis expert. Based on the input, respond with EXACTLY ONE WORD from these options: positive, negative, or neutral.
 

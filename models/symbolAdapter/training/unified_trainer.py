@@ -239,8 +239,8 @@ class UnifiedTrainer:
             # Cosine decay phase within epoch
             # progress = (step_in_epoch - warmup_steps_per_epoch) / (epoch_length - warmup_steps_per_epoch)
             import math
-            # return 0.5 * (1 + math.cos(math.pi * progress))
-            return 0.8 * 0.2 (1 + math.cos(math.pi * progress))
+            return 0.5 * (1 + math.cos(math.pi * progress))
+            # return 0.8 * 0.2 (1 + math.cos(math.pi * progress))
 
             # return 1.0
         

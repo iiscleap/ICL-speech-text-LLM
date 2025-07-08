@@ -8,9 +8,12 @@ MELD_EMOTION_CONFIG = DatasetConfig(
         # DatasetSplit.VAL: "/data2/neeraja/neeraja/data/meld_validation",
         # # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/meld_test",
         # DatasetSplit.TEST: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_test_embedding_topk5",
-        DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_train_embedding_topk5",
-        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_validation_embedding_topk5",
-        DatasetSplit.TEST: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_test_embedding_topk5",
+        # DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_train_embedding_topk5",
+        # DatasetSplit.VAL: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_validation_embedding_topk5",
+        # DatasetSplit.TEST: "/data1/harshanj/data/Embedding/meld/zrr1999-MELD_Text_Audio_test_embedding_topk5",
+        DatasetSplit.TRAIN: "/data1/harshanj/data/new/random/meld/zrr1999-MELD_Text_Audio_train_random_topk10",
+        DatasetSplit.VAL: "/data1/harshanj/data/new/random/meld/zrr1999-MELD_Text_Audio_validation_random_topk10",
+        DatasetSplit.TEST: "/data1/harshanj/data/new/random/meld/zrr1999-MELD_Text_Audio_test_random_topk10",
     },
     prompt_template="""You are an emotion recognition expert. Based on the input, respond with EXACTLY ONE WORD from these options: neutral, joy, sadness, anger, fear, disgust, or surprise.
 

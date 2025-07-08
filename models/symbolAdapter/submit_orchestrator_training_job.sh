@@ -3,14 +3,14 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxceleb-hvb"  # Dataset type(s) to use
+dataset_type="voxpopuli-voxceleb"  # Dataset type(s) to use
 device="cuda:0"  # GPU device
 
 hold_job_id=""
 
 # Training parameters
 lora_lr=1e-5
-lora_epochs=8
+lora_epochs=5
 
 batch_size=1
 

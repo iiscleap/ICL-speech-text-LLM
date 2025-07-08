@@ -9,9 +9,12 @@ HVB_CONFIG = DatasetConfig(
         # DatasetSplit.TRAIN: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_train_20fewshots",
         # DatasetSplit.TEST: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_test_20fewshots",
         # DatasetSplit.VAL: "/data2/neeraja/neeraja/data/asapp/slue-phase-2_hvb_validation_5fewshots_new",
-        DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/hvb/asapp-slue-phase-2_hvb_train_embedding_topk5",
-        DatasetSplit.VAL: "/data1/harshanj/data/Embedding/hvb/asapp-slue-phase-2_hvb_validation_embedding_topk5",
-        DatasetSplit.TEST: "/data1/harshanj/data/Embedding/hvb/asapp-slue-phase-2_hvb_test_embedding_topk5"
+        # DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/hvb/asapp-slue-phase-2_hvb_train_embedding_topk5",
+        # DatasetSplit.VAL: "/data1/harshanj/data/Embedding/hvb/asapp-slue-phase-2_hvb_validation_embedding_topk5",
+        # DatasetSplit.TEST: "/data1/harshanj/data/Embedding/hvb/asapp-slue-phase-2_hvb_test_embedding_topk5"
+        DatasetSplit.TRAIN: "/data1/harshanj/data/new/random/hvb/asapp-slue-phase-2_hvb_train_random_topk10",
+        DatasetSplit.VAL: "/data1/harshanj/data/new/random/hvb/asapp-slue-phase-2_hvb_validation_random_topk10",
+        DatasetSplit.TEST: "/data1/harshanj/data/new/random/hvb/asapp-slue-phase-2_hvb_test_random_topk10"
     },
     prompt_template="""You are a dialogue analysis expert for banking conversations. Based on the statement below, identify all applicable dialogue actions from the following options:
 
