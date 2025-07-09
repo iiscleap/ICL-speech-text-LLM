@@ -52,31 +52,32 @@ class SymbolManager:
         else:
             logging.info("Dynamic symbol mode - symbols will be generated per epoch")
     
-    def get_symbols_for_epoch(self, epoch: int) -> Dict[str, str]:
+    def get_symbols_for_epoch(self, epoch: int, force_new_symbols: bool = False) -> Dict[str, str]:
         """
-        Get symbol mappings for a specific epoch
-        
+        Get symbol mappings for a specific epoch, with option to force new symbols
+
         Args:
             epoch: Epoch number (0-indexed)
-            
+            force_new_symbols: If True, generate new symbols even if already present
+
         Returns:
             Dictionary mapping original labels to symbols
         """
         if not self.dynamic_per_epoch:
             # Return fixed symbols
             return self.fixed_mappings
-        
-        # Dynamic mode: generate new symbols for this epoch
-        if epoch not in self.epoch_mappings_history:
-            logging.info(f"Generating NEW symbols for epoch {epoch}")
+
+        # Dynamic mode: generate new symbols for this epoch if needed
+        if force_new_symbols or epoch not in self.epoch_mappings_history:
+            logging.info(f"Generating NEW symbols for epoch {epoch} (force_new_symbols={force_new_symbols})")
             new_mappings = self._generate_symbol_mappings()
             self.epoch_mappings_history[epoch] = new_mappings
-            
+
             # Log the new mappings
             logging.info(f"Epoch {epoch} symbol mappings:")
             for orig, symbol in new_mappings.items():
                 logging.info(f"  '{orig}' -> '{symbol}'")
-        
+
         self.current_epoch = epoch
         return self.epoch_mappings_history[epoch]
     
@@ -157,14 +158,21 @@ class SymbolManager:
         
         return two_token_words[:num_symbols]
     
-    def replace_symbols_in_batch(self, batch: Dict[str, Any], epoch: Optional[int] = None, mappings: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    def replace_symbols_in_batch(
+        self, 
+        batch: Dict[str, Any], 
+        epoch: Optional[int] = None, 
+        mappings: Optional[Dict[str, str]] = None,
+        random_mask: bool = False
+    ) -> Dict[str, Any]:
         """
-        Replace symbols in batch data
+        Replace symbols in batch data, with optional random masking
         
         Args:
             batch: Batch dictionary with 'prompt' and 'completion' keys
             epoch: Specific epoch mappings to use (if None, uses current)
             mappings: Custom mappings to use (if provided, overrides epoch-based mappings)
+            random_mask: If True, only replace a random subset (~1/4) of labels with symbols
             
         Returns:
             Updated batch with symbols replaced
@@ -173,6 +181,7 @@ class SymbolManager:
         if mappings is not None:
             symbol_mappings = mappings
         elif epoch is not None:
+            # symbol_mappings = self.get_symbols_for_epoch(epoch, force_new_symbols=random_mask)
             symbol_mappings = self.get_symbols_for_epoch(epoch)
         else:
             symbol_mappings = self.get_current_symbols()
@@ -182,20 +191,21 @@ class SymbolManager:
         
         updated_batch = batch.copy()
         
-
-    # a1 -> x1, b1 -> y1, c1 -> z1, [x1, y1, z1] -> [y1, x1, z1]
-    # a1 -> y1, b1 -> z1, c1 -> x1, 
-    # symbol_list = [x1, y1, z1], if swap: new new_sym_list = perm(symbol_list) [y1, x1, z1], new_mapping = zip(org, swapped_sym)
-    # new_mapping[symbol_mappings[orginal_label]] = new_symbol
-
-
+        # Determine which labels to mask if random_mask is True
+        if random_mask:
+            num_to_mask = max(1, len(symbol_mappings) // 8)
+            masked_labels = set(random.sample(list(symbol_mappings.keys()), num_to_mask))
+        else:
+            masked_labels = set(symbol_mappings.keys())
+        
         # Replace in prompts
         if "prompt" in batch:
             updated_prompts = []
             for prompt in batch["prompt"]:
                 updated_prompt = prompt
                 for original, symbol in symbol_mappings.items():
-                    updated_prompt = updated_prompt.replace(original, symbol)
+                    if original in masked_labels:
+                        updated_prompt = updated_prompt.replace(original, symbol)
                 updated_prompts.append(updated_prompt)
             updated_batch["prompt"] = updated_prompts
         
@@ -205,7 +215,8 @@ class SymbolManager:
             for completion in batch["completion"]:
                 updated_completion = completion
                 for original, symbol in symbol_mappings.items():
-                    updated_completion = updated_completion.replace(original, symbol)
+                    if original in masked_labels:
+                        updated_completion = updated_completion.replace(original, symbol)
                 updated_completions.append(updated_completion)
             updated_batch["completion"] = updated_completions
         
@@ -301,52 +312,52 @@ class SymbolManager:
         return f"SymbolManager({mode}, {len(current_mappings)} mappings, epoch={self.current_epoch})"
 
 
-# Backwards compatibility functions (to keep existing code working)
-def generate_one_word_two_token_symbols(num_symbols: int, tokenizer: PreTrainedTokenizer) -> List[str]:
-    """
-    Backwards compatibility function for existing code
-    """
-    manager = SymbolManager(
-        original_labels=[f"label_{i}" for i in range(num_symbols)],
-        tokenizer=tokenizer,
-        dynamic_per_epoch=False,
-        symbol_type="two_token"
-    )
-    return manager._generate_two_token_symbols(num_symbols)
+# # Backwards compatibility functions (to keep existing code working)
+# def generate_one_word_two_token_symbols(num_symbols: int, tokenizer: PreTrainedTokenizer) -> List[str]:
+#     """
+#     Backwards compatibility function for existing code
+#     """
+#     manager = SymbolManager(
+#         original_labels=[f"label_{i}" for i in range(num_symbols)],
+#         tokenizer=tokenizer,
+#         dynamic_per_epoch=False,
+#         symbol_type="two_token"
+#     )
+#     return manager._generate_two_token_symbols(num_symbols)
 
-def create_label_mapping(original_labels: List[str], symbols: List[str]) -> Dict[str, str]:
-    """
-    Backwards compatibility function for existing code
-    """
-    return dict(zip(original_labels, symbols))
+# def create_label_mapping(original_labels: List[str], symbols: List[str]) -> Dict[str, str]:
+#     """
+#     Backwards compatibility function for existing code
+#     """
+#     return dict(zip(original_labels, symbols))
 
-def replace_symbols_in_batch(batch: Dict[str, Any], symbol_mappings: Dict[str, str]) -> Dict[str, Any]:
-    """
-    Backwards compatibility function for existing code
-    """
-    if not symbol_mappings:
-        return batch
+# def replace_symbols_in_batch(batch: Dict[str, Any], symbol_mappings: Dict[str, str]) -> Dict[str, Any]:
+#     """
+#     Backwards compatibility function for existing code
+#     """
+#     if not symbol_mappings:
+#         return batch
     
-    updated_batch = batch.copy()
+#     updated_batch = batch.copy()
     
-    # Replace in prompts
-    if "prompt" in batch:
-        updated_prompts = []
-        for prompt in batch["prompt"]:
-            updated_prompt = prompt
-            for original, symbol in symbol_mappings.items():
-                updated_prompt = updated_prompt.replace(original, symbol)
-            updated_prompts.append(updated_prompt)
-        updated_batch["prompt"] = updated_prompts
+#     # Replace in prompts
+#     if "prompt" in batch:
+#         updated_prompts = []
+#         for prompt in batch["prompt"]:
+#             updated_prompt = prompt
+#             for original, symbol in symbol_mappings.items():
+#                 updated_prompt = updated_prompt.replace(original, symbol)
+#             updated_prompts.append(updated_prompt)
+#         updated_batch["prompt"] = updated_prompts
     
-    # Replace in completions
-    if "completion" in batch:
-        updated_completions = []
-        for completion in batch["completion"]:
-            updated_completion = completion
-            for original, symbol in symbol_mappings.items():
-                updated_completion = updated_completion.replace(original, symbol)
-            updated_completions.append(updated_completion)
-        updated_batch["completion"] = updated_completions
+#     # Replace in completions
+#     if "completion" in batch:
+#         updated_completions = []
+#         for completion in batch["completion"]:
+#             updated_completion = completion
+#             for original, symbol in symbol_mappings.items():
+#                 updated_completion = updated_completion.replace(original, symbol)
+#             updated_completions.append(updated_completion)
+#         updated_batch["completion"] = updated_completions
     
-    return updated_batch
+#     return updated_batch

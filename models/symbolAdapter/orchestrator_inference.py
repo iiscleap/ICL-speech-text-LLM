@@ -308,6 +308,7 @@ class InferenceOrchestrator:
         
         # Enable inference mode
         self.config.inference_mode = True
+        # self.config.only_original = True
         
         # Run validation
         results = self.validator.run_comprehensive_validation(

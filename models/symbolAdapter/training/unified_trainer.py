@@ -283,8 +283,17 @@ class UnifiedTrainer:
                         gc.collect()
                         torch.cuda.empty_cache()
 
+                    random_mask = (batch_idx % (100 * accumulation_steps) == 0)
 
-                    if batch_idx == 0:
+                    # Apply symbol replacement
+                    if getattr(step, 'use_symbols', True):
+                        updated_batch = self.symbol_manager.replace_symbols_in_batch(
+                            batch, epoch=epoch, random_mask=random_mask
+                        )
+                    else:
+                        updated_batch = batch
+
+                    if batch_idx == 0 or random_mask:
                         logging.info(f"=== {step.phase.upper()} EPOCH BATCH 1 CONTENT ===")
                         if "prompt" in batch:
                             logging.info("ORIGINAL PROMPTS:")
@@ -301,14 +310,11 @@ class UnifiedTrainer:
                         else:
                             logging.info("NO SYMBOL REPLACEMENT")
                     
-                    # Apply symbol replacement
-                    if getattr(step, 'use_symbols', True):
-                        updated_batch = self.symbol_manager.replace_symbols_in_batch(batch, epoch=epoch)
-                    else:
-                        updated_batch = batch
+                    # Calculate if random_mask should be True
+                    
                     
                     # DETAILED BATCH LOGGING AFTER REPLACEMENT
-                    if batch_idx == 0:
+                    if batch_idx == 0 or random_mask:
                         if getattr(step, 'use_symbols', True):
                             logging.info("UPDATED AFTER SYMBOL REPLACEMENT:")
                             if "prompt" in updated_batch:
@@ -354,6 +360,7 @@ class UnifiedTrainer:
                         self.optimizer.zero_grad(set_to_none=True)
                         if hasattr(self, 'scheduler') and self.scheduler:
                             self.scheduler.step()  # ✅ ADD THIS LINE
+
                     
                     # Update metrics
                     total_loss += loss.item() * accumulation_steps

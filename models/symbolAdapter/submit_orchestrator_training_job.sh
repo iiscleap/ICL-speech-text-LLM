@@ -3,7 +3,7 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="voxpopuli-voxceleb"  # Dataset type(s) to use
+dataset_type="hvb-voxceleb"  # Dataset type(s) to use
 device="cuda:0"  # GPU device
 
 hold_job_id=""
@@ -17,7 +17,7 @@ batch_size=1
 dynamic_symbols_per_epoch=True  # Generate new symbols each epoch
 
 gradient_accumulation_steps=8
-max_grad_norm=0.3
+max_grad_norm=1
 max_samples=0 # Set reasonable default
 
 
@@ -124,11 +124,11 @@ echo "=========================================="
 # Submit job
 qsub -q gpu.q -V -cwd \
     $HOLD_FLAG \
-    -l hostname=compute-0-8 \
+    -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=0,\
+    -v CUDA_VISIBLE_DEVICES=1,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\

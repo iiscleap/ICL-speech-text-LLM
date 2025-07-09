@@ -10,9 +10,14 @@ VOXPOPULI_CONFIG = DatasetConfig(
         # DatasetSplit.TRAIN: "/data1/harshanj/data/Embedding/voxpopuli/asapp-slue_voxpopuli_train_embedding_topk5",
         # DatasetSplit.VAL: "/data1/harshanj/data/Embedding/voxpopuli/asapp-slue_voxpopuli_validation_embedding_topk5",
         # DatasetSplit.TEST: "/data1/harshanj/data/Embedding/voxpopuli/asapp-slue_voxpopuli_test_embedding_topk5",
-        DatasetSplit.TRAIN: "/data1/harshanj/data/new/random/voxpopuli/asapp-slue_voxpopuli_train_random_topk10",
-        DatasetSplit.VAL: "/data1/harshanj/data/new/random/voxpopuli/asapp-slue_voxpopuli_validation_random_topk10",
-        DatasetSplit.TEST: "/data1/harshanj/data/new/random/voxpopuli/asapp-slue_voxpopuli_test_random_topk10",
+
+        DatasetSplit.TRAIN: "/data1/harshanj/data/new/embedding/voxpopuli/asapp-slue_voxpopuli_train_embedding_topk10",
+        DatasetSplit.VAL: "/data1/harshanj/data/new/embedding/voxpopuli/asapp-slue_voxpopuli_validation_embedding_topk10",
+        DatasetSplit.TEST: "/data1/harshanj/data/new/embedding/voxpopuli/asapp-slue_voxpopuli_test_embedding_topk10",
+
+        # DatasetSplit.TRAIN: "/data1/harshanj/data/new/random/voxpopuli/asapp-slue_voxpopuli_train_random_topk10",
+        # DatasetSplit.VAL: "/data1/harshanj/data/new/random/voxpopuli/asapp-slue_voxpopuli_validation_random_topk10",
+        # DatasetSplit.TEST: "/data1/harshanj/data/new/random/voxpopuli/asapp-slue_voxpopuli_test_random_topk10",
     },
     prompt_template="""You are an Entity Type Classification system. For the given input, identify which of the following entity types are present:
 
