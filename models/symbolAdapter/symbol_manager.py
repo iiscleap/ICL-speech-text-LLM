@@ -163,7 +163,8 @@ class SymbolManager:
         batch: Dict[str, Any], 
         epoch: Optional[int] = None, 
         mappings: Optional[Dict[str, str]] = None,
-        random_mask: bool = False
+        random_mask: bool = False,
+        force_new_symbols: bool = False
     ) -> Dict[str, Any]:
         """
         Replace symbols in batch data, with optional random masking
@@ -181,8 +182,7 @@ class SymbolManager:
         if mappings is not None:
             symbol_mappings = mappings
         elif epoch is not None:
-            # symbol_mappings = self.get_symbols_for_epoch(epoch, force_new_symbols=random_mask)
-            symbol_mappings = self.get_symbols_for_epoch(epoch)
+            symbol_mappings = self.get_symbols_for_epoch(epoch, force_new_symbols=force_new_symbols)
         else:
             symbol_mappings = self.get_current_symbols()
         

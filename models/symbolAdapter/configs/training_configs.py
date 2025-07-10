@@ -80,7 +80,7 @@ class LoRAConfig:
 
                  
     
-    warmup_per_epoch: bool = False        # Restart warmup each epoch
+    warmup_per_epoch: bool = True        # Restart warmup each epoch
     warmup_steps_per_epoch: int = 300     # Steps per epoch if warmup_per_epoch=True
     warmup_ratio: float = 0               # Percentage of total training
     warmup_steps: int = 100               # Absolute number of steps
@@ -127,9 +127,9 @@ class TrainingConfig:
     total_cycles: int = 2
     
     # I/O parameters
-    # output_dir: str = "/data2/neeraja/neeraja/results/model_ICL"
+    output_dir: str = "/data2/neeraja/neeraja/results/model_ICL"
 
-    output_dir: str = "/data1/chandnia/neeraja/results/model_ICL"  # Default output directory
+    # output_dir: str = "/data1/chandnia/neeraja/results/model_ICL"  # Default output directory
     run_name: str = "symbol_training_run"
     checkpoint_frequency: int = 1  # Save checkpoint every N epochs
     

@@ -237,7 +237,7 @@ class UnifiedTrainer:
                 return step_in_epoch / warmup_steps_per_epoch
             
             # Cosine decay phase within epoch
-            # progress = (step_in_epoch - warmup_steps_per_epoch) / (epoch_length - warmup_steps_per_epoch)
+            progress = (step_in_epoch - warmup_steps_per_epoch) / (epoch_length - warmup_steps_per_epoch)
             import math
             return 0.5 * (1 + math.cos(math.pi * progress))
             # return 0.8 * 0.2 (1 + math.cos(math.pi * progress))
@@ -283,17 +283,18 @@ class UnifiedTrainer:
                         gc.collect()
                         torch.cuda.empty_cache()
 
-                    random_mask = (batch_idx % (100 * accumulation_steps) == 0)
-
+                    force_new_symbols = (batch_idx % (100 * accumulation_steps) == 0)
+                    # force_new_symbols = False
+                    random_mask = True
                     # Apply symbol replacement
                     if getattr(step, 'use_symbols', True):
                         updated_batch = self.symbol_manager.replace_symbols_in_batch(
-                            batch, epoch=epoch, random_mask=random_mask
+                            batch, epoch=epoch, random_mask=random_mask, force_new_symbols=force_new_symbols
                         )
                     else:
                         updated_batch = batch
 
-                    if batch_idx == 0 or random_mask:
+                    if batch_idx == 0 or force_new_symbols:
                         logging.info(f"=== {step.phase.upper()} EPOCH BATCH 1 CONTENT ===")
                         if "prompt" in batch:
                             logging.info("ORIGINAL PROMPTS:")
@@ -314,7 +315,7 @@ class UnifiedTrainer:
                     
                     
                     # DETAILED BATCH LOGGING AFTER REPLACEMENT
-                    if batch_idx == 0 or random_mask:
+                    if batch_idx == 0 or force_new_symbols:
                         if getattr(step, 'use_symbols', True):
                             logging.info("UPDATED AFTER SYMBOL REPLACEMENT:")
                             if "prompt" in updated_batch:

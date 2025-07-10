@@ -375,16 +375,16 @@ class ValidationManager:
 
         
         
-        # modes = [
-        #     ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols (from training)
-        #     ("no_mlp_fresh", True, False, True),      # NoMLP + Fresh Symbols
-        #     ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
-        # ]
-   
         modes = [
             ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols (from training)
+            ("no_mlp_fresh", True, False, True),      # NoMLP + Fresh Symbols
             ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
         ]
+   
+        # modes = [
+        #     ("no_mlp_symbols", True, False, False),   # NoMLP + Fixed Symbols (from training)
+        #     ("no_mlp_original", True, True, False),   # NoMLP + Original Labels
+        # ]
 
         logging.info(f"Validation modes for {phase.upper()} (bypass_mlp={bypass_mlp}, use_symbols={use_symbols}):")
 

@@ -73,11 +73,11 @@ SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/models/symbolAdapter/orchestrator_t
 TODAY=$(date +"%Y-%m-%d")
 
 # Directory setup
-# OUTPUT_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training"
-OUTPUT_DIR="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training"
+OUTPUT_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training"
+# OUTPUT_DIR="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training"
 
-# LOG_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training/logs/${TODAY}"
-LOG_DIR="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/logs/${TODAY}"
+LOG_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training/logs/${TODAY}"
+# LOG_DIR="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/logs/${TODAY}"
 
 # Create directories
 for dir in "$LOG_DIR" "$OUTPUT_DIR"; do
