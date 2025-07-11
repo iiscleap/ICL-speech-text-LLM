@@ -392,11 +392,11 @@ class ValidationManager:
         # Run each validation mode
         for mode_key, bypass_mlp_val, use_original, use_dynamic in modes:
 
-            # if self.is_inference_mode:
-            #     # Skip fixed symbol modes (use_dynamic=False) when dynamic symbols are enabled
-            #     if  use_dynamic:
-            #         logging.info(f"⏭️ Skipping {mode_key} (fixed symbols) - dynamic symbols enabled in inference")
-            #         continue
+            if self.is_inference_mode:
+                # Skip fixed symbol modes (use_dynamic=False) when dynamic symbols are enabled
+                if  use_dynamic or use_original:
+                    logging.info(f"⏭️ Skipping {mode_key} (fixed symbols) - dynamic symbols enabled in inference")
+                    continue
 
             if self.only_original:
                 # If only original labels are used, skip all symbol modes

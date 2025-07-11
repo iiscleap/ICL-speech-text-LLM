@@ -12,12 +12,16 @@
 # checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1713_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_voxceleb_hvb/lora_step0_cycle0_epoch2_periodic.pt"
 #meld + hvb
 # checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1712_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_meld_emotion_hvb/lora_step0_cycle0_epoch3_periodic.pt"
-checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1712_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_meld_emotion_hvb/lora_step0_cycle0_epoch2_periodic.pt"
+# checkpoint_path="/data1/chandnia/neeraja/results/model_ICL/orchestrator_training/checkpoints/0507_1712_orchestrator__1c_8le_1me_bypass_mlp_sym_salmonn_meld_emotion_hvb/lora_step0_cycle0_epoch2_periodic.pt"
+
+checkpoint_path=/data2/neeraja/neeraja/results/model_ICL/orchestrator_training/checkpoints/1007_1912_orchestrator__1c_5le_1me_bypass_mlp_sym_salmonn_hvb_voxceleb/lora_step0_cycle0_epoch2_periodic.pt
+# checkpoint_path="/data2/neeraja/neeraja/results/model_ICL/orchestrator_training/checkpoints/1007_1914_orchestrator__1c_5le_1me_bypass_mlp_sym_salmonn_hvb_voxceleb/lora_step0_cycle0_epoch2_periodic.pt"
+
 
 dataset_type="hvb-voxceleb-voxpopuli-meld_emotion"  # Dataset type to evaluate on
 max_val_samples=0          # 0 = use all samples
 
-num_examples=0
+num_examples=3
 
 # Optional parameters
 device="cuda:0"
@@ -98,8 +102,8 @@ SCRIPT_PATH="/data2/neeraja/neeraja/code/ICL/models/symbolAdapter/orchestrator_i
 TODAY=$(date +"%Y-%m-%d")
 
 # Create output directories
-# LOG_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_logs/${TODAY}"
-LOG_DIR="/data1/chandnia/neeraja/results/model_ICL/orchestrator_logs/${TODAY}"
+LOG_DIR="/data2/neeraja/neeraja/results/model_ICL/orchestrator_logs/${TODAY}"
+# LOG_DIR="/data1/chandnia/neeraja/results/model_ICL/orchestrator_logs/${TODAY}"
 
 mkdir -p "$LOG_DIR"
 

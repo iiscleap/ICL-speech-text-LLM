@@ -3,7 +3,8 @@
 
 # Configuration - Edit these values as needed
 model_type="salmonn"  # Options: "salmonn" or "qwen2"
-dataset_type="hvb-voxceleb"  # Dataset type(s) to use
+# dataset_type="hvb-meld_emotion"  # Dataset type(s) to use
+dataset_type="voxceleb-voxpopuli"  # Dataset type(s) to use
 device="cuda:0"  # GPU device
 
 hold_job_id=""
@@ -122,13 +123,13 @@ echo "Log File: ${LOG_DIR}/${RUN_NAME}.log"
 echo "=========================================="
 
 # Submit job
-qsub -q gpu.q -V -cwd \
+qsub -q longgpu.q -V -cwd \
     $HOLD_FLAG \
     -l hostname=compute-0-9 \
     -l h_rt=72:00:00 \
     -o "${LOG_DIR}/${RUN_NAME}.log" \
     -j y \
-    -v CUDA_VISIBLE_DEVICES=0,\
+    -v CUDA_VISIBLE_DEVICES=2,\
 TODAY=${TODAY},\
 PYTHONUNBUFFERED=1,\
 RUN_NAME=${RUN_NAME},\
